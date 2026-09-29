@@ -5,7 +5,6 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
-import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
@@ -562,12 +561,6 @@ class MarmaladeSynthService : Service() {
         internal const val CUSTOM_ACTION_STOP = "app.marmalade.tts.media.STOP"
 
         /**
-         * Default engine for [speakIntent]. Kokoro Direct is the
-         * recommended-default engine (`EngineCatalog.KOKORO_DIRECT.isRecommended`).
-         */
-        const val DEFAULT_ENGINE: String = EngineRegistry.DEFAULT_ENGINE
-
-        /**
          * The voice an `ACTION_SPEAK` asks for. A named voice is spoken exactly
          * (Speak screen, previews, a Tasker call naming one); otherwise the
          * primary alias — or, for shared text, the voice that speaks its
@@ -659,25 +652,5 @@ class MarmaladeSynthService : Service() {
          * [EXTRA_TEXT] when the text is too large for a binder transaction.
          */
         const val EXTRA_TEXT_FILE: String = "app.marmalade.tts.extra.TEXT_FILE"
-
-        /**
-         * Convenience: build a SPEAK intent without the caller needing to
-         * spell out the extras keys.
-         */
-        fun speakIntent(
-            context: Context,
-            text: String,
-            engine: String = DEFAULT_ENGINE,
-            voice: String? = null,
-            speed: Float? = null,
-            effect: EffectPreset? = null,
-        ): Intent = Intent(context, MarmaladeSynthService::class.java).apply {
-            action = ACTION_SPEAK
-            putExtra(EXTRA_TEXT, text)
-            putExtra(EXTRA_ENGINE, engine)
-            voice?.let { putExtra(EXTRA_VOICE, it) }
-            speed?.let { putExtra(EXTRA_SPEED, it) }
-            effect?.let { putExtra(EXTRA_EFFECT, it.name) }
-        }
     }
 }
