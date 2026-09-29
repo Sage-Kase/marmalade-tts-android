@@ -646,12 +646,6 @@ class MarmaladeSynthService : Service() {
         /** [PreviewCompletions] request id (Long). */
         const val EXTRA_REQUEST_ID: String = "app.marmalade.tts.extra.REQUEST_ID"
 
-        // The old reader's per-block extras. Nothing sends or reads them now
-        // that the reader drives the Narrator directly.
-        const val EXTRA_SESSION_SPEED: String = "app.marmalade.tts.extra.SESSION_SPEED"
-        const val EXTRA_CONTINUATION: String = "app.marmalade.tts.extra.CONTINUATION"
-        const val EXTRA_ALIAS_ID: String = "app.marmalade.tts.extra.ALIAS_ID"
-
         /**
          * Boolean, default false. True marks plain text shared into the app
          * ([SpeakDispatcher]: the share sheet, PROCESS_TEXT, the reader's
