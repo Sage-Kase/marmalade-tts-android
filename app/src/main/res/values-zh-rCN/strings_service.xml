@@ -5,7 +5,6 @@
     <string name="service_synth_channel_description">Marmalade TTS 朗读时显示</string>
     <string name="service_synth_notification_title">Marmalade TTS</string>
     <string name="service_synth_state_preparing">准备中…</string>
-    <string name="service_synth_state_queued">已排队：%1$s</string>
     <string name="service_synth_state_speaking_text">正在朗读：%1$s</string>
     <string name="service_synth_state_speaking">正在朗读</string>
     <string name="service_synth_state_paused">已暂停</string>

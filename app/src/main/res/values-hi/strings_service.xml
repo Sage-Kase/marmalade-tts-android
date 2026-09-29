@@ -5,7 +5,6 @@
     <string name="service_synth_channel_description">जब Marmalade TTS पढ़कर सुना रहा हो, तब दिखती है</string>
     <string name="service_synth_notification_title">Marmalade TTS</string>
     <string name="service_synth_state_preparing">तैयारी हो रही है…</string>
-    <string name="service_synth_state_queued">कतार में: %1$s</string>
     <string name="service_synth_state_speaking_text">बोल रहा है: %1$s</string>
     <string name="service_synth_state_speaking">बोल रहा है</string>
     <string name="service_synth_state_paused">रुका हुआ</string>

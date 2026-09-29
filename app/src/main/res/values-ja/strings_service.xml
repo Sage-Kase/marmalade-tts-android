@@ -5,7 +5,6 @@
     <string name="service_synth_channel_description">Marmalade TTS が読み上げている間に表示されます</string>
     <string name="service_synth_notification_title">Marmalade TTS</string>
     <string name="service_synth_state_preparing">準備中…</string>
-    <string name="service_synth_state_queued">待機中: %1$s</string>
     <string name="service_synth_state_speaking_text">読み上げ中: %1$s</string>
     <string name="service_synth_state_speaking">読み上げ中</string>
     <string name="service_synth_state_paused">一時停止中</string>
