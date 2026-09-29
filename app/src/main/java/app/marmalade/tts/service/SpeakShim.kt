@@ -73,8 +73,7 @@ class SpeakShim internal constructor(
 
     private fun post(requestId: Long, outcome: Outcome) {
         when (outcome) {
-            Outcome.Played -> completions.post(requestId, null)
-            Outcome.Stopped -> completions.post(requestId, null, stopped = true)
+            Outcome.Played, Outcome.Stopped -> completions.post(requestId, null)
             is Outcome.Failed -> completions.post(
                 requestId,
                 if (outcome.kind == FailureKind.MODEL_MISSING) {

@@ -53,18 +53,20 @@ class SpeakShimTest {
     }
 
     @Test
-    fun `a stop request cancels that one-shot only and posts it as stopped`() = runTest {
+    fun `a stop request resolves that one-shot at once and leaves the others`() = runTest {
         val (h, shim) = rig()
         shim.speak(request(paragraph(1, fill = 'x')), requestId = 1)
         shim.speak(request(paragraph(1, fill = 'y')), requestId = 2)
         h.settle()
 
         shim.stop(1)
-        h.runUntil { !shim.busy }
+        h.settle()
+        assertEquals(listOf(PreviewCompletions.Completion(1, error = null)), posted)
+        assertTrue("the other one is still reading", shim.busy)
 
-        assertEquals(PreviewCompletions.Completion(1, error = null, stopped = true), posted.single { it.requestId == 1L })
-        assertEquals(PreviewCompletions.Completion(2, error = null), posted.single { it.requestId == 2L })
-        assertEquals(2, posted.size)
+        h.runUntil { !shim.busy }
+        assertEquals(listOf(1L, 2L), posted.map { it.requestId })
+        assertTrue(posted.all { it.error == null })
         h.narrator.close()
     }
 
