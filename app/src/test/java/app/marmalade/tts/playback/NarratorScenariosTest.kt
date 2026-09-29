@@ -351,7 +351,7 @@ class NarratorScenariosTest {
         val segs = article(2)
         h.open(segs, autoplay = false)
         val id = h.narrator.articleId()!!
-        val shot = h.narrator.speakOneShot(OneShotRequest(paragraph(1, fill = 'q'), OneShotVoice.LanguageAware, Origin.External))
+        val shot = h.narrator.speakOneShot(OneShotRequest(paragraph(1, fill = 'q'), OneShotVoice.LanguageAware(), Origin.External))
         h.runUntil { h.state.oneShot?.status == Status.Playing }
         h.narrator.playArticle()
         h.settle()
@@ -370,7 +370,7 @@ class NarratorScenariosTest {
         h.open(segs)
         val id = h.narrator.articleId()!!
         h.runUntil { h.firstHeard(id, 0) != null }
-        val shot = h.narrator.speakOneShot(OneShotRequest(paragraph(1, fill = 'q'), OneShotVoice.LanguageAware, Origin.External))
+        val shot = h.narrator.speakOneShot(OneShotRequest(paragraph(1, fill = 'q'), OneShotVoice.LanguageAware(), Origin.External))
         h.settle()
         assertEquals(Status.Paused(PausedBy.Interrupt), h.article.status)
         h.narrator.pauseArticle()
@@ -389,7 +389,7 @@ class NarratorScenariosTest {
     fun `no Previous or Next for shared text`() = runTest {
         val h = harness()
         val handle = h.narrator.speakOneShot(
-            OneShotRequest(List(3) { paragraph(1, fill = 'm' + it) }.joinToString("\n\n"), OneShotVoice.LanguageAware, Origin.External),
+            OneShotRequest(List(3) { paragraph(1, fill = 'm' + it) }.joinToString("\n\n"), OneShotVoice.LanguageAware(), Origin.External),
         )
         h.runUntil { h.state.oneShot?.status == Status.Playing }
         h.narrator.next()

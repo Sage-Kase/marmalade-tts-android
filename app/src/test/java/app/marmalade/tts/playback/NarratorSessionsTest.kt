@@ -22,7 +22,7 @@ class NarratorSessionsTest {
 
     private fun share(fill: Char = 'q', origin: Origin = Origin.External, paragraphs: Int = 1) = OneShotRequest(
         text = List(paragraphs) { paragraph(1, fill = fill + it) }.joinToString("\n\n"),
-        voice = OneShotVoice.LanguageAware,
+        voice = OneShotVoice.LanguageAware(),
         origin = origin,
     )
 
@@ -265,6 +265,34 @@ class NarratorSessionsTest {
         val external = h.narrator.speakOneShot(share(origin = Origin.External))
         h.runUntil { external.outcome.isCompleted }
         assertEquals(ErrorNotice(external.id, FailureKind.MODEL_MISSING, NarratorHarness.ENGINE), h.state.notice)
+        h.done()
+    }
+
+    /** A track the device refused or the OS parked: the session fails like a render failure. */
+    @Test
+    fun `16c - a failed track fails its session once, a stale report changes nothing`() = runTest {
+        val h = harness()
+        h.open(article(3))
+        val id = h.narrator.articleId()!!
+        h.runUntil { h.firstHeard(id, 0) != null }
+        val epoch = h.narrator.articleEpoch()!!
+        h.output.inject(OutputEvent.TrackFailed(Track.Main, id, epoch - 1, "stale"))
+        h.settle()
+        assertEquals(Status.Playing, h.article.status)
+        h.output.inject(OutputEvent.TrackFailed(Track.Main, id, epoch, "parked"))
+        h.settle()
+        assertEquals(Status.Failed(FailureKind.FAILED), h.article.status)
+        val t = h.now()
+        h.run(3_000)
+        assertEquals(0.0, h.audibleMs(Track.Main, from = t + 10), 0.0)
+
+        val shot = h.narrator.speakOneShot(share(origin = Origin.External))
+        h.runUntil { h.state.oneShot?.status == Status.Playing }
+        // A one-shot's first (and only) start is its epoch 1.
+        h.output.inject(OutputEvent.TrackFailed(Track.Main, shot.id, 1, "parked"))
+        h.runUntil { shot.outcome.isCompleted }
+        assertEquals(FailureKind.FAILED, (shot.outcome.getCompleted() as Outcome.Failed).kind)
+        assertEquals(ErrorNotice(shot.id, FailureKind.FAILED, NarratorHarness.ENGINE), h.state.notice)
         h.done()
     }
 

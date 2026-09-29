@@ -82,4 +82,16 @@ sealed interface OutputEvent {
 
     /** The session's last frame, chain tail included, was heard. */
     data class SessionEnded(override val track: Track, val sessionId: Long, val epoch: Int) : OutputEvent
+
+    /**
+     * The track could not play [sessionId]'s audio: the device refused the
+     * format, a write failed, or the OS parked the track (data queued, head
+     * frozen while playing). The session fails; nothing more of it is heard.
+     */
+    data class TrackFailed(
+        override val track: Track,
+        val sessionId: Long,
+        val epoch: Int,
+        val message: String,
+    ) : OutputEvent
 }

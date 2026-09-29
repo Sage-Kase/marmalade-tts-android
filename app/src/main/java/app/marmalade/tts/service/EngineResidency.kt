@@ -4,6 +4,7 @@ import android.os.SystemClock
 import android.util.Log
 import app.marmalade.tts.data.SettingsRepository
 import app.marmalade.tts.engine.EngineRegistry
+import app.marmalade.tts.playback.ResidencyPort
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
@@ -58,7 +59,7 @@ class EngineResidency internal constructor(
      * triggered it going away. IO, never Main: `release()` blocks.
      */
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
-) {
+) : ResidencyPort {
     @Inject
     constructor(
         settings: SettingsRepository,
@@ -88,7 +89,7 @@ class EngineResidency internal constructor(
      * sweeps — a new synthesis is exactly the moment the *other* engines
      * became least likely to be needed.
      */
-    fun beginSynth(engineName: String) {
+    override fun beginSynth(engineName: String) {
         synchronized(stateLock) {
             inFlight[engineName] = (inFlight[engineName] ?: 0) + 1
             lastActivated[engineName] = clock()
@@ -101,7 +102,7 @@ class EngineResidency internal constructor(
      * callers must call this from a `finally`). Re-stamps so the idle window
      * measures from the END of the utterance, not its start.
      */
-    fun endSynth(engineName: String) {
+    override fun endSynth(engineName: String) {
         synchronized(stateLock) {
             val n = (inFlight[engineName] ?: 0) - 1
             if (n <= 0) inFlight.remove(engineName) else inFlight[engineName] = n

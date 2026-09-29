@@ -1033,10 +1033,17 @@ class Narrator(
                     speed = it.tempo,
                     startingSpeed = it.startingSpeed,
                     status = it.status,
+                    text = it.segs.getOrNull(it.cursor)?.text.orEmpty(),
                 )
             },
             oneShot = shot?.let {
-                OneShotView(it.id, (it.kind as Kind.OneShot).origin, it.status, oneShots.count { o -> o.active } - 1)
+                OneShotView(
+                    id = it.id,
+                    origin = (it.kind as Kind.OneShot).origin,
+                    status = it.status,
+                    queued = oneShots.count { o -> o.active } - 1,
+                    text = it.segs.getOrNull(it.cursor)?.text.orEmpty(),
+                )
             },
             focusHeld = focusHeld,
             notice = notice,
@@ -1079,6 +1086,11 @@ class Narrator(
                 } else {
                     endOneShot(s, Outcome.Played)
                 }
+            }
+            is OutputEvent.TrackFailed -> {
+                val s = sessionById(event.sessionId) ?: return
+                if (event.epoch != s.epoch) return
+                fail(s, FailureKind.FAILED, event.message)
             }
         }
     }

@@ -132,7 +132,14 @@ class VirtualAudioOutput(
         val t = tracks.getOrPut(c.track) { TrackState() }
         when (c) {
             is OutputCommand.Begin, is OutputCommand.Write, is OutputCommand.End -> {
-                if (isStale(t, c)) staleDropped++ else t.queue.addLast(c)
+                if (isStale(t, c)) {
+                    staleDropped++
+                } else {
+                    // A Begin states the session's speed as of its submission;
+                    // SetTempos submitted after it win (applied on arrival).
+                    if (c is OutputCommand.Begin) t.tempos[c.sessionId] = c.tempo
+                    t.queue.addLast(c)
+                }
             }
             is OutputCommand.Play -> t.playing = true
             is OutputCommand.Pause -> t.playing = false
@@ -169,7 +176,6 @@ class VirtualAudioOutput(
                 if (t.rate != 0 && t.rate != item.sampleRate) rebuilds += clock() to item.sampleRate
                 t.rate = item.sampleRate
                 val tempo = t.tempos[item.sessionId] ?: item.tempo
-                t.tempos[item.sessionId] = tempo
                 t.chain = StreamingEffectChain(item.effectBlocks, item.sampleRate, liveTempo = tempo)
                 t.chainSession = item.sessionId
             }

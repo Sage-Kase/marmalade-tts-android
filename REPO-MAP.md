@@ -192,6 +192,23 @@ with no caller in the app: `MarmaladeSynthService`, the reader and
   engine at 1.0, wait for the budget permit between chunks, one TTFA sample
   and one RTF sample per job (chunks after a permit wait are skewed: the
   engines keep rendering into their own 64-chunk buffer meanwhile).
+- Device side (step C1): `di/NarratorModule.kt` builds the one `Narrator`
+  (`NarratorConfig(todaysDepthOnly = true)` until G, loop on
+  `Narrator.newLoopDispatcher()`, logcat tag `Narrator`) over
+  `service/NarratorResolver.kt` (voice once per session: alias / installed /
+  explicit / language-aware share, the no-alias fallback, rules, cloud flag;
+  `NarratorPreparer` = rules → emoji strip → per-segment phonemizer language),
+  `service/NarratorPorts.kt` (`ServiceHost` = "service is foreground now",
+  `AudioFocusPort` = one `AudioFocusRequest` per hold, `NarratorStats` = TTFA
+  into `VoiceLatencyTracker` + RTF into settings, `NarratorWakeLock`/`WakeLockArm`
+  = held while buffering/playing, re-armed per heard chunk), `EngineResidency`
+  (the `ResidencyPort`), `KeepaliveCoordinator` (session start) and
+  `service/BlockTrackOutput.kt` — C1's writer: one thread per track is the only
+  AudioTrack caller, non-blocking writes, but still a track + effect chain per
+  block, drained and released at each paragraph (today's gap; C2 makes it one
+  continuous track). A refused format, failed write or parked track (head
+  frozen with a full buffer) → `OutputEvent.TrackFailed` → the session fails.
+  `service/ServiceUi.kt` is the pure state → notification/media-session table.
 - Tests: `test/.../playback/` — `NarratorHarness` (virtual clock, fake
   ports, invariants), `FakeEngine` (lock, non-abortable mode, over-cap
   re-split, internal buffer), `VirtualAudioOutput` (real

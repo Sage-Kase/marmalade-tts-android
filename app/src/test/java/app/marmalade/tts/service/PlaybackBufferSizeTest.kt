@@ -11,14 +11,14 @@ class PlaybackBufferSizeTest {
         // 24 kHz = Kokoro / Kitten / Pocket. 22 050 is the one that used to
         // come out odd (11 025) and make AudioTrack.Builder.build() throw.
         for (rate in listOf(16_000, 22_050, 24_000, 44_100, 48_000)) {
-            val bytes = MarmaladeSynthService.quarterSecondBufferBytes(rate)
+            val bytes = BlockTrackOutput.quarterSecondBufferBytes(rate)
             assertEquals("odd byte count at $rate Hz", 0, bytes % 2)
         }
     }
 
     @Test
     fun bufferIsAboutAQuarterSecond() {
-        assertEquals(12_000, MarmaladeSynthService.quarterSecondBufferBytes(24_000))
-        assertEquals(11_024, MarmaladeSynthService.quarterSecondBufferBytes(22_050))
+        assertEquals(12_000, BlockTrackOutput.quarterSecondBufferBytes(24_000))
+        assertEquals(11_024, BlockTrackOutput.quarterSecondBufferBytes(22_050))
     }
 }

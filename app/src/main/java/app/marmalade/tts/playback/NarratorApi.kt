@@ -141,6 +141,8 @@ data class ArticleView(
     val speed: Float,
     val startingSpeed: Float,
     val status: Status,
+    /** The text of segment [index] — what the notification quotes. */
+    val text: String = "",
 )
 
 enum class Origin {
@@ -157,6 +159,8 @@ data class OneShotView(
     val status: Status,
     /** One-shots waiting behind this one. */
     val queued: Int,
+    /** The text of the paragraph the listener is at — what the notification quotes. */
+    val text: String = "",
 )
 
 /** A failure the shell must surface as a notification (UI-less sessions only). */
@@ -178,18 +182,26 @@ data class OneShotRequest(
 )
 
 sealed interface OneShotVoice {
-    /** Speak screen / previews: exactly this voice, speed and chain. */
+    /** Speak screen / previews / a Tasker call naming a voice: exactly this voice, speed and chain. */
     data class Explicit(
         val voiceId: String,
         val effectBlocks: List<EffectBlock> = emptyList(),
         val phonemizationLanguage: String? = null,
+        /** The voice's own speed (the one-shot's speed when its request names none). */
+        val speed: Float = 1f,
+        /** The engine, when the caller named one; else the voice id's prefix. */
+        val engine: String? = null,
     ) : OneShotVoice
 
-    /** The primary alias or a specific alias. */
-    data class Routed(val choice: VoiceChoice) : OneShotVoice
+    /**
+     * The primary alias or a specific alias. [fallback] is spoken when no
+     * alias resolves (no primary alias set): a Tasker call's own engine,
+     * speed and effect extras.
+     */
+    data class Routed(val choice: VoiceChoice, val fallback: Explicit? = null) : OneShotVoice
 
-    /** Shared text: the language-aware rule (detect once, pick a voice that speaks it). */
-    data object LanguageAware : OneShotVoice
+    /** Shared text: the language-aware rule (detect once, pick a voice that speaks it); [fallback] as for [Routed]. */
+    data class LanguageAware(val fallback: Explicit? = null) : OneShotVoice
 }
 
 sealed interface Outcome {
