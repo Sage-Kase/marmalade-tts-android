@@ -1,68 +1,46 @@
 package app.marmalade.tts.reader
 
-import android.os.SystemClock
-import android.util.Log
 import app.marmalade.tts.lang.VoiceChoice
-import app.marmalade.tts.service.PlaybackTransport
-import app.marmalade.tts.service.PreviewCompletions
-import app.marmalade.tts.service.ReaderTransportState
-import java.util.ArrayDeque
+import app.marmalade.tts.playback.ArticleView
+import app.marmalade.tts.playback.FailureKind
+import app.marmalade.tts.playback.NarratorControl
+import app.marmalade.tts.playback.NarratorState
+import app.marmalade.tts.playback.PauseReason
+import app.marmalade.tts.playback.PausedBy
+import app.marmalade.tts.playback.Status
+import app.marmalade.tts.service.PlaybackHost
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 
 // -----------------------------------------------------------------------------
 //   Who owns reader playback
 // -----------------------------------------------------------------------------
 //
-//   This controller is an application-scoped @Singleton, NOT the ViewModel.
-//   Design point 7 says the back action returns to the sharing app while the
-//   article keeps being read; a ViewModel-owned pipeline would stop topping
-//   the queue up the moment the screen went away, so the article would die two
-//   blocks after the user left. Living at application scope also means
-//   re-opening the reader (re-share, or the user coming back) rebinds to a
-//   playback that never stopped, with the highlight already on the right
-//   block. ReaderViewModel is a thin binding over this.
+//   The Narrator (playback/Narrator.kt) does: the article's segments, voice,
+//   session speed, cursor, buffered audio, focus — everything that plays. This
+//   controller is the reader's client of it (reader-session redesign, step
+//   C1): an application-scoped @Singleton that
 //
-//   Nothing here is persisted (design point 8): the article text lives in this
-//   object's memory and dies with the process.
+//     - holds the extracted article (design point 8: in memory only, dies with
+//       the process) so the screen can rebind without a refetch — re-sharing
+//       the link or reopening from the notification finds it here;
+//     - forwards the reader's commands to the Narrator, bringing the host
+//       service up first when a command may start audio (Android 16 mutes a
+//       bare activity's AudioTrack — the service must be foreground);
+//     - projects the Narrator's state onto the handful of things the reader
+//       draws ([ReaderPlaybackState]).
 //
-//   ┌ blocks[]  ── article text, document order (headings included)
-//   │
-//   ├ pending   ── the requests handed to MarmaladeSynthService, in order.
-//   │              Head = playing, the rest are queued behind it in the
-//   │              service's own FIFO. Capped at LOOKAHEAD so the next block
-//   │              is already synthesising while the current one plays.
-//   │
-//   └ completions.events ── one event per finished request. The head
-//                  completing IS the "block finished" signal: drop it,
-//                  make the new head current (that's the highlight), and
-//                  top the queue back up.
-//
-//   PlaybackTransport is the two-way seam with the service: we publish what
-//   the notification needs (is an article being read, can it step forward)
-//   and we collect the service's `paused` flag, because a pause from the
-//   notification — or from an audio-focus duck — is not something we asked
-//   for and the screen would otherwise keep claiming to be playing.
-//
-//   Seeking (tap a block / forward / backward) can't be a seek in any real
-//   sense — audio is synthesised per block, so there is nothing to scrub
-//   through. It is: cancel every request we have outstanding
-//   (ACTION_STOP_REQUEST, which never touches an unrelated share-sheet read)
-//   and enqueue afresh from the target block.
-//
-//   Except when the target is already queued behind the playing block (the
-//   common Forward press, or a tap on the next paragraph): then only the
-//   requests in front of it are cancelled. The service has usually already
-//   synthesised the target (it prefetches the head of its queue), so its
-//   audio starts the moment the playing request stops, instead of paying a
-//   whole fresh time-to-first-audio. See [ReaderPlaybackController.jumpLocked].
+//   Design point 7 (the back action returns to the sharing app while the
+//   article keeps being read) holds because nothing here depends on the
+//   screen: the Narrator plays on after the ViewModel is gone.
 // -----------------------------------------------------------------------------
 
 /** Coarse transport state — everything the reader UI needs to draw itself. */
@@ -93,13 +71,13 @@ data class ReaderPlaybackState(
      * at, replacing the alias's own speed (voice, effect and language still
      * come from the alias). See [ReaderPlaybackController.setSpeed].
      *
-     * Lives in this in-memory state and nowhere else — not in DataStore, not
-     * in settings. It is a property of *this reading* of *this article*: each
-     * new article starts back at its reading alias's own speed — the primary
-     * alias, or the one [voice] picked for the article's language; 1.0 for an
-     * installed voice no alias uses (passed to
-     * [ReaderPlaybackController.open]) — because a speed picked to skim one
-     * long post is not a preference about how the app speaks.
+     * Lives in memory and nowhere else — not in DataStore, not in settings.
+     * It is a property of *this reading* of *this article*: each new article
+     * starts back at its reading alias's own speed — the primary alias, or
+     * the one [voice] picked for the article's language; 1.0 for an installed
+     * voice no alias uses (passed to [ReaderPlaybackController.open]) —
+     * because a speed picked to skim one long post is not a preference about
+     * how the app speaks.
      */
     val speed: Float = 1.0f,
     /**
@@ -116,11 +94,11 @@ data class ReaderPlaybackState(
     val voice: VoiceChoice = VoiceChoice.Primary,
     /**
      * Why playback last stopped on its own — a failed synthesis, a missing
-     * engine, or a service that refused to start — or null. Set alongside the
-     * fall back to Idle, cleared the next time playback starts. A Stop the
-     * user asked for is not an error and leaves this null.
+     * engine, audio focus refused, or a host service that wouldn't start — or
+     * null. Set alongside the fall back to Idle, cleared the next time
+     * playback starts. A Stop the user asked for is not an error.
      */
-    val lastError: PreviewCompletions.ErrorKind? = null,
+    val lastError: FailureKind? = null,
 ) {
     /** True while a block is the one being read — i.e. worth highlighting. */
     val isActive: Boolean
@@ -129,70 +107,32 @@ data class ReaderPlaybackState(
 
 @Singleton
 class ReaderPlaybackController internal constructor(
-    private val speech: ReaderSpeechClient,
-    private val completions: PreviewCompletions,
-    private val transport: PlaybackTransport,
-    /** Monotonic milliseconds; injected so the backward-window test can lie. */
-    private val clock: () -> Long,
+    private val narrator: NarratorControl,
+    private val host: PlaybackHost,
     scope: CoroutineScope,
 ) {
 
     @Inject
-    constructor(
-        speech: ReaderSpeechClient,
-        completions: PreviewCompletions,
-        transport: PlaybackTransport,
-    ) : this(
-        speech = speech,
-        completions = completions,
-        transport = transport,
-        clock = SystemClock::elapsedRealtime,
-        // Application-lifetime on purpose: this scope is what keeps the queue
-        // being topped up after the reader screen is gone.
+    constructor(narrator: NarratorControl, host: PlaybackHost) : this(
+        narrator = narrator,
+        host = host,
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     )
 
-    /**
-     * Guards every field below. Commands arrive on the main thread (UI) while
-     * completions arrive on [scope]'s dispatcher, and "drop the head, then top
-     * up" must not interleave with "cancel everything and re-enqueue".
-     */
-    private val lock = Any()
+    /** The article the reader holds, the voice it was opened in, and its starting speed. */
+    private data class Held(
+        val article: ReaderArticle? = null,
+        val voice: VoiceChoice = VoiceChoice.Primary,
+        val startingSpeed: Float = 1.0f,
+        /** The host service refused to start for this article's last play — see [startHost]. */
+        val refused: Boolean = false,
+    )
 
-    /** The article being read, kept so the screen can rebind without a refetch. */
-    private var article: ReaderArticle? = null
+    private val held = MutableStateFlow(Held())
 
-    /** [article]'s block texts, in document order — what actually gets spoken. */
-    private var blocks: List<String> = emptyList()
-
-    /** Requests in flight, oldest first. `pending[0]` is the one being spoken. */
-    private val pending = ArrayDeque<Pending>()
-
-    /** The next block to hand to the service; blocks `[current, nextIndex)` are pending. */
-    private var nextIndex = 0
-
-    /** When the current block became current, on [clock]'s timebase. */
-    private var blockStartedAt = 0L
-
-    /** [clock] reading at the moment of pause, so the pause doesn't age the block. */
-    private var pausedAt = 0L
-
-    private val _state = MutableStateFlow(ReaderPlaybackState())
-    val state: StateFlow<ReaderPlaybackState> = _state.asStateFlow()
-
-    init {
-        scope.launch {
-            completions.events.collect(::onCompletion)
-        }
-        // Publishing off the state flow rather than at every mutation site
-        // means a new transition can't forget to tell the notification.
-        scope.launch {
-            _state.collect { transport.setReader(transportStateOf(it)) }
-        }
-        scope.launch {
-            transport.paused.collect(::onServicePauseChanged)
-        }
-    }
+    val state: StateFlow<ReaderPlaybackState> =
+        combine(narrator.state, held, ::project)
+            .stateIn(scope, SharingStarted.Eagerly, current())
 
     /**
      * Load [article] for reading in [voice], its session speed starting at
@@ -208,25 +148,12 @@ class ReaderPlaybackController internal constructor(
         article: ReaderArticle,
         initialSpeed: Float = 1.0f,
         voice: VoiceChoice = VoiceChoice.Primary,
-    ): Boolean = synchronized(lock) {
-        if (article.url == _state.value.articleKey && this.blocks.isNotEmpty()) return false
-        cancelPendingLocked()
-        this.article = article
-        this.blocks = article.blocks.map { it.text }
-        nextIndex = 0
-        // A whole new state value, so the session speed resets to the
-        // alias's with it — deliberate: the speed belongs to the article being
-        // read, and the same-key rebind above returns before ever getting here.
-        val speed = initialSpeed.coerceIn(MIN_SPEED, MAX_SPEED)
-        _state.value = ReaderPlaybackState(
-            articleKey = article.url,
-            blockCount = blocks.size,
-            currentIndex = 0,
-            status = ReaderPlaybackStatus.Idle,
-            speed = speed,
-            startingSpeed = speed,
-            voice = voice,
-        )
+    ): Boolean {
+        val blocks = article.blocks.map { it.text }
+        if (article.url == held.value.article?.url && blocks.isNotEmpty()) return false
+        val speed = initialSpeed.coerceIn(NarratorControl.MIN_SPEED, NarratorControl.MAX_SPEED)
+        held.value = Held(article, voice, speed)
+        narrator.openArticle(article.url, blocks, voice, speed, autoplay = false)
         return true
     }
 
@@ -236,416 +163,119 @@ class ReaderPlaybackController internal constructor(
      * the notification, or re-sharing a link that is already being read, must
      * not hit the network again.
      */
-    fun article(key: String): ReaderArticle? = synchronized(lock) {
-        article?.takeIf { it.url == key }
-    }
+    fun article(key: String): ReaderArticle? = held.value.article?.takeIf { it.url == key }
 
     /** Play, resume, or (after the end) start the article again. */
     fun play() {
-        synchronized(lock) {
-            if (blocks.isEmpty()) return
-            when (_state.value.status) {
-                ReaderPlaybackStatus.Playing -> Unit
-                ReaderPlaybackStatus.Paused -> resumeLocked()
-                ReaderPlaybackStatus.Idle -> startAtLocked(_state.value.currentIndex)
-                ReaderPlaybackStatus.Finished -> startAtLocked(0)
-            }
-        }
+        if (blockCount() == 0 || !startHost()) return
+        narrator.playArticle()
     }
 
-    fun pause() {
-        synchronized(lock) {
-            if (_state.value.status != ReaderPlaybackStatus.Playing) return
-            if (pending.isNotEmpty()) speech.pause()
-            pausedAt = clock()
-            setStatusLocked(ReaderPlaybackStatus.Paused)
-        }
-    }
+    fun pause() = narrator.pauseArticle()
 
     fun togglePlayPause() {
-        synchronized(lock) {
-            if (_state.value.status == ReaderPlaybackStatus.Playing) pause() else play()
-        }
+        if (current().status == ReaderPlaybackStatus.Playing) pause() else play()
     }
 
     /**
-     * Read from [index] now — the tap-a-block (and contents-pick) action.
-     * Unlike [seekTo] this plays even from Paused: tapping a paragraph is the
-     * user asking to hear it, so a tap-then-press-play would be a step too
-     * many (Max, 2026-09-26). The paused block still held by the service is
-     * cancelled; a target already queued behind it is kept (see [jumpLocked]).
+     * Read from [index] now — the tap-a-block (and contents-pick) action. Plays
+     * even from Paused: tapping a paragraph is the user asking to hear it, so a
+     * tap-then-press-play would be a step too many (Max, 2026-09-26).
      */
     fun playFrom(index: Int) {
-        synchronized(lock) {
-            if (index !in blocks.indices) return
-            jumpLocked(index)
-        }
+        if (index !in 0 until blockCount() || !startHost()) return
+        narrator.jumpTo(index, play = true)
     }
 
-    /**
-     * Move playback to [index], keeping Paused paused — the transport's
-     * forward/back, and speed changes a fixed-speed voice can't take live
-     * (see [setSpeed]). Taps use [playFrom].
-     */
-    fun seekTo(index: Int) {
-        synchronized(lock) {
-            if (index !in blocks.indices) return
-            if (_state.value.status == ReaderPlaybackStatus.Paused) {
-                // Stay paused: a seek must not start audio the user asked to
-                // stop. Nothing is enqueued until resume, which re-enqueues
-                // from here. Nothing queued is kept either: the service starts
-                // the next request as soon as the paused one stops.
-                cancelPendingLocked()
-                nextIndex = index
-                blockStartedAt = clock()
-                pausedAt = blockStartedAt
-                _state.value = _state.value.copy(currentIndex = index)
-            } else {
-                jumpLocked(index)
-            }
-        }
-    }
-
-    /** Forward — the next block, or the end of the article if there isn't one. */
+    /** Forward — the next block, or the end of the article if there isn't one. Keeps a pause. */
     fun next() {
-        synchronized(lock) {
-            val target = _state.value.currentIndex + 1
-            if (target in blocks.indices) {
-                seekTo(target)
-            } else {
-                cancelPendingLocked()
-                _state.value = _state.value.copy(
-                    currentIndex = blocks.lastIndex.coerceAtLeast(0),
-                    status = ReaderPlaybackStatus.Finished,
-                )
-            }
-        }
+        if (blockCount() == 0 || !startHostUnlessPaused()) return
+        narrator.next()
     }
 
     /**
      * Backward, with music-player semantics: restart the current block, unless
-     * we're still near its start, in which case go to the previous block.
-     *
-     * "Near its start" is measured from when the block became current, which
-     * for the first block of a run includes the engine's model-load time — the
-     * service gives us no "audio started" event to measure from. In practice
-     * that only widens the window on a cold start.
+     * it only just started being heard, in which case go to the previous block.
+     * Keeps a pause.
      */
     fun previous() {
-        synchronized(lock) {
-            val current = _state.value.currentIndex
-            val target = if (elapsedInBlockLocked() < RESTART_WINDOW_MS) {
-                (current - 1).coerceAtLeast(0)
-            } else {
-                current
-            }
-            seekTo(target)
-        }
+        if (blockCount() == 0 || !startHostUnlessPaused()) return
+        narrator.previous()
     }
 
     /**
      * Set the session's speed — absolute, replacing the alias's own speed
-     * rather than scaling it (see [ReaderPlaybackState.speed]).
-     *
-     * On-device engines render at 1.0 and the speed is a time-stretch the
-     * service applies at playback, so blocks already handed over normally
-     * just follow the change, live: nothing stops or re-synthesises, playing
-     * keeps playing (the new speed is audible within a few hundred ms) and
-     * paused stays paused, resuming at the new speed.
-     *
-     * When the service says a block has the speed baked into its audio (a
-     * cloud voice renders it itself), the change re-enqueues from the current
-     * block instead, through [seekTo]: playing restarts the block at the new
-     * speed, paused stays paused and drops the queue for the resume to
-     * re-enqueue. Idle/Finished only store it — the next play picks it up.
+     * rather than scaling it (see [ReaderPlaybackState.speed]). Applied live
+     * by the Narrator: nothing stops or re-renders, playing keeps playing and
+     * paused stays paused.
      */
     fun setSpeed(speed: Float) {
-        synchronized(lock) {
-            val clamped = speed.coerceIn(MIN_SPEED, MAX_SPEED)
-            if (clamped == _state.value.speed) return
-            _state.value = _state.value.copy(speed = clamped)
-            if (!_state.value.isActive || pending.isEmpty()) return
-            if (!speech.changeSpeed(pending.map { it.requestId }, clamped)) {
-                seekTo(_state.value.currentIndex)
-            }
-        }
+        val clamped = speed.coerceIn(NarratorControl.MIN_SPEED, NarratorControl.MAX_SPEED)
+        if (clamped == current().speed) return
+        narrator.setSpeed(clamped)
     }
 
     /**
      * Pause because the user navigated out of the reader (the top-bar arrow or
-     * system back), cancelling every outstanding synthesis request.
-     *
-     * Unlike [pause] — the in-screen / notification pause, which halts the
-     * AudioTrack but keeps the queue so resume can pick up mid-sentence — this
-     * drops the whole queue. Backing out during the pre-first-audio synthesis
-     * wait must not leave queued blocks to start speaking after the user has
-     * left the screen: pausing the (still silent) transport does not stop them,
-     * cancelling the requests does (ACTION_STOP_REQUEST, which never touches an
-     * unrelated share-sheet read).
-     *
-     * Stays Paused with the highlight intact — coming back and pressing play
-     * re-enqueues from the current block, exactly as a paused seek does. A
-     * no-op when nothing of the reader's is active; an app switch never routes
-     * through here, so background playback is untouched.
+     * system back): pause AND stop preparing ahead, so backing out during the
+     * first render doesn't leave audio to start after the user has left.
+     * Stays Paused with the highlight intact. A no-op when nothing of the
+     * reader's is active; an app switch never routes through here, so
+     * background playback is untouched.
      */
     fun pauseForNavigation() {
-        synchronized(lock) {
-            if (!_state.value.isActive) return
-            cancelPendingLocked()
-            pausedAt = clock()
-            setStatusLocked(ReaderPlaybackStatus.Paused)
-        }
-    }
-
-    /** Stop this article's playback entirely, leaving the article loaded. */
-    fun stop() {
-        synchronized(lock) {
-            cancelPendingLocked()
-            setStatusLocked(ReaderPlaybackStatus.Idle)
-        }
+        if (!current().isActive) return
+        narrator.pause(PauseReason.Navigation)
     }
 
     // -- internals ------------------------------------------------------------
 
-    private fun elapsedInBlockLocked(): Long {
-        val now = if (_state.value.status == ReaderPlaybackStatus.Paused) pausedAt else clock()
-        return now - blockStartedAt
-    }
+    private fun blockCount(): Int = held.value.article?.blocks?.size ?: 0
 
-    private fun resumeLocked() {
-        if (pending.isNotEmpty()) speech.resume()
-        adoptResumeLocked()
-    }
+    /** The projection of what is known right now, for decisions made before [state] catches up. */
+    private fun current(): ReaderPlaybackState = project(narrator.state.value, held.value)
 
     /**
-     * Come back to Playing without touching the service's transport — the
-     * caller has either just driven it ([resumeLocked]) or is reacting to it
-     * having resumed on its own ([onServicePauseChanged]).
+     * Bring the host service up before a command that may start audio. When the
+     * OS refuses, nothing would ever play: the reader falls back to Idle and
+     * says why instead of sitting on a silent Playing.
      */
-    private fun adoptResumeLocked() {
-        if (pending.isEmpty()) {
-            // Paused across a seek — nothing was ever enqueued for this block.
-            startAtLocked(_state.value.currentIndex)
-            return
-        }
-        // The pause didn't age the block, so the backward window doesn't move.
-        blockStartedAt += clock() - pausedAt
-        setStatusLocked(ReaderPlaybackStatus.Playing)
+    private fun startHost(): Boolean {
+        val ok = host.start()
+        if (held.value.refused == ok) held.value = held.value.copy(refused = !ok)
+        return ok
     }
 
-    /**
-     * Reconcile with a pause/resume we didn't ask for: the notification's own
-     * pause button, a media-button press, or an audio-focus duck. The service
-     * owns one global `paused` flag and gives us no callback, so this flag is
-     * the only way the reader learns its audio stopped.
-     *
-     * Deliberately does NOT send ACTION_PAUSE / ACTION_RESUME back: the
-     * service is already in the state we're adopting, and echoing it would be
-     * a loop. Our own [pause] / [play] set our status before the service ever
-     * reports back, so their echo lands here as a no-op — which makes this
-     * idempotent for any number of repeats of the same flag value.
-     *
-     * Gated on having requests in flight, because the flag is global: the
-     * service clears it whenever it starts a request, and a reader that is
-     * paused with nothing enqueued (paused, then seeked) must not read an
-     * unrelated share-sheet playback starting up as its own cue to speak.
-     */
-    private fun onServicePauseChanged(servicePaused: Boolean) {
-        synchronized(lock) {
-            if (pending.isEmpty()) return
-            when (_state.value.status) {
-                ReaderPlaybackStatus.Playing ->
-                    if (servicePaused) {
-                        pausedAt = clock()
-                        setStatusLocked(ReaderPlaybackStatus.Paused)
-                    }
-                ReaderPlaybackStatus.Paused -> if (!servicePaused) adoptResumeLocked()
-                // Idle / Finished: nothing of ours is playing, so a pause of
-                // whatever else the service is doing is none of our business.
-                else -> Unit
-            }
-        }
-    }
-
-    /** Projection of [state] onto what the service's notification needs. */
-    private fun transportStateOf(state: ReaderPlaybackState) = ReaderTransportState(
-        articleUrl = state.articleKey,
-        active = state.isActive,
-        canNext = state.currentIndex < state.blockCount - 1,
-        canPrevious = state.blockCount > 0,
-    )
-
-    /**
-     * Play from [index] because the user moved there (Forward, a tap, a
-     * contents pick, a playing seek).
-     *
-     * When [index] is already queued behind the playing block, keep it: cancel
-     * only the requests in front of it and let the service move straight on to
-     * the target, whose audio it has usually synthesised already — a Forward
-     * press then costs about as much as a block boundary does. Otherwise (the
-     * target is the playing block itself — a restart, or a speed change a
-     * fixed-speed voice can't take live — or isn't queued at all) cancel
-     * everything and start afresh, as [startAtLocked] always has.
-     *
-     * Also right from Paused (a tap plays): the service clears its pause when
-     * it starts the kept request, and our status is already Playing when that
-     * echo arrives. A paused [seekTo] never gets here — the service would
-     * start the kept block, and a seek must not start audio.
-     *
-     * The kept requests were sent as continuations, so they replace nothing;
-     * they carry the article's voice and follow the session speed live.
-     */
-    private fun jumpLocked(index: Int) {
-        val keep = pending.indexOfFirst { it.blockIndex == index }
-        if (keep <= 0) {
-            Log.d(TAG, "jump: restart from $index")
-            startAtLocked(index)
-            return
-        }
-        val dropped = List(keep) { pending.removeFirst() }
-        // Back to front: the queued ones leave the service's queue before the
-        // playing one stops, so its handover goes straight to the target
-        // rather than briefly starting a block we are about to cancel.
-        dropped.asReversed().forEach { speech.stopRequest(it.requestId) }
-        Log.d(TAG, "jump to $index kept queued request ${pending.first().requestId}")
-        blockStartedAt = clock()
-        _state.value = _state.value.copy(
-            currentIndex = index,
-            status = ReaderPlaybackStatus.Playing,
-            lastError = null,
-        )
-        topUpLocked(fresh = false)
-    }
-
-    private fun startAtLocked(index: Int) {
-        cancelPendingLocked()
-        nextIndex = index
-        blockStartedAt = clock()
-        _state.value = _state.value.copy(
-            currentIndex = index,
-            status = ReaderPlaybackStatus.Playing,
-            lastError = null,
-        )
-        topUpLocked(fresh = true)
-    }
-
-    private fun cancelPendingLocked() {
-        pending.forEach { speech.stopRequest(it.requestId) }
-        pending.clear()
-    }
-
-    /**
-     * [fresh] is true when this starts a play (as opposed to replacing a
-     * finished block). Only that first request may replace paused playback in
-     * the service — a new play is the user asking for the article now; a
-     * top-up landing just after the user paused must not stop what they
-     * paused.
-     */
-    private fun topUpLocked(fresh: Boolean) {
-        while (pending.size < LOOKAHEAD && nextIndex < blocks.size) {
-            val requestId = completions.newRequestId()
-            val index = nextIndex
-            nextIndex++
-            val continuation = !fresh || pending.isNotEmpty()
-            pending.addLast(Pending(requestId, index))
-            val state = _state.value
-            if (!speech.speak(requestId, blocks[index], state.speed, continuation, state.voice)) {
-                // The service wouldn't start, so this request will never
-                // complete and the pipeline would stall silently. Nothing is
-                // playable in that state — unwind to Idle, and say why.
-                cancelPendingLocked()
-                nextIndex = index
-                _state.value = _state.value.copy(
-                    status = ReaderPlaybackStatus.Idle,
-                    lastError = PreviewCompletions.ErrorKind.FAILED,
-                )
-                return
-            }
-        }
-    }
-
-    private fun setStatusLocked(status: ReaderPlaybackStatus) {
-        _state.value = _state.value.copy(status = status)
-    }
-
-    private fun onCompletion(completion: PreviewCompletions.Completion) {
-        synchronized(lock) {
-            // Completions for requests we cancelled (the service posts those
-            // too) and for every other in-app speak land here — ours are
-            // exactly the ones still in `pending`.
-            val entry = pending.firstOrNull { it.requestId == completion.requestId } ?: return
-
-            if (completion.stopped || entry !== pending.first()) {
-                // Something outside cancelled our queue: the notification's
-                // Stop, a permanent audio-focus loss, or a new speak (Speak
-                // screen, share sheet) replacing our paused read.
-                // Without honouring it the reader would treat the stop as
-                // "block finished" and enqueue the rest of the article right
-                // back — or, after a replace, sit on Paused with nothing
-                // left to resume. The service flags these completions as
-                // stopped; it also resolves queued requests before the
-                // playing one, so one of ours retiring out of order means
-                // the same thing.
-                cancelPendingLocked()
-                setStatusLocked(ReaderPlaybackStatus.Idle)
-                return
-            }
-            pending.removeFirst()
-
-            if (completion.error != null) {
-                // A missing engine or a synthesis failure will hit the queued
-                // blocks too; stop rather than machine-gun the same error.
-                // The service posts no notification for in-app requests, so
-                // lastError is the only way the screen can tell the user.
-                cancelPendingLocked()
-                _state.value = _state.value.copy(
-                    status = ReaderPlaybackStatus.Idle,
-                    lastError = completion.error,
-                )
-                return
-            }
-
-            val nextBlock = pending.firstOrNull()?.blockIndex ?: nextIndex
-            if (nextBlock >= blocks.size) {
-                _state.value = _state.value.copy(
-                    currentIndex = blocks.lastIndex.coerceAtLeast(0),
-                    status = ReaderPlaybackStatus.Finished,
-                )
-                return
-            }
-            blockStartedAt = clock()
-            _state.value = _state.value.copy(currentIndex = nextBlock)
-            topUpLocked(fresh = false)
-        }
-    }
-
-    /** One request handed to the service, and the block it speaks. */
-    private data class Pending(val requestId: Long, val blockIndex: Int)
+    /** Next/Previous keep a pause (no audio, no host needed); from anything else they play. */
+    private fun startHostUnlessPaused(): Boolean =
+        current().status == ReaderPlaybackStatus.Paused || startHost()
 
     companion object {
-        private const val TAG = "ReaderPlayback"
-
-        /**
-         * Requests outstanding at once: the one playing plus two synthesising
-         * behind it. Deeper buys nothing — the service plays strictly one at a
-         * time — and makes every seek cancel more work than it needs to.
-         */
-        internal const val LOOKAHEAD = 3
-
-        /**
-         * Backward within this long of a block's start goes to the previous
-         * block instead of restarting the current one.
-         */
-        internal const val RESTART_WINDOW_MS = 2_000L
-
-        /**
-         * Bounds on the session speed. Wider than the sheet offers on purpose
-         * — the sheet's chips are the curated set, these are the limits past
-         * which the engines stop producing anything worth listening to. The
-         * alias editor's range (0.5–2.0) sits inside them, so an alias's own
-         * speed always survives [open] unclamped.
-         */
-        internal const val MIN_SPEED = 0.5f
-        internal const val MAX_SPEED = 3.0f
+        private fun project(narrator: NarratorState, held: Held): ReaderPlaybackState {
+            val article = held.article ?: return ReaderPlaybackState()
+            // The Narrator's article view, once it has loaded ours (it may still
+            // show the previous one for a moment after open()).
+            val view: ArticleView? = narrator.article?.takeIf { it.key == article.url }
+            val base = ReaderPlaybackState(
+                articleKey = article.url,
+                blockCount = article.blocks.size,
+                currentIndex = view?.index ?: 0,
+                speed = view?.speed ?: held.startingSpeed,
+                startingSpeed = view?.startingSpeed ?: held.startingSpeed,
+                voice = held.voice,
+            )
+            if (held.refused) return base.copy(lastError = FailureKind.FAILED)
+            return when (val s = view?.status ?: Status.Idle) {
+                Status.Idle -> base
+                Status.Buffering, Status.Playing -> base.copy(status = ReaderPlaybackStatus.Playing)
+                // A share reading over the article: it resumes by itself when
+                // the share ends, so the reader keeps showing it as playing.
+                is Status.Paused -> base.copy(
+                    status = if (s.by == PausedBy.Interrupt) ReaderPlaybackStatus.Playing else ReaderPlaybackStatus.Paused,
+                )
+                Status.Finished -> base.copy(status = ReaderPlaybackStatus.Finished)
+                is Status.Failed -> base.copy(lastError = s.kind)
+            }
+        }
     }
 }

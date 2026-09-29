@@ -8,67 +8,39 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.media.AudioAttributes
-import android.media.AudioFocusRequest
-import android.media.AudioFormat
-import android.media.AudioManager
-import android.media.AudioTrack
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
-import android.os.PowerManager
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
 import android.util.Log
 import android.view.KeyEvent
 import androidx.core.app.NotificationCompat
 import androidx.core.content.IntentCompat
+import app.marmalade.tts.MainActivity
 import app.marmalade.tts.R
-import app.marmalade.tts.audio.EffectBlock
-import android.os.SystemClock
 import app.marmalade.tts.audio.EffectBlockJson
 import app.marmalade.tts.audio.EffectChain
 import app.marmalade.tts.audio.EffectPreset
-import app.marmalade.tts.audio.EffectResolver
-import app.marmalade.tts.audio.PipelineResult
-import app.marmalade.tts.audio.runSynthesisPipeline
-import app.marmalade.tts.data.SettingsRepository
-import app.marmalade.tts.data.VoiceLatencyTracker
-import app.marmalade.tts.engine.EngineNotInstalledException
-import app.marmalade.tts.engine.EngineRegistry
 import app.marmalade.tts.data.KittenDirectVoiceCatalog
-import app.marmalade.tts.audio.StreamingEffectChain
-import app.marmalade.tts.engine.SynthAudio
-import app.marmalade.tts.lang.LangDetector
-import app.marmalade.tts.lang.LanguageVoiceSelector
-import app.marmalade.tts.lang.UtteranceLanguage
+import app.marmalade.tts.engine.EngineRegistry
 import app.marmalade.tts.lang.VoiceChoice
-import app.marmalade.tts.preprocessing.EmojiProsody
-import app.marmalade.tts.preprocessing.Emotion
-import app.marmalade.tts.preprocessing.Preprocessor
-import app.marmalade.tts.MainActivity
-import app.marmalade.tts.reader.ReaderPlaybackController
+import app.marmalade.tts.playback.ErrorNotice
+import app.marmalade.tts.playback.FailureKind
+import app.marmalade.tts.playback.Narrator
+import app.marmalade.tts.playback.NarratorState
+import app.marmalade.tts.playback.OneShotRequest
+import app.marmalade.tts.playback.OneShotVoice
+import app.marmalade.tts.playback.Origin
 import dagger.hilt.android.AndroidEntryPoint
-import java.util.ArrayDeque
 import javax.inject.Inject
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.channels.SendChannel
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.onEach
-import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 
 // -----------------------------------------------------------------------------
 // Public intent contract
@@ -78,13 +50,15 @@ import kotlinx.coroutines.withContext
 //
 //   Extras (sent on the intent):
 //     EXTRA_TEXT   (String, required)   — the text to read aloud.
-//     EXTRA_ENGINE (String, optional)   — engine name; default "kokoro".
-//                                          When absent, the engine is derived
-//                                          from EXTRA_VOICE's prefix.
+//     EXTRA_ENGINE (String, optional)   — engine name. When absent, the
+//                                          engine is derived from EXTRA_VOICE's
+//                                          prefix.
 //     EXTRA_VOICE  (String, optional)   — voice id e.g.
 //                                          "kokoro-direct-v1_0:af_bella" or
-//                                          "kitten-direct-v0_8:Bella". Defaults
-//                                          to KittenDirectVoiceCatalog.DEFAULT_VOICE_ID.
+//                                          "kitten-direct-v0_8:Bella". Absent:
+//                                          the primary alias speaks (with no
+//                                          alias, KittenDirectVoiceCatalog.
+//                                          DEFAULT_VOICE_ID and these extras).
 //     EXTRA_SPEED  (Float, optional)    — length-scale style; 1.0 = native,
 //                                          > 1 = faster. Default 1.0.
 //     EXTRA_EFFECT (String, optional)   — EffectPreset name (NONE / CAVE /
@@ -94,1376 +68,234 @@ import kotlinx.coroutines.withContext
 //     ACTION_PAUSE / ACTION_RESUME / ACTION_STOP — wired via MediaSessionCompat.
 //
 // -----------------------------------------------------------------------------
-// Data flow
+// What this service is (reader-session redesign, step C1)
 // -----------------------------------------------------------------------------
 //
-//   Caller — external (share sheet / process-text / Tasker) OR in-app
-//   (Synthesizer.speak: every Speak-screen / preview / effects playback;
-//   in-app requests add EXTRA_REQUEST_ID + EXTRA_EFFECT_BLOCKS json +
-//   EXTRA_LANG, use EXTRA_TEXT_FILE for huge text, and always set
-//   EXTRA_VOICE so alias rerouting is skipped)
-//     │
-//     │  Intent { action = ACTION_SPEAK, extras as above }
-//     ▼
-//   onStartCommand ──► parseRequest ──► enqueue ──► startNextLocked
-//     │                 (foreground notification + MediaSession ensured;
-//     │                  a busy service queues the request — unless the
-//     │                  user paused its work: then the new request
-//     │                  replaces it, see replacesPausedWork)
-//     ▼
-//   Synthesis and playback are two halves that overlap ACROSS requests —
-//   the queue handover is otherwise a full time-to-first-audio of silence,
-//   which in the reader is a gap at every paragraph boundary:
+//   A SHELL. All in-app speech — the reader's article, the Speak screen and
+//   previews, shares, Tasker — is owned by the process's one Narrator
+//   (playback/Narrator.kt): queue, voice, speed, cursor, audio focus,
+//   residency, keepalive, latency stats and the writer (BlockTrackOutput).
+//   This service only:
 //
-//   prepareLocked(req) — producer, under synthMutex (engines are not safe
-//     │                  to drive concurrently; the lock is FIFO so queue
-//     │                  order holds). Started for the head of the queue
-//     │                  while the request in front of it still plays.
-//     ├── if (!req.voiceExplicit): TtsRouter.resolveAlias → primary alias's
-//     │     voice/speed/effect/lang (share-sheet path and the reader; the
-//     │     reader may name another alias via EXTRA_ALIAS_ID; an EXTRA_SHARED
-//     │     text whose language the primary's voice doesn't speak goes to
-//     │     LanguageVoiceSelector's alias/installed voice instead)
-//     ├── speed = req.sessionSpeed, if sent (reader session speed; replaces
-//     │     the alias's speed — absent for every other caller)
-//     ├── UtteranceLanguage.resolve (per-utterance language auto-detect)
-//     ├── settings.enabledRules → Preprocessor.apply → stripEmojis
-//     └── neutral emotion → produceAudio (engine synthesizeStream → raw
-//           PCM → channel, plus the request's Shaping (effect chain) for
-//           playback; TTFA sampled into VoiceLatencyTracker) ; else
-//           produceBatched (ProsodyApplier + EffectChain need the whole
-//           PCM, sent as one already-shaped chunk)
+//     - turns intents into Narrator commands. ACTION_SPEAK is a one-shot
+//       through SpeakShim (one request id → one outcome → one
+//       PreviewCompletions post; ACTION_STOP_REQUEST cancels that one). The
+//       reader sends no speech intents: it drives the Narrator directly and
+//       only sends ACTION_HOST (ServicePlaybackHost) to bring this service
+//       up as the foreground host before a command that plays;
+//     - is the Android 16 host: audio plays only while this service is
+//       foreground with a media session (ServiceHost tells the Narrator);
+//     - projects the Narrator's state onto the notification and the media
+//       session (ServiceUi.render, one pure table), posts error
+//       notifications for UI-less one-shots, and leaves the foreground (a
+//       swipe-away-able notification) after a permanent audio-focus loss;
+//     - stops itself once nothing is on air.
 //
-//   runOne(prepared) — consumer:
-//     ├── requestAudioFocus(AUDIOFOCUS_GAIN)
-//     │     - LOSS_TRANSIENT → pause; GAIN → resume (only that focus
-//     │       pause, never the user's own); LOSS → doStop
-//     ├── playFromChannel → StreamingEffectChain in ~100 ms slices →
-//     │     AudioTrack. The chain (Tempo included) runs HERE, not in the
-//     │     producer, so the reader's session speed can change live: a
-//     │     reader request on a time-stretching engine gets a live Tempo
-//     │     stage that re-reads LiveSessionSpeed every slice. (A synthesis
-//     │     failure reaches here as
-//     │     the channel's close cause, and maps to the same outcome it did
-//     │     when the two halves were one function)
-//     └── finally: producer cancelled, residency/focus released, and the
-//           request's terminal state posts to PreviewCompletions (resolves
-//           the awaiting in-app speak(); external requests post nothing) —
-//           then startNextLocked continues the queue or the service stops.
-//
-//   ACTION_STOP stops everything; ACTION_STOP_REQUEST stops only the
-//   named in-app request (ViewModel teardown must not kill an external
-//   read). Drain loops bail out if the playback head stalls (Android 16
-//   audio hardening parks policy-muted tracks). Only ACTION_SPEAK promotes
-//   the service to foreground; control actions on an idle instance stop it
-//   again. A partial wake lock is held while a request plays or waits and
-//   playback isn't paused, so screen-off reads don't freeze mid-inference.
-//
-//   Bluetooth headset hand-off: not implemented explicitly — AudioTrack
-//   honours the system routing automatically, and audio-focus loss when
-//   the BT headset takes over a call is handled by the focus listener.
+//   Only ACTION_SPEAK and ACTION_HOST are sent with startForegroundService,
+//   so only they promote at once. The wake lock follows the Narrator's state
+//   (NarratorWakeLock), not this service's lifetime.
 // -----------------------------------------------------------------------------
 
 /**
- * Foreground service for long-form synthesis playback.
+ * Foreground host for in-app speech. Use [ACTION_SPEAK] with [EXTRA_TEXT] (and
+ * optionally [EXTRA_ENGINE], [EXTRA_VOICE], [EXTRA_SPEED]) to speak a text: it
+ * plays at once, queues behind other spoken text, reads over an article that
+ * is playing (which then resumes), and replaces an article the user paused.
  *
- * Use [ACTION_SPEAK] with [EXTRA_TEXT] (and optionally [EXTRA_ENGINE],
- * [EXTRA_VOICE], [EXTRA_SPEED]) to enqueue a synthesis. The service is
- * idempotent: starting it again while already speaking appends to the
- * queue. Starting it while playback is paused drops the paused work and
- * speaks the new text instead.
- *
- * Returns `START_NOT_STICKY` so the system does not restart the service
- * if it is killed between jobs — there is nothing useful to do without
- * the original text in hand.
+ * Returns `START_NOT_STICKY`: nothing survives process death.
  */
 @AndroidEntryPoint
 class MarmaladeSynthService : Service() {
 
-    @Inject lateinit var engines: EngineRegistry
+    @Inject lateinit var narrator: Narrator
 
-    @Inject lateinit var preprocessor: Preprocessor
+    @Inject lateinit var host: ServiceHost
 
-    @Inject lateinit var settings: SettingsRepository
-
-    @Inject lateinit var router: TtsRouter
-
-    @Inject lateinit var effectResolver: EffectResolver
-
-    @Inject lateinit var keepaliveCoordinator: KeepaliveCoordinator
-
-    @Inject lateinit var residency: EngineResidency
-
-    @Inject lateinit var langDetector: LangDetector
-
-    /** Picks a shared text's voice by its language — see [isLanguageAwareShare]. */
-    @Inject lateinit var languageVoices: LanguageVoiceSelector
+    @Inject lateinit var shim: SpeakShim
 
     @Inject lateinit var completions: PreviewCompletions
 
-    @Inject lateinit var latency: VoiceLatencyTracker
-
-    /** Two-way transport seam with the reader — see [PlaybackTransport]. */
-    @Inject lateinit var transport: PlaybackTransport
-
-    /** The reader's session speed, followed live during playback. */
-    @Inject lateinit var sessionSpeeds: LiveSessionSpeed
-
-    /**
-     * Target of the reader's notification actions. App-scoped singleton, so
-     * injecting it here is just a reference to the object that is already
-     * driving the article; nothing about it depends on this service's
-     * lifetime.
-     */
-    @Inject lateinit var readerPlayback: ReaderPlaybackController
-
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-
-    // Synchronized by `lock`. Accessed from main (onStartCommand), the
-    // audio-focus callback thread, and the synthesis coroutine.
-    private val lock = Any()
-    private val queue: ArrayDeque<SpeakRequest> = ArrayDeque()
-    private var activeJob: Job? = null
-
-    /**
-     * Synthesis already running (or finished) for `queue.first()`, so its
-     * audio is ready the moment the request that precedes it stops playing.
-     * Invariant: non-null implies it belongs to the current head of [queue];
-     * every path that removes a queued request repairs that (see
-     * [dropPreparedHeadLocked]). Guarded by `lock`.
-     */
-    private var preparedHead: Prepared? = null
-
-    /**
-     * One synthesis at a time, service-wide. The engines hold per-instance
-     * session state and are not safe to drive from two coroutines at once, so
-     * the pre-synthesis of the next request waits behind the current one's
-     * producer — it starts the moment that producer stops, which on a
-     * paragraph-sized block is well before its audio finishes playing.
-     *
-     * Fair (FIFO) by contract, so queue order is preserved.
-     */
-    private val synthMutex = Mutex()
-
-    /** The in-app request id currently playing (0 = none / external). */
-    @Volatile private var activeRequestId: Long = 0L
-
-    // AudioTrack owner-thread invariant: `currentTrack` is created and
-    // destroyed by the synthesis coroutine. Read by `pause` / `resume`
-    // / `stop` paths (volatile read is safe; we only call AudioTrack
-    // state transitions which are documented as thread-safe).
-    @Volatile private var currentTrack: AudioTrack? = null
-    @Volatile private var paused: Boolean = false
-    @Volatile private var cancelled: Boolean = false
-
-    /**
-     * True only while [paused] is an audio-focus pause (a transient loss), so
-     * regaining focus resumes exactly that and never a pause the user asked
-     * for. Cleared by every user pause/resume and by the next request.
-     */
-    @Volatile private var pausedByFocus: Boolean = false
-
-    /** The state last published to [mediaSession] — see [updateMediaState]. */
-    @Volatile private var mediaState: Int = PlaybackStateCompat.STATE_NONE
-
-    /**
-     * The request [activeJob] is playing, so a stop can cancel its channel —
-     * see [doStopRequest]. Guarded by `lock`, set and cleared with [activeJob].
-     */
-    private var activePrepared: Prepared? = null
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     /**
      * Newest start id delivered to [onStartCommand]. Stopping with
-     * `stopSelfResult(lastStartId)` rather than a bare `stopSelf()` leaves
-     * the service up when a newer start is already in flight — above all a
-     * startForegroundService(SPEAK), which must reach its startForeground.
+     * `stopSelfResult(lastStartId)` rather than a bare `stopSelf()` leaves the
+     * service up when a newer start is already in flight — above all a
+     * startForegroundService(SPEAK/HOST), which must reach its startForeground.
      */
-    @Volatile private var lastStartId: Int = 0
+    private var lastStartId = 0
 
-    private var audioManager: AudioManager? = null
-    private var focusRequest: AudioFocusRequest? = null
     private var mediaSession: MediaSessionCompat? = null
     private var notificationManager: NotificationManager? = null
 
-    /**
-     * Keeps the CPU running while there is speech to produce — a foreground
-     * service alone does not: with the screen off the device can suspend
-     * between requests, during an underrun or on a cloud round-trip, freezing
-     * inference mid-read. Held (with a timeout, re-armed as chunks flow) only
-     * while work is active and not paused. See [holdWakeLock].
-     */
-    private var wakeLock: PowerManager.WakeLock? = null
+    /** What is shown: [ServiceUi.render] of the latest state (null before the first). */
+    private var ui: ServiceUi? = null
+    private var mediaState = PlaybackStateCompat.STATE_NONE
+    private var lastErrorId: Long? = null
+    private var idleCheck: Job? = null
 
     override fun onCreate() {
         super.onCreate()
         notificationManager = getSystemService(NotificationManager::class.java)
-        audioManager = getSystemService(AUDIO_SERVICE) as? AudioManager
-        wakeLock = getSystemService(PowerManager::class.java)
-            ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG)
-            // One logical hold, re-armed many times; one release ends it.
-            ?.apply { setReferenceCounted(false) }
         ensureNotificationChannel()
         ensureMediaSession()
+        shim.onSettled = { scope.launch { scheduleIdleCheck() } }
+        scope.launch { narrator.state.collect(::show) }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         lastStartId = startId
-        if (intent?.action == ACTION_SPEAK) {
-            // ACTION_SPEAK is the only action ever sent with
-            // startForegroundService (SpeakDispatcher, Synthesizer.speak,
-            // ReaderSpeechClient.speak), so it alone owes a startForeground —
-            // immediately, before any work: Android 12+ throws
-            // ForegroundServiceStartNotAllowedException if we delay.
-            promoteToForeground()
-            val req = parseRequest(intent)
-            if (req == null) {
-                Log.w(TAG, "ACTION_SPEAK without ${EXTRA_TEXT} — ignoring")
-                // A malformed in-app request must still resolve its
-                // awaiting speak() call.
-                completions.post(
-                    intent.getLongExtra(EXTRA_REQUEST_ID, 0L),
-                    PreviewCompletions.ErrorKind.FAILED,
-                    "malformed request",
-                )
-                stopIfIdle()
-                return START_NOT_STICKY
-            }
-            enqueue(req)
-            return START_NOT_STICKY
-        }
-
-        // Everything else is a control intent, sent with plain startService
-        // (Synthesizer.cancel, ReaderSpeechClient's transport, the
-        // notification's PendingIntent.getService buttons) and never promoted
-        // to foreground. One can land on an instance that has nothing to
-        // play — the reader's STOP_REQUESTs racing the stopSelf of the
-        // instance they were meant for create a fresh one — so stopIfIdle
-        // below puts that instance straight back down instead of leaving it
-        // running (or, as when every action promoted, stuck on a "Preparing…"
-        // notification or refused as a background FGS start).
         when (intent?.action) {
-            // System restart with no intent — START_NOT_STICKY means this
-            // should not happen, but be defensive.
+            // Sent with startForegroundService (Synthesizer, SpeakDispatcher,
+            // Tasker): it owes a startForeground, immediately — Android 12+
+            // throws if we delay.
+            ACTION_SPEAK -> {
+                promoteToForeground()
+                val parsed = parseRequest(intent)
+                if (parsed == null) {
+                    Log.w(TAG, "ACTION_SPEAK without $EXTRA_TEXT — ignoring")
+                    // A malformed in-app request must still resolve its
+                    // awaiting speak() call.
+                    completions.post(
+                        intent.getLongExtra(EXTRA_REQUEST_ID, 0L),
+                        PreviewCompletions.ErrorKind.FAILED,
+                        "malformed request",
+                    )
+                } else {
+                    shim.speak(parsed.request, parsed.requestId)
+                }
+            }
+            // The reader (ServicePlaybackHost), before a command that plays.
+            ACTION_HOST -> promoteToForeground()
+            // Everything else is a control intent, sent with plain
+            // startService (Synthesizer.cancel, the notification's buttons)
+            // and never promoted — except a resume, which must be foreground
+            // to be heard.
+            ACTION_PAUSE -> narrator.pause()
+            ACTION_RESUME -> resume()
+            ACTION_STOP -> narrator.stop()
+            ACTION_STOP_REQUEST -> shim.stop(intent.getLongExtra(EXTRA_REQUEST_ID, 0L))
+            // Only shown while the article is on air, but a stale
+            // PendingIntent can still land after it stopped.
+            ACTION_READER_NEXT -> if (ui?.showNext == true) narrator.next()
+            ACTION_READER_PREVIOUS -> if (ui?.showPrevious == true) narrator.previous()
+            // A system restart with no intent — START_NOT_STICKY means this
+            // should not happen.
             null -> Unit
-            ACTION_PAUSE -> doPause()
-            ACTION_RESUME -> doResume()
-            ACTION_STOP -> doStop()
-            ACTION_STOP_REQUEST ->
-                doStopRequest(intent.getLongExtra(EXTRA_REQUEST_ID, 0L))
-            // Reader transport, from the notification's own buttons. Only
-            // shown while the reader is mid-article (see buildNotification),
-            // but a stale PendingIntent can still land after it stopped —
-            // hence the guard rather than a bare call.
-            ACTION_READER_NEXT -> if (transport.reader.value.isReading) readerPlayback.next()
-            ACTION_READER_PREVIOUS ->
-                if (transport.reader.value.isReading) readerPlayback.previous()
-            // Unknown action — ignore but don't crash.
             else -> Log.w(TAG, "Unknown action: ${intent.action}")
         }
-        stopIfIdle()
+        // A control intent can land on a fresh instance with nothing to play;
+        // this puts it straight back down.
+        scheduleIdleCheck()
         return START_NOT_STICKY
-    }
-
-    /**
-     * Android 14+ (API 34) requires the type argument to match the manifest
-     * declaration (mediaPlayback) — otherwise we get a
-     * MissingForegroundServiceTypeException at runtime. The 3-arg overload
-     * exists since API 29 (Q), so we guard the type pass on Q+.
-     */
-    private fun promoteToForeground() {
-        val notification = buildNotification(
-            stateText = getString(R.string.service_synth_state_preparing),
-        )
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK,
-            )
-        } else {
-            @Suppress("DEPRECATION")
-            startForeground(NOTIFICATION_ID, notification)
-        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
-        doStop() // also drops the wake lock
+        // Destroyed while hosting (the system took the service away): nothing
+        // on air can be heard any more, so the Narrator stops it. The service's
+        // own idle stop has already left the foreground, and a service detached
+        // after a permanent focus loss keeps its paused article (the Narrator's
+        // paused timeout ends it) — neither reports a loss, so a play racing
+        // this teardown isn't stopped by it.
+        if (host.foreground) {
+            host.foreground = false
+            narrator.onHostChanged(false)
+        }
+        shim.onSettled = {}
+        scope.cancel()
         mediaSession?.release()
         mediaSession = null
-        scope.cancel()
         stopForeground(STOP_FOREGROUND_REMOVE)
+        notificationManager?.cancel(NOTIFICATION_ID)
         super.onDestroy()
     }
 
-    // -- request handling -----------------------------------------------------
-
-    internal fun parseRequest(intent: Intent): SpeakRequest? {
-        // In-app callers hand very long text over as a cache file: intent
-        // extras cross a binder transaction (~1 MB) even same-process, and
-        // the Speak screen accepts pastes the old in-process path played
-        // without any such cap. The file is consumed (deleted) here.
-        val text = intent.getStringExtra(EXTRA_TEXT)?.takeIf { it.isNotBlank() }
-            ?: intent.getStringExtra(EXTRA_TEXT_FILE)?.let { path ->
-                val f = java.io.File(path)
-                // Only ever our own cache files — refuse anything else.
-                if (!f.absolutePath.startsWith(cacheDir.absolutePath)) return null
-                runCatching { f.readText() }.getOrNull().also { f.delete() }
-            }?.takeIf { it.isNotBlank() }
-            ?: return null
-        // Track whether the caller specified a voice explicitly. When they
-        // didn't, we leave voice/engine/speed/effect as "default" sentinels
-        // and let runOne ask TtsRouter to resolve them from the primary
-        // alias (or fall back to engine defaults). Callers who explicitly
-        // want Kitten pass EXTRA_VOICE = "kitten:<name>".
-        val explicitVoice = intent.getStringExtra(EXTRA_VOICE)?.takeIf { it.isNotBlank() }
-        // Derive the engine name from the voice id (everything before
-        // ':'); the explicit EXTRA_ENGINE wins if present so legacy
-        // callers that send engine without voice still work.
-        val explicitEngine = intent.getStringExtra(EXTRA_ENGINE)?.takeIf { it.isNotBlank() }
-        val voice = explicitVoice ?: KittenDirectVoiceCatalog.DEFAULT_VOICE_ID
-        val engineName = explicitEngine ?: engineFromVoiceId(voice)
-        val speed = if (intent.hasExtra(EXTRA_SPEED)) {
-            intent.getFloatExtra(EXTRA_SPEED, 1.0f)
+    /**
+     * Android 14+ (API 34) requires the type argument to match the manifest
+     * declaration (mediaPlayback); the 3-arg overload exists since API 29.
+     */
+    private fun promoteToForeground() {
+        val notification = buildNotification(ui)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
         } else {
-            1.0f
+            @Suppress("DEPRECATION")
+            startForeground(NOTIFICATION_ID, notification)
         }
-        // Unlike EXTRA_SPEED this survives alias routing: it replaces whatever
-        // speed the request ends up with, alias-resolved or explicit (see
-        // resolveRequest). Absent (every path but the reader) means null, i.e.
-        // no change at all. A non-positive value would silence or reverse the
-        // engine, so garbage is ignored rather than failing the request.
-        val sessionSpeed = if (intent.hasExtra(EXTRA_SESSION_SPEED)) {
-            intent.getFloatExtra(EXTRA_SESSION_SPEED, 1.0f)
-                .takeIf { it > 0f && it.isFinite() }
-        } else {
-            null
-        }
-        val effectPreset = intent.getStringExtra(EXTRA_EFFECT)
-            ?.let { name ->
-                // Unknown values fall back to NONE — safer than throwing on a
-                // typo'd extra from a third-party caller (Tasker etc).
-                EffectPreset.entries.firstOrNull { it.name == name } ?: EffectPreset.NONE
-            }
-            ?: EffectPreset.NONE
-        // The Intent contract still speaks in presets; turn it into a block
-        // chain here (no DB round-trip — third parties can't reference our
-        // custom effect ids). The alias path in runOne overrides this with
-        // the alias's own effectId-resolved chain. In-app requests carry
-        // their exact chain as JSON instead (custom effects have no preset
-        // name); a malformed payload degrades to the preset/dry chain.
-        val effectBlocks = intent.getStringExtra(EXTRA_EFFECT_BLOCKS)
-            ?.let { json -> runCatching { EffectBlockJson.decode(json) }.getOrNull() }
-            ?: EffectChain.blocksForPreset(effectPreset)
-        // voiceExplicit drives the routing decision in runOne: when false,
-        // the per-app router fires (which for the share-sheet path resolves
-        // to the primary alias — share-sheet doesn't carry a callerUid).
-        return SpeakRequest(
-            text = text,
-            engine = engineName,
-            voice = voice,
-            speed = speed,
-            sessionSpeed = sessionSpeed,
-            effectBlocks = effectBlocks,
-            voiceExplicit = explicitVoice != null,
-            phonemizationLanguage = intent.getStringExtra(EXTRA_LANG)?.takeIf { it.isNotBlank() },
-            requestId = intent.getLongExtra(EXTRA_REQUEST_ID, 0L),
-            continuation = intent.getBooleanExtra(EXTRA_CONTINUATION, false),
-            aliasId = intent.getStringExtra(EXTRA_ALIAS_ID)?.takeIf { it.isNotBlank() },
-            shared = intent.getBooleanExtra(EXTRA_SHARED, false),
-        )
+        idleCheck?.cancel()
+        host.foreground = true
+        narrator.onHostChanged(true)
     }
 
     /**
-     * Pull the engine name out of a voice ID (`"<engine>:<voice>"`).
-     * Falls back to Kokoro (the recommended default) for malformed IDs.
-     * Both entry points — this voice-id parse and the alias-resolved route
-     * in [prepareLocked] — narrow through [EngineRegistry], the one engine list.
+     * Play/resume from the notification, the lock screen or a media key. After
+     * a permanent focus loss the service left the foreground and must return
+     * to it to be heard; if the OS refuses, the Narrator fails the session once
+     * its host timeout passes.
      */
-    private fun engineFromVoiceId(voiceId: String): String = EngineRegistry.engineNameFor(voiceId)
-
-    private fun enqueue(req: SpeakRequest) {
-        val replacedTrack = synchronized(lock) {
-            val replacing = replacesPausedWork(
-                paused = paused,
-                pausedByFocus = pausedByFocus,
-                hasActive = activeJob != null,
-                stopping = cancelled,
-                continuation = req.continuation,
-            )
-            // The paused read goes; the playing request's finally then starts
-            // this one (startNextLocked clears `paused` and `cancelled`).
-            if (replacing) {
-                Log.d(TAG, "New request replaces paused work")
-                cancelAllLocked()
-            }
-            queue.addLast(req)
-            if (activeJob == null) {
-                startNextLocked()
-            } else if (replacing) {
-                updateNotification(getString(R.string.service_synth_state_preparing))
-                prefetchLocked()
-            } else {
-                Log.d(TAG, "Queued request (queue size = ${queue.size})")
-                updateNotification(
-                    getString(R.string.service_synth_state_queued, req.text.take(40)),
-                )
-                // Something is already playing, so the engine is idle as soon
-                // as that request's own synthesis is done — spend it on this
-                // one rather than waiting for the handover.
-                prefetchLocked()
-            }
-            // Captured under the lock so the halt below can only ever reach
-            // the paused request's track, never the new request's.
-            if (replacing) currentTrack else null
+    private fun resume() {
+        if (!host.foreground) {
+            runCatching { promoteToForeground() }
+                .onFailure { Log.w(TAG, "Could not return to the foreground", it) }
         }
-        replacedTrack?.let(::haltTrack)
+        narrator.play()
     }
 
-    /** Caller must hold `lock`. */
-    private fun startNextLocked() {
-        val next = queue.pollFirst() ?: run {
-            // Nothing left to do — release focus + foreground.
-            stopIfIdle()
-            return
+    // -- state → notification, media session, foreground --------------------
+
+    private fun show(state: NarratorState) {
+        val next = ServiceUi.render(state, mediaState)
+        ui = next
+        mediaState = next.mediaState
+        updateMediaSession(next)
+        ServiceUi.errorToPost(state, lastErrorId)?.let {
+            lastErrorId = it.oneShotId
+            postErrorNotification(it)
         }
-        cancelled = false
-        pausedByFocus = false
-        setPaused(false)
-        holdWakeLock()
-        // P-K — share-sheet / Tasker path. This service
-        // is already foregrounded, so starting the keepalive service from
-        // here is FGS-from-FGS, which is always allowed.
-        keepaliveCoordinator.onSynthCompleted()
-        activeRequestId = next.requestId
-        // Advertise transport controls from the start, not from the first
-        // audio: until the session has a state it offers no actions, and a
-        // headset/Bluetooth stop or pause during a slow engine's time-to-
-        // first-audio was dropped. A request following one that is playing
-        // keeps PLAYING, so a queue handover doesn't flicker the controls.
-        updateMediaState(stateForRequestStart(mediaState))
-        // Prepared by the request before this one, in the common case: its
-        // audio is already synthesised (or well underway) and playback starts
-        // without waiting for the engine.
-        val prepared = preparedHead?.also { preparedHead = null } ?: prepareLocked(next)
-        val job = scope.launch {
-            try {
-                runOne(prepared)
-            } finally {
-                // In a finally so no way out of runOne — a cancellation
-                // included — can leave activeJob set and wedge the queue.
-                synchronized(lock) {
-                    activeJob = null
-                    activePrepared = null
-                    activeRequestId = 0L
-                    if (queue.isNotEmpty()) {
-                        startNextLocked()
-                    } else {
-                        stopIfIdle()
-                    }
+        when {
+            !next.onAir -> scheduleIdleCheck()
+            next.ongoing -> notificationManager?.notify(NOTIFICATION_ID, buildNotification(next))
+            else -> {
+                // §6 Q6: another app took the sound for good. Paused in place,
+                // out of the foreground, and the notification can be swiped
+                // away (its delete intent stops the article).
+                if (host.foreground) {
+                    stopForeground(STOP_FOREGROUND_DETACH)
+                    host.foreground = false
                 }
-            }
-        }
-        // Safety net for the one window runOne's own finally can't cover:
-        // the coroutine cancelled (onDestroy's scope.cancel) before its
-        // body ever dispatched. A duplicate post for an id that already
-        // resolved is harmless — the awaiting speak() collected the first.
-        job.invokeOnCompletion { cause ->
-            if (cause is kotlinx.coroutines.CancellationException) {
-                completions.post(next.requestId, null, stopped = true)
-            }
-        }
-        activeJob = job
-        activePrepared = prepared
-        // THE point of the pipeline: while this request plays, synthesise the
-        // one behind it. Without this every queue handover costs a full
-        // time-to-first-audio, which in the reader is a silence at every
-        // paragraph boundary.
-        prefetchLocked()
-    }
-
-    /**
-     * Start synthesising `queue.first()` if nothing is being pre-synthesised
-     * already. One deep on purpose: that is all playback can hide, and each
-     * prepared request holds its buffered PCM until it plays.
-     *
-     * Caller must hold `lock`.
-     */
-    private fun prefetchLocked() {
-        if (preparedHead != null) return
-        val head = queue.firstOrNull() ?: return
-        preparedHead = prepareLocked(head)
-    }
-
-    /**
-     * Drop the pre-synthesis for the current head of [queue] — the repair
-     * every path that removes a queued request owes the [preparedHead]
-     * invariant. Cancelling the producer also frees whatever PCM it buffered.
-     *
-     * Caller must hold `lock`.
-     */
-    private fun dropPreparedHeadLocked() {
-        preparedHead?.let {
-            it.cancel()
-            sessionSpeeds.release(it.req.requestId)
-        }
-        preparedHead = null
-    }
-
-    /**
-     * Kick off synthesis for [req] into its own buffered channel, and hand
-     * back the handle playback will consume.
-     *
-     * Everything that needs the engine happens here, under [synthMutex]:
-     * alias routing, language resolution, preprocessing, inference and the
-     * effect chain. Playback ([runOne]) then only moves PCM to the AudioTrack,
-     * which is what lets the two overlap across requests.
-     *
-     * Caller must hold `lock`.
-     */
-    private fun prepareLocked(req: SpeakRequest): Prepared {
-        val channel = Channel<SynthAudio>(capacity = SYNTH_BUFFER_CHUNKS)
-        val engineName = CompletableDeferred<String>()
-        val shaping = CompletableDeferred<Shaping>()
-        val job = scope.launch {
-            try {
-                val resolved = resolveRequest(req)
-                // Route to the engine named by resolved.engine. Unknown
-                // engines warn and fall through to Kokoro (the recommended
-                // default) rather than failing loudly — keeps the foreground
-                // service robust to third-party callers sending garbage in
-                // EXTRA_ENGINE.
-                val engine = EngineRegistry.knownEngineOrDefault(resolved.engine)
-                if (engine != resolved.engine) {
-                    Log.w(TAG, "Engine '${resolved.engine}' not supported — using $engine")
-                }
-                engineName.complete(engine)
-                Log.d(TAG, "Synthesising request ${req.requestId} (${req.text.take(24)}…)")
-                synthMutex.withLock {
-                    // Marks this engine resident while it is actually being
-                    // driven, and keeps a sweep from releasing it mid-
-                    // utterance (Pocket's release() cancels an in-flight
-                    // synthesis). runOne holds a second, overlapping claim
-                    // for the playback window.
-                    residency.beginSynth(engine)
-                    try {
-                        produceAudio(resolved, engine, channel, shaping)
-                    } finally {
-                        residency.endSynth(engine)
-                    }
-                }
-                channel.close()
-            } catch (t: Throwable) {
-                // Closing with the cause is how the failure reaches playback:
-                // the consumer's iteration rethrows it, and runOne maps it to
-                // the same outcome it always did. It must NOT be rethrown —
-                // this coroutine has no parent handler (the service scope is
-                // a SupervisorJob), so an escaping engine error would reach
-                // the default uncaught handler and take the app down.
-                channel.close(t)
-                if (t is kotlinx.coroutines.CancellationException) throw t
-            } finally {
-                // Never leave a consumer awaiting an engine name (or, at its
-                // first chunk, a shaping) that a cancelled producer will never
-                // publish. No audio is sent before the shaping is, so the
-                // passthrough never reaches audio that needed shaping.
-                if (!engineName.isCompleted) engineName.complete(DEFAULT_ENGINE)
-                if (!shaping.isCompleted) shaping.complete(Shaping.PASSTHROUGH)
-            }
-        }
-        return Prepared(req, channel, job, engineName, shaping)
-    }
-
-    /**
-     * Alias routing + session speed + language auto-detect: everything that
-     * turns the caller's request into the one the engine is actually given.
-     */
-    private suspend fun resolveRequest(req: SpeakRequest): SpeakRequest {
-        // Per-app routing: when the caller didn't specify a voice, ask
-        // TtsRouter for the user's primary alias and inject voice + speed
-        // + effect from it. Share-sheet callers never
-        // pass EXTRA_VOICE, so this is where the user's primary persona
-        // lands. Caller-package is null on this path — the trampoline
-        // activity runs in our own process and there's no callerUid to
-        // resolve. The router still does the right thing (skip per-app
-        // lookup, return the primary). The reader may name another alias
-        // (EXTRA_ALIAS_ID) when the primary's voice doesn't speak the
-        // article's language; a plain-text share gets the same decision
-        // made here, once, on the whole shared text (lang/VoiceForLanguage.kt).
-        val choice = if (isLanguageAwareShare(req)) {
-            languageVoices.select(req.text, subject = "share", logTag = SHARE_VOICE_TAG)
-        } else {
-            VoiceChoice.Primary
-        }
-        val routed: SpeakRequest = if (req.voiceExplicit) {
-            req
-        } else if (choice is VoiceChoice.Installed) {
-            withInstalledVoice(req, choice)
-        } else {
-            val aliasId = (choice as? VoiceChoice.Alias)?.aliasId ?: req.aliasId
-            val alias = router.resolveAlias(callerPackage = null, aliasId = aliasId)
-            if (alias != null) {
-                req.copy(
-                    engine = alias.engine,
-                    voice = alias.voiceId,
-                    speed = alias.speed,
-                    effectBlocks = effectResolver.blocksFor(alias.effectId),
-                    phonemizationLanguage = alias.phonemizationLanguage,
-                )
-            } else {
-                req
-            }
-        }
-
-        // Resolve auto-detection against the utterance, once, before any
-        // chunking. No per-utterance voice rerouting here: it has no request
-        // locale to fall back on and the caller picked the voice, so
-        // detection only ever moves the phonemizer. (The voice for the
-        // text's language was already settled: by the reader, once per
-        // article, or above, once per shared text — see
-        // lang/VoiceForLanguage.kt.) See
-        // [UtteranceLanguage] for the per-engine rules.
-        //
-        // The session speed lands here, after routing, so it replaces the
-        // alias's speed while the rest of the alias (voice, effect, language)
-        // still applies — the reader's speed control is an override. Every
-        // other caller leaves it unset, so this is an identity for them.
-        return routed.copy(
-            speed = effectiveSpeed(routed),
-            phonemizationLanguage = UtteranceLanguage.resolve(
-                detector = langDetector,
-                engineName = routed.engine,
-                voiceId = routed.voice,
-                stored = routed.phonemizationLanguage,
-                text = routed.text,
-            ),
-        )
-    }
-
-    /**
-     * The speed [routed] (already alias-resolved) is synthesised at: the
-     * caller's session speed when it sent one, the routed speed otherwise.
-     */
-    internal fun effectiveSpeed(routed: SpeakRequest): Float = routed.sessionSpeed ?: routed.speed
-
-    /**
-     * Whether [req] is a plain-text share whose voice follows its language:
-     * sent by the share sheet (or the reader's "read text as-is" fallback,
-     * which is the same shared text), with no voice or alias named. Every
-     * other caller — the Speak screen and previews (explicit voice), the
-     * reader (decides per article itself) — is routed exactly as before.
-     * System TTS never comes through this service at all.
-     */
-    internal fun isLanguageAwareShare(req: SpeakRequest): Boolean =
-        req.shared && !req.voiceExplicit && req.aliasId == null
-
-    /**
-     * [req] spoken in an installed voice no alias uses: that voice, dry, at
-     * 1.0x, its phonemizer left to the engine's own auto-detection.
-     */
-    internal fun withInstalledVoice(req: SpeakRequest, choice: VoiceChoice.Installed): SpeakRequest =
-        req.copy(
-            engine = choice.engine,
-            voice = choice.voiceId,
-            speed = 1.0f,
-            effectBlocks = EffectChain.blocksForPreset(EffectPreset.NONE),
-            phonemizationLanguage = null,
-        )
-
-    private suspend fun runOne(prepared: Prepared) {
-        val req = prepared.req
-        var outcome: PreviewCompletions.ErrorKind? = null
-        var outcomeMessage: String? = null
-        try {
-        // Published by the producer as soon as routing resolves; it always
-        // arrives, even if synthesis then fails or is cancelled.
-        val engineName = prepared.engineName.await()
-        Log.d(TAG, "Playing request ${req.requestId}")
-
-        if (!requestFocus()) {
-            Log.w(TAG, "Audio focus denied — skipping request")
-            outcome = PreviewCompletions.ErrorKind.FAILED
-            outcomeMessage = "audio focus denied"
-            return
-        }
-        // Second, overlapping residency claim: the producer holds one while
-        // the engine runs, this one covers the playback window so a sweep
-        // can't evict an engine we are still mid-utterance on.
-        residency.beginSynth(engineName)
-        // From this point on we MUST releaseFocus() before returning, on
-        // every branch — otherwise the next queued request calls
-        // requestFocus() again, overwrites `focusRequest`, and the previous
-        // grant becomes unrecoverable (abandonAudioFocusRequest on API 26+
-        // needs the exact original AudioFocusRequest object). doStop() /
-        // stopIfIdle() only abandon the *latest* request, so they don't
-        // recover earlier leaks either. try { … } finally { releaseFocus() }
-        // is the only safe shape.
-        try {
-            // A pause can already have landed (the request only just started,
-            // but the user or a focus loss was quicker); don't paper over it.
-            updateNotification(
-                if (paused) {
-                    getString(R.string.service_synth_state_paused)
-                } else {
-                    getString(R.string.service_synth_state_speaking_text, req.text.take(40))
-                },
-            )
-
-            // Everything upstream of the AudioTrack already happened (or is
-            // still happening) in the producer — see [prepareLocked]. All
-            // that is left here is to move PCM as it arrives, which is what
-            // frees the engine to work on the next request meanwhile.
-            try {
-                playFromChannel(prepared)
-            } catch (e: EngineNotInstalledException) {
-                Log.w(TAG, "Engine not installed", e)
-                outcome = PreviewCompletions.ErrorKind.MODEL_MISSING
-                // In-app requests surface errors in the Speak screen's
-                // status line; a system notification on top would nag twice.
-                if (req.requestId == 0L) {
-                    postErrorNotification(
-                        getString(
-                            R.string.service_synth_error_engine_not_installed,
-                            EngineRegistry.displayName(engineName),
-                        ),
-                    )
-                }
-                return
-            } catch (e: UnsupportedOperationException) {
-                // The direct engines' "model files absent" signal — same
-                // meaning as EngineNotInstalledException for the caller.
-                // (buildTrack rewraps AudioTrack's own UOE so it can't land
-                // here.)
-                Log.w(TAG, "Engine not installed", e)
-                outcome = PreviewCompletions.ErrorKind.MODEL_MISSING
-                if (req.requestId == 0L) {
-                    postErrorNotification(
-                        getString(
-                            R.string.service_synth_error_engine_not_installed,
-                            EngineRegistry.displayName(engineName),
-                        ),
-                    )
-                }
-                return
-            } catch (t: Throwable) {
-                if (t is kotlinx.coroutines.CancellationException) {
-                    // A real teardown (onDestroy's scope.cancel) propagates.
-                    currentCoroutineContext().ensureActive()
-                    // Otherwise the channel itself was cancelled: a stop aimed
-                    // at this request (doStopRequest / doStop cancel it so a
-                    // consumer parked on a slow chunk wakes at once). That is
-                    // a user stop — a terminal success, like the cancelled-
-                    // flag break in the write loop.
-                    if (cancelled) return
-                }
-                Log.e(TAG, "Synthesis failed", t)
-                outcome = PreviewCompletions.ErrorKind.FAILED
-                outcomeMessage = t.message
-                if (req.requestId == 0L) {
-                    postErrorNotification(getString(R.string.service_synth_error_failed))
-                }
-                return
-            }
-        } finally {
-            residency.endSynth(engineName)
-            releaseFocus()
-        }
-        } finally {
-            // Playback ended, however it ended — stop burning CPU on chunks
-            // nobody will hear and free whatever the producer buffered.
-            prepared.cancel()
-            sessionSpeeds.release(req.requestId)
-            // The post site covering every exit that entered runOne's body
-            // — played through, user cancel (a terminal success), error,
-            // focus denied, or cancellation anywhere including the
-            // pre-focus routing suspension — so the awaiting in-app
-            // speak() call always resolves. (The never-dispatched case is
-            // covered by the invokeOnCompletion net in startNextLocked.)
-            completions.post(
-                req.requestId,
-                outcome,
-                outcomeMessage,
-                stopped = outcome == null && cancelled,
-            )
-        }
-    }
-
-    /**
-     * Synthesis, start to finish, into [channel] — the producer half of the
-     * pipeline. Runs under [synthMutex], with no reference to playback: what
-     * makes the reader gapless is that this can be running for block N+1
-     * while block N is still being written to the AudioTrack.
-     *
-     * Backpressure still applies within a request: [SYNTH_BUFFER_CHUNKS] is
-     * generous enough to swallow a whole paragraph (so the producer finishes
-     * early and frees the engine) but bounded, so a 50k-character share-sheet
-     * read never puts a whole article's PCM on the heap.
-     */
-    private suspend fun produceAudio(
-        resolved: SpeakRequest,
-        engineName: String,
-        channel: SendChannel<SynthAudio>,
-        shaping: CompletableDeferred<Shaping>,
-    ) {
-        // Per-engine preprocessing (currency, numbers, abbreviations, …)
-        // feeds the engine the same normalised text the user gets on the
-        // CLI. Streaming eligibility mirrors Synthesizer.speak and the
-        // system TTS service: effects stream through StreamingEffectChain;
-        // only non-neutral emotion still needs the batched pipeline
-        // (ProsodyApplier shapes the whole PCM).
-        val enabled = settings.enabledRules(engineName).first()
-        val handle = engines[engineName]
-        val batched = EmojiProsody.detect(resolved.text).emotion != Emotion.Neutral
-
-        // The reader's requests follow a session-speed change live when the
-        // speed is a time-stretch applied at playback — i.e. the engine
-        // renders at 1.0 and the batched path (which bakes the whole chain
-        // in here) isn't in play. Otherwise the speed is fixed from this
-        // moment, and LiveSessionSpeed tells the reader to re-enqueue.
-        val liveSpeed = resolved.sessionSpeed != null && resolved.requestId != 0L &&
-            !handle.supportsNativeSpeed && !batched
-        val speed = if (resolved.sessionSpeed != null && resolved.requestId != 0L) {
-            sessionSpeeds.resolve(resolved.requestId, resolved.speed, liveCapable = liveSpeed)
-        } else {
-            resolved.speed
-        }
-
-        if (batched) {
-            // Fully shaped here, speed included — playback must not touch it.
-            shaping.complete(Shaping.PASSTHROUGH)
-            produceBatched(resolved.copy(speed = speed), engineName, enabled, channel)
-            return
-        }
-
-        val preprocessed = preprocessor.apply(resolved.text, enabled)
-        val stripped = EmojiProsody.stripEmojis(preprocessed)
-        // Input collapsed to nothing speakable (blank text, or emoji-only
-        // that stripped to "") — close with no audio; playback is a no-op
-        // and the request still completes successfully.
-        if (stripped.isBlank()) return
-
-        // Cold-start skew guard: an engine that has to load its model during
-        // this utterance renders the first chunk far slower than it will warm.
-        // Match DeviceCapability's benchmark, which excludes model load — only
-        // record RTF when the model is already resident.
-        val warm = handle.isLoaded()
-        val plan = applySpeedFallback(handle, speed, resolved.effectBlocks)
-        // The effect chain runs on the PLAYBACK side (playFromChannel), not
-        // here: this producer runs up to SYNTH_BUFFER_CHUNKS ahead, so a
-        // tempo applied here couldn't follow a speed change for seconds. On
-        // the live path the chain is the alias's effects behind a live Tempo
-        // stage (the Tempo that applySpeedFallback would have prepended, made
-        // adjustable); otherwise it is exactly the plan's chain.
-        shaping.complete(
-            if (liveSpeed) {
-                Shaping(resolved.effectBlocks, liveTempo = speed, liveRequestId = resolved.requestId)
-            } else {
-                Shaping(plan.blocks)
-            },
-        )
-        var sampleRate = 0
-        // Rolling-RTF measurement. renderNanos accumulates only the time the
-        // engine spends producing each chunk (the gap before it arrives),
-        // reset AFTER the send so channel backpressure — which has nothing to
-        // do with render speed — is excluded. audioSamples is the engine's own
-        // rendered PCM: the channel carries it unstretched (the effect chain,
-        // Tempo included, runs at playback).
-        //
-        // That only holds while the collector never waits: the engines'
-        // synthesizeStream is a buffered flow on its own dispatcher, so while
-        // a send is backpressured (playback behind, or paused) the engine
-        // keeps rendering ahead, and the chunks after it arrive with near-zero
-        // gaps. Such an utterance is marked skewed and not sampled — left in,
-        // it drags the rolling RTF far below the truth and silences the
-        // speed-up warning.
-        var renderNanos = 0L
-        var audioSamples = 0L
-        var skewed = false
-        var lastResume = System.nanoTime()
-        streamForEngine(
-            engineName,
-            stripped,
-            resolved.voice,
-            plan.speed,
-            resolved.phonemizationLanguage,
-            // The speed at stream start sizes the engine's pre-roll; a live
-            // change later on doesn't re-budget it (see LiveSessionSpeed).
-            plan.playbackRate,
-        ).collect { audio ->
-            renderNanos += System.nanoTime() - lastResume
-            audioSamples += audio.pcm.size
-            sampleRate = audio.sampleRate
-            if (paused) skewed = true
-            if (!channel.trySend(audio).isSuccess) {
-                skewed = true
-                channel.send(audio)
-            }
-            lastResume = System.nanoTime()
-        }
-        engineRtfSample(warm, skewed, renderNanos, audioSamples, sampleRate)
-            ?.let { recordEngineRtf(engineName, it) }
-    }
-
-    /**
-     * Fold this utterance's warm RTF (see [engineRtfSample]) into the
-     * per-engine rolling average that feeds the speed-up performance warning.
-     * Fire-and-forget on the service scope, like the latency write, so a slow
-     * DataStore can't stall the producer.
-     */
-    private fun recordEngineRtf(engineName: String, rtf: Double) {
-        scope.launch { runCatching { settings.recordEngineRtf(engineName, rtf) } }
-    }
-
-    /**
-     * Batched producer — only for non-neutral emotion, where ProsodyApplier
-     * needs the complete PCM before shaping. Emits it as a single chunk.
-     */
-    private suspend fun produceBatched(
-        resolved: SpeakRequest,
-        engineName: String,
-        enabledRules: Set<String>,
-        channel: SendChannel<SynthAudio>,
-    ) {
-        val plan = applySpeedFallback(engines[engineName], resolved.speed, resolved.effectBlocks)
-        val result = runSynthesisPipeline(
-            rawText = resolved.text,
-            voiceId = resolved.voice,
-            speed = plan.speed,
-            enabledRules = enabledRules,
-            effectBlocks = plan.blocks,
-            preprocessor = preprocessor,
-            synthesize = { t, v, s ->
-                synthesizeForEngine(engineName, t, v, s, resolved.phonemizationLanguage)
-            },
-        )
-        when (result) {
-            is PipelineResult.Empty -> return
-            is PipelineResult.Audio -> channel.send(SynthAudio(result.pcm, result.sampleRate))
-        }
-    }
-
-    /** Per-engine synthesis dispatch through the one engine table. */
-    private suspend fun synthesizeForEngine(
-        engineName: String,
-        text: String,
-        voiceId: String,
-        speed: Float,
-        phonemizationLanguage: String? = null,
-    ): SynthAudio = engines[engineName].synthesize(text, voiceId, speed, phonemizationLanguage)
-
-    /** Streaming counterpart of [synthesizeForEngine] — same routing. */
-    private fun streamForEngine(
-        engineName: String,
-        text: String,
-        voiceId: String,
-        speed: Float,
-        phonemizationLanguage: String? = null,
-        playbackRate: Float = 1f,
-    ): Flow<SynthAudio> {
-        val stream = engines[engineName].synthesizeStream(text, voiceId, speed, phonemizationLanguage, playbackRate)
-        // Time-to-first-audio sampling — feeds the Speak screen's per-voice
-        // latency hints (VoiceLatencySource). Lived in Synthesizer before
-        // every in-app playback routed through this service; the write is
-        // fire-and-forget on the service scope so a slow DataStore can't
-        // stall the chunk pipeline.
-        var startedAt = 0L
-        var recorded = false
-        return stream
-            .onStart { startedAt = SystemClock.elapsedRealtime() }
-            .onEach {
-                if (!recorded) {
-                    recorded = true
-                    val millis = SystemClock.elapsedRealtime() - startedAt
-                    scope.launch { runCatching { latency.record(voiceId, engineName, millis, text.length) } }
-                }
-            }
-    }
-
-    // -- transport ------------------------------------------------------------
-
-    /**
-     * The one writer of [paused]. Mirroring it onto [PlaybackTransport] here
-     * (rather than at each call site) is what lets the reader notice a pause
-     * it didn't ask for — the notification's button, a media key, an
-     * audio-focus duck — instead of leaving its play/pause button lying.
-     */
-    private fun setPaused(value: Boolean) {
-        paused = value
-        transport.setPaused(value)
-    }
-
-    /**
-     * [byFocus] marks a transient audio-focus loss — the one kind of pause
-     * that regaining focus may undo. Every other caller is the user.
-     */
-    private fun doPause(byFocus: Boolean = false) {
-        // Under `lock` with the release, so a chunk's holdWakeLock can't
-        // re-arm between the flag and the release.
-        synchronized(lock) {
-            pausedByFocus = byFocus
-            setPaused(true)
-            releaseWakeLock()
-        }
-        currentTrack?.let { track ->
-            try {
-                if (track.playState == AudioTrack.PLAYSTATE_PLAYING) track.pause()
-            } catch (_: IllegalStateException) { /* track gone */ }
-        }
-        // Even with no track yet (paused during time-to-first-audio) — the
-        // track, once built, then starts paused (see playFromChannel). An idle
-        // service has nothing to show: a notification posted there would
-        // outlive the stopIfIdle that follows, as it was never foreground.
-        if (!hasWork()) return
-        updateMediaState(PlaybackStateCompat.STATE_PAUSED)
-        updateNotification(getString(R.string.service_synth_state_paused))
-    }
-
-    private fun doResume() {
-        pausedByFocus = false
-        setPaused(false)
-        currentTrack?.let { track ->
-            try {
-                if (track.playState != AudioTrack.PLAYSTATE_PLAYING) track.play()
-            } catch (_: IllegalStateException) { /* track gone */ }
-        }
-        if (!hasWork()) return
-        holdWakeLock()
-        updateMediaState(PlaybackStateCompat.STATE_PLAYING)
-        updateNotification(getString(R.string.service_synth_state_speaking))
-    }
-
-    /** A request is playing or queued. */
-    private fun hasWork(): Boolean = synchronized(lock) { activeJob != null || queue.isNotEmpty() }
-
-    /**
-     * Arm (or re-arm) the wake lock for another [WAKE_LOCK_TIMEOUT_MS] —
-     * never while paused, when there is nothing to keep the CPU up for.
-     */
-    private fun holdWakeLock() {
-        synchronized(lock) {
-            if (!paused) wakeLock?.acquire(WAKE_LOCK_TIMEOUT_MS)
-        }
-    }
-
-    private fun releaseWakeLock() {
-        wakeLock?.takeIf { it.isHeld }?.release()
-    }
-
-    /**
-     * Stop ONE in-app request — [Synthesizer.cancel]'s scoped stop. Unlike
-     * [doStop] this never touches other work: an external share-sheet read
-     * in progress (or queued) keeps playing. Queued → removed + resolved;
-     * currently playing → current job cancelled (the queue continues);
-     * already finished / unknown → no-op.
-     *
-     * Cancelling the playing request's [Prepared] matters as much as the
-     * flag: its consumer may be parked waiting for the next chunk (the
-     * batched emoji path sends the whole text as one), with the producer
-     * holding [synthMutex] — the flag alone would only be seen when that
-     * chunk finally arrived.
-     */
-    private fun doStopRequest(requestId: Long) {
-        if (requestId == 0L) return
-        synchronized(lock) {
-            val queued = queue.firstOrNull { it.requestId == requestId }
-            if (queued != null) {
-                // Its pre-synthesis (if it is the head) dies with it, and the
-                // new head gets one instead.
-                if (queued === queue.firstOrNull()) dropPreparedHeadLocked()
-                queue.remove(queued)
-                completions.post(requestId, null, stopped = true)
-                prefetchLocked()
-                return
-            }
-            if (activeRequestId != requestId) return
-            cancelled = true
-            activePrepared?.cancel()
-        }
-        currentTrack?.let(::haltTrack)
-    }
-
-    private fun doStop() {
-        synchronized(lock) {
-            cancelAllLocked()
-            releaseWakeLock()
-        }
-        currentTrack?.let(::haltTrack)
-        releaseFocus()
-        updateMediaState(PlaybackStateCompat.STATE_STOPPED)
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelfResult(lastStartId)
-    }
-
-    /**
-     * Cancel every request, queued and playing — [doStop], and a new speak
-     * replacing paused work. Queued in-app requests will never reach runOne,
-     * so they are resolved here (as stops) or their awaiting speak() calls
-     * hang; they post before the active one, which posts from runOne's
-     * finally. Cancelling the playing request's [Prepared] wakes a consumer
-     * parked on a slow chunk, as in [doStopRequest].
-     *
-     * Caller must hold `lock`.
-     */
-    private fun cancelAllLocked() {
-        cancelled = true
-        queue.forEach { completions.post(it.requestId, null, stopped = true) }
-        queue.clear()
-        dropPreparedHeadLocked()
-        activePrepared?.cancel()
-    }
-
-    /** Silence [track] at once, dropping what it still buffers. */
-    private fun haltTrack(track: AudioTrack) {
-        try {
-            if (track.playState != AudioTrack.PLAYSTATE_STOPPED) {
-                track.pause()
-                track.flush()
-                track.stop()
-            }
-        } catch (_: IllegalStateException) { /* already stopped */ }
-    }
-
-    private fun stopIfIdle() {
-        synchronized(lock) {
-            if (activeJob == null && queue.isEmpty()) {
-                releaseWakeLock()
-                releaseFocus()
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                // Not a bare stopSelf(): a start already in flight (a SPEAK
-                // racing this idle moment) keeps the service — see lastStartId.
-                stopSelfResult(lastStartId)
+                notificationManager?.notify(NOTIFICATION_ID, buildNotification(next))
             }
         }
     }
 
-    // -- audio focus ----------------------------------------------------------
-
-    private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
-        when (focusAction(change, paused, pausedByFocus)) {
-            FocusAction.PAUSE -> doPause(byFocus = true)
-            FocusAction.RESUME -> doResume()
-            FocusAction.STOP -> doStop()
-            FocusAction.NONE -> Unit
+    /**
+     * Stop once nothing is on air and no one-shot handed over is unresolved —
+     * checked after [IDLE_GRACE_MS], so a command sent right behind its start
+     * intent (a reader play behind ACTION_HOST) reaches the Narrator first.
+     */
+    private fun scheduleIdleCheck() {
+        idleCheck?.cancel()
+        idleCheck = scope.launch {
+            delay(IDLE_GRACE_MS)
+            if (ServiceUi.render(narrator.state.value, mediaState).onAir || shim.busy) return@launch
+            host.foreground = false
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            notificationManager?.cancel(NOTIFICATION_ID)
+            stopSelfResult(lastStartId)
         }
     }
 
-    private fun requestFocus(): Boolean {
-        val am = audioManager ?: return false
-        val attrs = AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_MEDIA)
-            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-            .build()
-        val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-            .setAudioAttributes(attrs)
-            .setOnAudioFocusChangeListener(focusListener)
-            .setWillPauseWhenDucked(true)
-            .build()
-        focusRequest = req
-        return am.requestAudioFocus(req) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-    }
-
-    private fun releaseFocus() {
-        val am = audioManager ?: return
-        focusRequest?.let { am.abandonAudioFocusRequest(it) }
-        focusRequest = null
-    }
-
-    // -- playback -------------------------------------------------------------
-
-    /**
-     * Build the playback AudioTrack at [sampleRate]. Buffer aims for
-     * ~250 ms of headroom — small enough that pause/cancel feels
-     * responsive (the audio device drains the buffer before we see the
-     * effect), large enough that the write loops aren't constantly
-     * stalling on full-buffer back-pressure.
-     *
-     * A format the device rejects surfaces as IllegalStateException: the
-     * builder's own UnsupportedOperationException would otherwise reach
-     * runOne's "model files absent" branch and blame an installed engine.
-     */
-    private fun buildTrack(sampleRate: Int): AudioTrack {
-        val minBuf = AudioTrack.getMinBufferSize(
-            sampleRate,
-            AudioFormat.CHANNEL_OUT_MONO,
-            AudioFormat.ENCODING_PCM_16BIT,
-        ).coerceAtLeast(BlockTrackOutput.quarterSecondBufferBytes(sampleRate))
-
-        val builder = AudioTrack.Builder()
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                    .build(),
-            )
-            .setAudioFormat(
-                AudioFormat.Builder()
-                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                    .setSampleRate(sampleRate)
-                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                    .build(),
-            )
-            .setBufferSizeInBytes(minBuf)
-            .setTransferMode(AudioTrack.MODE_STREAM)
-        return try {
-            builder.build()
-        } catch (e: UnsupportedOperationException) {
-            throw IllegalStateException("AudioTrack rejected $sampleRate Hz mono PCM16", e)
-        }
-    }
-
-    /**
-     * Write [pcm] into [track], honouring the `paused` / `cancelled`
-     * flags. Returns the number of samples written (== pcm.size unless
-     * cancelled or the track errored).
-     */
-    private fun writePcm(track: AudioTrack, pcm: ShortArray): Int {
-        var written = 0
-        while (written < pcm.size && !cancelled) {
-            while (paused && !cancelled) {
-                try { Thread.sleep(50L) } catch (_: InterruptedException) {
-                    Thread.currentThread().interrupt(); break
-                }
-            }
-            if (cancelled) break
-            val n = track.write(pcm, written, pcm.size - written, AudioTrack.WRITE_BLOCKING)
-            if (n <= 0) {
-                Log.w(TAG, "AudioTrack.write returned $n; aborting")
-                break
-            }
-            written += n
-        }
-        return written
-    }
-
-    /**
-     * Busy-wait until [track]'s playback head reaches [written] samples.
-     *
-     * Bails out if the head makes no progress for [DRAIN_STALL_MS] while
-     * not paused: a track the OS has muted-and-parked (Android 16 audio
-     * hardening) never advances, and an unconditional wait would hold the
-     * job forever. Pause legitimately freezes the head, so the stall
-     * clock only runs while unpaused.
-     */
-    private fun drainTrack(track: AudioTrack, written: Int) {
-        var lastPos = -1
-        var lastProgressAt = SystemClock.elapsedRealtime()
-        while (!cancelled) {
-            val pos = try { track.playbackHeadPosition } catch (_: IllegalStateException) { written }
-            if (pos >= written) break
-            val now = SystemClock.elapsedRealtime()
-            if (pos != lastPos || paused) {
-                lastPos = pos
-                lastProgressAt = now
-            } else if (now - lastProgressAt >= DRAIN_STALL_MS) {
-                Log.w(TAG, "playback head stalled at $pos/$written; abandoning drain")
-                break
-            }
-            try { Thread.sleep(10L) } catch (_: InterruptedException) {
-                Thread.currentThread().interrupt(); break
-            }
-        }
-    }
-
-    private fun releaseTrack(track: AudioTrack) {
-        try {
-            track.pause(); track.flush(); track.stop()
-        } catch (_: IllegalStateException) { /* already stopped */ }
-        track.release()
-        if (currentTrack === track) currentTrack = null
-    }
-
-    /**
-     * Consumer half of the pipeline: open the AudioTrack lazily on the
-     * first chunk (its sample rate sets the format), shape and write chunks
-     * as they arrive, then drain. Pause blocks this consumer, which
-     * backpressures the producer through the channel. Each chunk re-arms the
-     * wake lock.
-     *
-     * The effect chain runs here, on the engine's raw PCM, in slices of
-     * ~100 ms written one at a time. That is what makes a live session-speed
-     * change ([Shaping.liveTempo]) audible within the AudioTrack's ~250 ms
-     * buffer: the speed is re-read before every slice, whereas one chunk is a
-     * whole sentence or more. Slicing doesn't change the output — the chain
-     * is continuous across seams (StreamingEffectChainTest, chunked == whole).
-     */
-    private suspend fun playFromChannel(prepared: Prepared) =
-        withContext(Dispatchers.IO) {
-            val channel = prepared.channel
-            var track: AudioTrack? = null
-            var chain: StreamingEffectChain? = null
-            var shaping: Shaping? = null
-            var written = 0
-            try {
-                for (audio in channel) {
-                    if (cancelled) break
-                    holdWakeLock()
-                    val t = track ?: buildTrack(audio.sampleRate).also {
-                        track = it
-                        currentTrack = it
-                        // Paused before the first chunk (during time-to-
-                        // first-audio): the track starts paused and doResume
-                        // plays it. currentTrack is published first, so a
-                        // resume racing this either sees the track or has
-                        // already cleared the flag read below.
-                        if (paused) {
-                            updateMediaState(PlaybackStateCompat.STATE_PAUSED)
-                        } else {
-                            updateMediaState(PlaybackStateCompat.STATE_PLAYING)
-                            it.play()
-                        }
-                    }
-                    // Published before the first chunk was sent.
-                    val s = shaping ?: prepared.shaping.await().also { shaping = it }
-                    val c = chain ?: StreamingEffectChain(s.blocks, audio.sampleRate, s.liveTempo)
-                        .also { chain = it }
-                    if (c.isEmpty) {
-                        written += writePcm(t, audio.pcm)
-                        continue
-                    }
-                    val slice = (audio.sampleRate / 10).coerceAtLeast(1)
-                    var from = 0
-                    while (from < audio.pcm.size && !cancelled) {
-                        s.liveRequestId?.let { followLiveSpeed(c, it) }
-                        val to = minOf(from + slice, audio.pcm.size)
-                        written += writePcm(t, c.process(audio.pcm.copyOfRange(from, to)))
-                        from = to
-                    }
-                }
-                // The channel ended cleanly: the chain's tail (Tempo's last
-                // frame, a reverb ring-out) is still owed.
-                val t = track
-                if (t != null && !cancelled) {
-                    chain?.flush()?.takeIf { it.isNotEmpty() }?.let { written += writePcm(t, it) }
-                }
-                track?.let { drainTrack(it, written) }
-            } finally {
-                track?.let { releaseTrack(it) }
-            }
-        }
-
-    /**
-     * Point [chain]'s live Tempo at the reader's current session speed. Logs
-     * only on an actual change — the line to look for on a device when
-     * checking that a speed change was applied live.
-     */
-    private fun followLiveSpeed(chain: StreamingEffectChain, requestId: Long) {
-        val was = chain.liveTempo ?: return
-        val now = sessionSpeeds.current(fallback = was)
-        if (now == was) return
-        chain.setLiveTempo(now)
-        Log.d(TAG, "Live speed: request $requestId tempo $was -> $now")
-    }
-
-    // -- media session --------------------------------------------------------
+    // -- media session ----------------------------------------------------------
 
     private fun ensureMediaSession() {
         if (mediaSession != null) return
         val session = MediaSessionCompat(this, "MarmaladeSynth")
         session.setCallback(object : MediaSessionCompat.Callback() {
-            override fun onPlay() = doResume()
-            override fun onPause() = doPause()
-            override fun onStop() = doStop()
+            override fun onPlay() = resume()
+            override fun onPause() = narrator.pause()
+            override fun onStop() = narrator.stop()
 
             // A headset's play/pause toggle resolves to onPlay for any state
             // but PLAYING (MediaSession's default handling), so while the
@@ -1476,44 +308,42 @@ class MarmaladeSynthService : Service() {
                     KeyEvent::class.java,
                 )
                 if (key != null && key.action == KeyEvent.ACTION_DOWN &&
-                    key.repeatCount == 0 && playPauseKeyPauses(key.keyCode, mediaState)
+                    key.repeatCount == 0 && ServiceUi.playPauseKeyPauses(key.keyCode, mediaState)
                 ) {
-                    doPause()
+                    narrator.pause()
                     return true
                 }
                 return super.onMediaButtonEvent(mediaButtonEvent)
             }
 
-            // Headset / Bluetooth track-skip buttons step the article while
-            // the reader owns playback. For every other kind of speech there
-            // is no "next track", so they stay the no-ops they always were.
+            // Headset / Bluetooth track-skip buttons step the article while it
+            // is on air. Shared text has no "next track" (§6 Q5).
             override fun onSkipToNext() {
-                if (transport.reader.value.isReading) readerPlayback.next()
+                if (ui?.showNext == true) narrator.next()
             }
 
             override fun onSkipToPrevious() {
-                if (transport.reader.value.isReading) readerPlayback.previous()
+                if (ui?.showPrevious == true) narrator.previous()
             }
 
             override fun onCustomAction(action: String?, extras: Bundle?) {
-                if (action == CUSTOM_ACTION_STOP) doStop()
+                if (action == CUSTOM_ACTION_STOP) narrator.stop()
             }
         })
         session.isActive = true
         mediaSession = session
     }
 
-    private fun updateMediaState(state: Int) {
-        mediaState = state
+    private fun updateMediaSession(ui: ServiceUi) {
         val session = mediaSession ?: return
         val pb = PlaybackStateCompat.Builder()
-            .setActions(sessionActions(transport.reader.value))
-            .setState(state, PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, 1.0f)
+            .setActions(ui.actions)
+            .setState(ui.mediaState, PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, 1.0f)
         // Android 13+ builds the shade's media controls from this state, not
         // from the notification's actions, and ACTION_STOP has no button
         // there — Stop only shows as a custom action. Older versions keep
         // using the notification's own Stop (buildNotification).
-        if (showsStopControl(state)) {
+        if (ui.showStop) {
             pb.addCustomAction(
                 PlaybackStateCompat.CustomAction.Builder(
                     CUSTOM_ACTION_STOP,
@@ -1525,7 +355,7 @@ class MarmaladeSynthService : Service() {
         session.setPlaybackState(pb.build())
     }
 
-    // -- notification ---------------------------------------------------------
+    // -- notification ------------------------------------------------------------
 
     private fun ensureNotificationChannel() {
         val manager = notificationManager ?: return
@@ -1541,20 +371,20 @@ class MarmaladeSynthService : Service() {
         manager.createNotificationChannel(channel)
     }
 
-    private fun updateNotification(stateText: String) {
-        val n = buildNotification(stateText)
-        notificationManager?.notify(NOTIFICATION_ID, n)
-    }
-
     /**
-     * Post a failure as its own dismissable notification, on a separate
-     * id from the foreground notification. Errors used to go through
-     * [updateNotification], but the job-completion `stopIfIdle()` calls
-     * `stopForeground(STOP_FOREGROUND_REMOVE)` on [NOTIFICATION_ID]
-     * milliseconds later, deleting the message before the user could
-     * read it — failures were effectively silent.
+     * A failure of a UI-less one-shot (share sheet, Tasker), as its own
+     * dismissable notification on a separate id — the foreground one is
+     * removed moments later when the service stops. In-app requests show
+     * their errors on screen instead.
      */
-    private fun postErrorNotification(message: String) {
+    private fun postErrorNotification(notice: ErrorNotice) {
+        val message = when (notice.kind) {
+            FailureKind.MODEL_MISSING -> getString(
+                R.string.service_synth_error_engine_not_installed,
+                EngineRegistry.displayName(notice.engine ?: EngineRegistry.DEFAULT_ENGINE),
+            )
+            FailureKind.FAILED, FailureKind.FOCUS_DENIED -> getString(R.string.service_synth_error_failed)
+        }
         val n = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.service_synth_notification_title))
             .setContentText(message)
@@ -1566,19 +396,22 @@ class MarmaladeSynthService : Service() {
     }
 
     /**
-     * The foreground notification.
-     *
-     * Two shapes. For ordinary speech — share sheet, Speak screen —
-     * it is what it has always been: pause/resume and stop, both in
-     * the compact view, and no tap target. While the reader is mid-article it
-     * additionally grows previous/next-block buttons around the pause, and
-     * tapping it reopens the article (reader-mode design point 7).
+     * The playback notification, drawn from [ui] (null: before the first
+     * state — "Preparing…"). Pause/resume and stop always; previous/next
+     * around the pause while the article is on air, and tapping it reopens the
+     * article (reader-mode design point 7).
      */
-    private fun buildNotification(stateText: String): Notification {
-        val session = mediaSession
-        val token = session?.sessionToken
-        val reader = transport.reader.value
-
+    private fun buildNotification(ui: ServiceUi?): Notification {
+        val stateText = when (ui?.text) {
+            ServiceUi.Text.Speaking ->
+                if (ui.snippet.isNotBlank()) {
+                    getString(R.string.service_synth_state_speaking_text, ui.snippet)
+                } else {
+                    getString(R.string.service_synth_state_speaking)
+                }
+            ServiceUi.Text.Paused -> getString(R.string.service_synth_state_paused)
+            ServiceUi.Text.Preparing, null -> getString(R.string.service_synth_state_preparing)
+        }
         val pauseAction = NotificationCompat.Action(
             android.R.drawable.ic_media_pause,
             getString(R.string.service_synth_action_pause),
@@ -1594,47 +427,51 @@ class MarmaladeSynthService : Service() {
             getString(R.string.service_synth_action_stop),
             servicePendingIntent(ACTION_STOP),
         )
-        val previousAction = NotificationCompat.Action(
-            android.R.drawable.ic_media_previous,
-            getString(R.string.service_synth_action_previous_block),
-            servicePendingIntent(ACTION_READER_PREVIOUS),
-        )
-        val nextAction = NotificationCompat.Action(
-            android.R.drawable.ic_media_next,
-            getString(R.string.service_synth_action_next_block),
-            servicePendingIntent(ACTION_READER_NEXT),
-        )
-
         // Transport order, so the compact view (which takes the first three)
         // reads previous / play-pause / next like every other media
         // notification. Stop trails behind in the expanded view.
         val actions = buildList {
-            if (reader.isReading && reader.canPrevious) add(previousAction)
-            add(if (paused) resumeAction else pauseAction)
-            if (reader.isReading && reader.canNext) add(nextAction)
+            if (ui?.showPrevious == true) {
+                add(
+                    NotificationCompat.Action(
+                        android.R.drawable.ic_media_previous,
+                        getString(R.string.service_synth_action_previous_block),
+                        servicePendingIntent(ACTION_READER_PREVIOUS),
+                    ),
+                )
+            }
+            add(if (ui?.paused == true) resumeAction else pauseAction)
+            if (ui?.showNext == true) {
+                add(
+                    NotificationCompat.Action(
+                        android.R.drawable.ic_media_next,
+                        getString(R.string.service_synth_action_next_block),
+                        servicePendingIntent(ACTION_READER_NEXT),
+                    ),
+                )
+            }
             add(stopAction)
         }
-
+        val ongoing = ui?.ongoing ?: true
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.service_synth_notification_title))
             .setContentText(stateText)
             .setSmallIcon(R.drawable.ic_stat_marmalade_speaking)
             .setOnlyAlertOnce(true)
-            .setOngoing(true)
+            .setOngoing(ongoing)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
         actions.forEach(builder::addAction)
-        reader.articleUrl?.takeIf { reader.isReading }?.let { url ->
-            builder.setContentIntent(readerPendingIntent(url))
-        }
-
-        if (token != null) {
+        // Swiping away the notification left after a permanent focus loss stops the read.
+        if (!ongoing) builder.setDeleteIntent(servicePendingIntent(ACTION_STOP))
+        ui?.articleKey?.let { builder.setContentIntent(readerPendingIntent(it)) }
+        mediaSession?.sessionToken?.let { token ->
             val compact = IntArray(minOf(COMPACT_ACTIONS, actions.size)) { it }
-            val style = androidx.media.app.NotificationCompat.MediaStyle()
-                .setMediaSession(token)
-                .setShowActionsInCompactView(*compact)
-            builder.setStyle(style)
+            builder.setStyle(
+                androidx.media.app.NotificationCompat.MediaStyle()
+                    .setMediaSession(token)
+                    .setShowActionsInCompactView(*compact),
+            )
         }
-
         return builder.build()
     }
 
@@ -1650,9 +487,9 @@ class MarmaladeSynthService : Service() {
 
     /**
      * Reopen the article being read. The reader screen asks
-     * [ReaderPlaybackController] for the article before it fetches, so this
-     * rebinds to the block in progress off the copy already in memory — no
-     * second trip to the network, and the highlight is where the audio is.
+     * [app.marmalade.tts.reader.ReaderPlaybackController] for the article
+     * before it fetches, so this rebinds to the block in progress off the copy
+     * already in memory — no second trip to the network.
      *
      * The shared-text extra is deliberately empty: that extra exists for the
      * failure card's "read what you shared as-is" escape, and an article we
@@ -1676,234 +513,40 @@ class MarmaladeSynthService : Service() {
         )
     }
 
-    // -- request value type ---------------------------------------------------
+    // -- the intent shim -----------------------------------------------------------
 
-    /**
-     * The effect chain playback applies to a request's raw engine PCM — see
-     * [playFromChannel]. [liveTempo] non-null puts an adjustable Tempo stage
-     * in front of [blocks], following [LiveSessionSpeed] for [liveRequestId].
-     */
-    private class Shaping(
-        val blocks: List<EffectBlock>,
-        val liveTempo: Float? = null,
-        val liveRequestId: Long? = null,
-    ) {
-        companion object {
-            /** Audio that arrives already shaped (the batched path), or none at all. */
-            val PASSTHROUGH = Shaping(emptyList())
-        }
+    /** An `ACTION_SPEAK` as a one-shot, with the in-app request id it answers to (0 = external). */
+    internal data class Parsed(val request: OneShotRequest, val requestId: Long)
+
+    internal fun parseRequest(intent: Intent): Parsed? {
+        // In-app callers hand very long text over as a cache file: intent
+        // extras cross a binder transaction (~1 MB) even same-process. The
+        // file is consumed (deleted) here.
+        val text = intent.getStringExtra(EXTRA_TEXT)?.takeIf { it.isNotBlank() }
+            ?: intent.getStringExtra(EXTRA_TEXT_FILE)?.let { path ->
+                val f = java.io.File(path)
+                // Only ever our own cache files — refuse anything else.
+                if (!f.absolutePath.startsWith(cacheDir.absolutePath)) return null
+                runCatching { f.readText() }.getOrNull().also { f.delete() }
+            }?.takeIf { it.isNotBlank() }
+            ?: return null
+        val requestId = intent.getLongExtra(EXTRA_REQUEST_ID, 0L)
+        return Parsed(
+            OneShotRequest(
+                text = text,
+                voice = voiceOf(intent),
+                origin = if (requestId != 0L) Origin.InApp else Origin.External,
+            ),
+            requestId,
+        )
     }
-
-    /**
-     * A request whose synthesis has been started, and the channel its audio
-     * arrives on. Held for the head of the queue while the request in front
-     * of it is still playing — see [prepareLocked].
-     */
-    private class Prepared(
-        val req: SpeakRequest,
-        val channel: Channel<SynthAudio>,
-        private val job: Job,
-        /** Resolved engine, published as soon as routing is done. */
-        val engineName: CompletableDeferred<String>,
-        /** How playback shapes the audio — published before the first chunk. */
-        val shaping: CompletableDeferred<Shaping>,
-    ) {
-        /** Abandon the synthesis and drop whatever it buffered. */
-        fun cancel() {
-            job.cancel()
-            channel.cancel()
-        }
-    }
-
-
-    /** See [focusAction]. */
-    internal enum class FocusAction { NONE, PAUSE, RESUME, STOP }
-
-    internal data class SpeakRequest(
-        val text: String,
-        val engine: String,
-        val voice: String,
-        val speed: Float,
-        /**
-         * Replaces [speed] *after* alias resolution — see [resolveRequest].
-         * Null for every caller but the reader, whose per-article session
-         * speed has to override the primary alias's speed, which on the alias
-         * route would otherwise replace [speed].
-         */
-        val sessionSpeed: Float? = null,
-        val effectBlocks: List<EffectBlock>,
-        /**
-         * True iff the caller passed [EXTRA_VOICE] on the intent. When
-         * false, [runOne] consults [TtsRouter] to apply the user's
-         * primary alias (the share-sheet path doesn't
-         * specify a voice, so this is where the user's persona kicks in).
-         */
-        val voiceExplicit: Boolean,
-        /** See [VoiceAlias.phonemizationLanguage]. Null = engine default. */
-        val phonemizationLanguage: String? = null,
-        /**
-         * Non-zero for in-app requests routed here by
-         * [app.marmalade.tts.audio.Synthesizer] — the terminal state
-         * posts to [PreviewCompletions] under this id. 0 = external
-         * caller (share sheet, Tasker), nothing is posted.
-         */
-        val requestId: Long = 0L,
-        /** Sent with [EXTRA_CONTINUATION]: never replaces paused work. */
-        val continuation: Boolean = false,
-        /** Sent with [EXTRA_ALIAS_ID]: route through this alias instead of the primary. */
-        val aliasId: String? = null,
-        /** Sent with [EXTRA_SHARED]: plain text from the share sheet — see [isLanguageAwareShare]. */
-        val shared: Boolean = false,
-    )
 
     companion object {
-        /**
-         * One utterance's engine RTF (render time / audio time), or null when
-         * it can't be trusted: the engine was cold (model loaded mid-
-         * utterance), the collector was backpressured or paused ([skewed] —
-         * see produceAudio), or the audio is too short to divide meaningfully.
-         */
-        internal fun engineRtfSample(
-            warm: Boolean,
-            skewed: Boolean,
-            renderNanos: Long,
-            audioSamples: Long,
-            sampleRate: Int,
-        ): Double? {
-            if (!warm || skewed) return null
-            if (renderNanos <= 0L || audioSamples <= 0L || sampleRate <= 0) return null
-            val audioNanos = audioSamples * 1_000_000_000.0 / sampleRate
-            if (audioNanos < MIN_RTF_AUDIO_NANOS) return null
-            return renderNanos / audioNanos
-        }
-
-        /**
-         * What an audio-focus change should do to playback. Only a pause the
-         * focus loss itself caused is resumed on regain — resuming whenever
-         * focus came back used to undo the user's own pause.
-         */
-        internal fun focusAction(change: Int, paused: Boolean, pausedByFocus: Boolean): FocusAction =
-            when (change) {
-                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
-                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK ->
-                    // Already paused (by the user) — that pause stays theirs.
-                    if (paused) FocusAction.NONE else FocusAction.PAUSE
-                AudioManager.AUDIOFOCUS_GAIN ->
-                    if (pausedByFocus) FocusAction.RESUME else FocusAction.NONE
-                AudioManager.AUDIOFOCUS_LOSS -> FocusAction.STOP
-                else -> FocusAction.NONE
-            }
-
-        /**
-         * Whether a new speak request replaces the service's work instead of
-         * queueing behind it: yes when that work is paused. A paused read is
-         * one the user stepped away from; queueing behind it meant the new
-         * text stayed silent until they found and resumed the old one and it
-         * played to the end. Playing work still queues as before, and so does
-         * a [continuation] (the reader's next block).
-         *
-         * Not while [stopping] (the `cancelled` flag) either: the paused work
-         * is already on its way out — a stop, or an earlier request replacing
-         * it — and `paused` stays set until the next request starts, so a
-         * second new speak right behind the first must queue behind it rather
-         * than knock it out too.
-         *
-         * Only a USER pause counts. A [pausedByFocus] pause (a call, or a
-         * notification duck — ducks pause since setWillPauseWhenDucked) is the
-         * system's, not a read the user left: replacing it cancelled the
-         * article and then the new request failed to get focus anyway. It
-         * queues, and plays after the focus regain resumes the article.
-         */
-        internal fun replacesPausedWork(
-            paused: Boolean,
-            pausedByFocus: Boolean,
-            hasActive: Boolean,
-            stopping: Boolean,
-            continuation: Boolean,
-        ): Boolean = paused && !pausedByFocus && hasActive && !stopping && !continuation
-
-        /**
-         * Transport actions the media session advertises. The same set in
-         * every state, BUFFERING included, so a media-button stop or pause
-         * reaches the service before the first audio does.
-         */
-        internal fun sessionActions(reader: ReaderTransportState): Long {
-            var actions = PlaybackStateCompat.ACTION_PLAY or
-                PlaybackStateCompat.ACTION_PAUSE or
-                PlaybackStateCompat.ACTION_STOP or
-                PlaybackStateCompat.ACTION_PLAY_PAUSE
-            if (reader.isReading) {
-                if (reader.canNext) actions = actions or PlaybackStateCompat.ACTION_SKIP_TO_NEXT
-                if (reader.canPrevious) {
-                    actions = actions or PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS
-                }
-            }
-            return actions
-        }
-
-        /**
-         * The session state a request starting now publishes, before its first
-         * audio: BUFFERING, unless the session is already PLAYING (the request
-         * before it just finished), which it keeps until the first chunk.
-         */
-        internal fun stateForRequestStart(current: Int): Int =
-            if (current == PlaybackStateCompat.STATE_PLAYING) current
-            else PlaybackStateCompat.STATE_BUFFERING
-
-        /**
-         * Whether a media key should pause while the session is in [state]
-         * where MediaSession's default handling wouldn't: the play/pause
-         * toggle (or a headset's single button) during BUFFERING, which the
-         * default turns into a no-op play.
-         */
-        internal fun playPauseKeyPauses(keyCode: Int, state: Int): Boolean =
-            state == PlaybackStateCompat.STATE_BUFFERING &&
-                (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || keyCode == KeyEvent.KEYCODE_HEADSETHOOK)
-
-        /** The media session's Stop, as a custom action — see [updateMediaState]. */
-        internal const val CUSTOM_ACTION_STOP = "app.marmalade.tts.media.STOP"
-
-        /** Whether the session's controls offer Stop: while there is anything to stop. */
-        internal fun showsStopControl(state: Int): Boolean =
-            state != PlaybackStateCompat.STATE_NONE && state != PlaybackStateCompat.STATE_STOPPED
-
-        /** Wake-lock tag, `app:component` as PowerManager recommends. */
-        private const val WAKE_LOCK_TAG = "marmalade:synth"
-
-        /**
-         * Safety bound on one arming of the wake lock. Re-armed on every
-         * chunk, so this only has to outlast the longest honest wait between
-         * two — a cold model load, a slow cloud round-trip — while making sure
-         * a wedged job can't hold the CPU awake indefinitely.
-         */
-        private const val WAKE_LOCK_TIMEOUT_MS = 10 * 60 * 1000L
-
         private const val TAG = "MarmaladeSynthService"
         private const val CHANNEL_ID = "marmalade_synth"
         private const val NOTIFICATION_ID = 1
 
-        /**
-         * Zero playback-head progress for this long (while unpaused, with
-         * frames remaining) means the track is dead — see [drainTrack].
-         */
-        private const val DRAIN_STALL_MS = 2_500L
-
-        /**
-         * Chunks a producer may run ahead of playback within one request.
-         * Deep enough that a paragraph-sized request is fully synthesised
-         * before its audio ends (so the engine is free for the next one),
-         * shallow enough that a book-length share-sheet read stays bounded.
-         */
-        private const val SYNTH_BUFFER_CHUNKS = 8
-
-        /**
-         * Below ~0.2 s of rendered audio an RTF is noise — a stray one-word
-         * chunk divides by too little to mean anything. Mirrors
-         * DeviceCapability.MIN_BENCH_AUDIO_MS.
-         */
-        private const val MIN_RTF_AUDIO_NANOS = 200_000_000.0
-
-        /** Separate id so stopForeground's removal can't take errors with it. */
+        /** Separate id so the playback notification's removal can't take errors with it. */
         private const val ERROR_NOTIFICATION_ID = 2
 
         /** How many actions MediaStyle's collapsed view can show. */
@@ -1912,12 +555,53 @@ class MarmaladeSynthService : Service() {
         /** Any constant will do — the extras are what change, per article. */
         private const val READER_CONTENT_REQUEST_CODE = 100
 
+        /** How long nothing on air must last before the service stops (see scheduleIdleCheck). */
+        private const val IDLE_GRACE_MS = 1_500L
+
+        /** The media session's Stop, as a custom action — see updateMediaSession. */
+        internal const val CUSTOM_ACTION_STOP = "app.marmalade.tts.media.STOP"
+
         /**
-         * Default engine when [EXTRA_ENGINE] is not provided AND [EXTRA_VOICE]
-         * doesn't disambiguate. Kokoro Direct is the recommended-default engine
-         * (matches `EngineCatalog.KOKORO_DIRECT.isRecommended`).
+         * Default engine for [speakIntent]. Kokoro Direct is the
+         * recommended-default engine (`EngineCatalog.KOKORO_DIRECT.isRecommended`).
          */
         const val DEFAULT_ENGINE: String = EngineRegistry.DEFAULT_ENGINE
+
+        /**
+         * The voice an `ACTION_SPEAK` asks for. A named voice is spoken exactly
+         * (Speak screen, previews, a Tasker call naming one); otherwise the
+         * primary alias — or, for shared text, the voice that speaks its
+         * language — with the caller's own engine/speed/effect/language extras
+         * as the fallback when no alias resolves.
+         */
+        internal fun voiceOf(intent: Intent): OneShotVoice {
+            val effectPreset = intent.getStringExtra(EXTRA_EFFECT)
+                // Unknown values fall back to NONE — safer than throwing on a
+                // typo'd extra from a third-party caller (Tasker etc).
+                ?.let { name -> EffectPreset.entries.firstOrNull { it.name == name } ?: EffectPreset.NONE }
+                ?: EffectPreset.NONE
+            // The intent contract speaks in presets; in-app requests carry
+            // their exact chain as JSON instead (custom effects have no preset
+            // name). A malformed payload degrades to the preset/dry chain.
+            val effectBlocks = intent.getStringExtra(EXTRA_EFFECT_BLOCKS)
+                ?.let { json -> runCatching { EffectBlockJson.decode(json) }.getOrNull() }
+                ?: EffectChain.blocksForPreset(effectPreset)
+            val named = intent.getStringExtra(EXTRA_VOICE)?.takeIf { it.isNotBlank() }
+            val given = OneShotVoice.Explicit(
+                voiceId = named ?: KittenDirectVoiceCatalog.DEFAULT_VOICE_ID,
+                effectBlocks = effectBlocks,
+                phonemizationLanguage = intent.getStringExtra(EXTRA_LANG)?.takeIf { it.isNotBlank() },
+                speed = if (intent.hasExtra(EXTRA_SPEED)) intent.getFloatExtra(EXTRA_SPEED, 1.0f) else 1.0f,
+                // The explicit EXTRA_ENGINE wins over the voice id's prefix,
+                // so legacy callers that send an engine without a voice work.
+                engine = intent.getStringExtra(EXTRA_ENGINE)?.takeIf { it.isNotBlank() },
+            )
+            return when {
+                named != null -> given
+                intent.getBooleanExtra(EXTRA_SHARED, false) -> OneShotVoice.LanguageAware(fallback = given)
+                else -> OneShotVoice.Routed(VoiceChoice.Primary, fallback = given)
+            }
+        }
 
         // -- public intent contract --------------------------------------------
         const val ACTION_SPEAK: String = "app.marmalade.tts.action.SPEAK"
@@ -1926,17 +610,22 @@ class MarmaladeSynthService : Service() {
         const val ACTION_STOP: String = "app.marmalade.tts.action.STOP"
 
         /**
-         * Stop a single in-app request by [EXTRA_REQUEST_ID] without
-         * touching the rest of the queue — [ACTION_STOP] kills everything
-         * including an external share-sheet read, which is exactly what a
-         * ViewModel teardown must NOT do.
+         * Stop a single in-app request by [EXTRA_REQUEST_ID] without touching
+         * anything else — [ACTION_STOP] stops everything including an external
+         * share-sheet read, which is exactly what a ViewModel teardown must NOT do.
          */
         const val ACTION_STOP_REQUEST: String = "app.marmalade.tts.action.STOP_REQUEST"
 
         /**
-         * Step the reader's article from the notification. In-app only — the
-         * buttons exist solely while [PlaybackTransport.reader] says an
-         * article is being read, and both are ignored otherwise.
+         * In-app only: bring the service up as the foreground host of the
+         * Narrator's audio (the reader, before a command that plays). Sent
+         * with startForegroundService.
+         */
+        const val ACTION_HOST: String = "app.marmalade.tts.action.HOST"
+
+        /**
+         * Step the article from the notification. In-app only — the buttons
+         * exist only while the article is on air, and are ignored otherwise.
          */
         const val ACTION_READER_NEXT: String = "app.marmalade.tts.action.READER_NEXT"
         const val ACTION_READER_PREVIOUS: String = "app.marmalade.tts.action.READER_PREVIOUS"
@@ -1950,36 +639,19 @@ class MarmaladeSynthService : Service() {
         // -- in-app contract (Synthesizer → service; not for third parties) ----
         /** JSON-encoded List<EffectBlock> ([EffectBlockJson]); wins over [EXTRA_EFFECT]. */
         const val EXTRA_EFFECT_BLOCKS: String = "app.marmalade.tts.extra.EFFECT_BLOCKS"
-        /** Espeak phonemization override — see [VoiceAlias.phonemizationLanguage]. */
+
+        /** Espeak phonemization override — see [app.marmalade.tts.data.db.VoiceAlias.phonemizationLanguage]. */
         const val EXTRA_LANG: String = "app.marmalade.tts.extra.LANG"
+
         /** [PreviewCompletions] request id (Long). */
         const val EXTRA_REQUEST_ID: String = "app.marmalade.tts.extra.REQUEST_ID"
-        /**
-         * Absolute speed (Float) that replaces the resolved speed AFTER alias
-         * routing — unlike [EXTRA_SPEED], which the primary alias's speed
-         * overrides, this one wins over the alias while its voice, effect and
-         * language still apply. The reader's session speed is the only
-         * sender; leaving it off is exactly the behaviour every other caller
-         * had before it existed.
-         */
+
+        // The old reader's per-block extras. Nothing sends or reads them now
+        // that the reader drives the Narrator directly.
         const val EXTRA_SESSION_SPEED: String = "app.marmalade.tts.extra.SESSION_SPEED"
-        /**
-         * Boolean, default false. True marks a request that continues work
-         * already in the service — the reader's next blocks — rather than a
-         * new speak: it queues even behind paused work instead of replacing
-         * it (see [replacesPausedWork]). Otherwise a block topped up just as
-         * the user paused would throw out the article they paused.
-         */
         const val EXTRA_CONTINUATION: String = "app.marmalade.tts.extra.CONTINUATION"
-        /**
-         * Id (String) of the alias to route through when [EXTRA_VOICE] is
-         * absent — in place of the primary alias, with everything an alias
-         * carries (voice, speed, effect, language). The reader sends it when
-         * the article's language needs another alias's voice. An id that no
-         * longer resolves (the alias was deleted mid-article) falls back to
-         * the primary.
-         */
         const val EXTRA_ALIAS_ID: String = "app.marmalade.tts.extra.ALIAS_ID"
+
         /**
          * Boolean, default false. True marks plain text shared into the app
          * ([SpeakDispatcher]: the share sheet, PROCESS_TEXT, the reader's
@@ -1988,8 +660,6 @@ class MarmaladeSynthService : Service() {
          */
         const val EXTRA_SHARED: String = "app.marmalade.tts.extra.SHARED"
 
-        /** Logcat tag for the share route's per-text voice decision. */
-        private const val SHARE_VOICE_TAG = "ShareVoice"
         /**
          * Path (inside our own cacheDir) holding the text, used instead of
          * [EXTRA_TEXT] when the text is too large for a binder transaction.

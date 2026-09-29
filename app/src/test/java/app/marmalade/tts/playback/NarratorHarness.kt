@@ -43,10 +43,14 @@ class NarratorHarness(private val test: TestScope, config: NarratorConfig = Narr
     var resolutions = 0
         private set
 
+    /** Every resolution asked for, in order. */
+    val resolveTargets = ArrayList<ResolveTarget>()
+
     val narrator = Narrator(
         engines = { name -> engines.getValue(name) },
         resolver = { target ->
             resolutions++
+            resolveTargets += target
             if (resolveDelayMs > 0) kotlinx.coroutines.delay(resolveDelayMs)
             when (target) {
                 is ResolveTarget.Article -> articleVoice

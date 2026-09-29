@@ -5,7 +5,6 @@ import app.marmalade.tts.reader.ArticleBlock
 import app.marmalade.tts.reader.ArticleExtractor
 import app.marmalade.tts.reader.ArticleFetcher
 import app.marmalade.tts.reader.ExtractionResult
-import app.marmalade.tts.reader.FakeReaderSpeechClient
 import app.marmalade.tts.reader.FetchResult
 import app.marmalade.tts.reader.ReaderArticle
 import app.marmalade.tts.reader.ReaderPlaybackController
@@ -14,8 +13,11 @@ import app.marmalade.tts.lang.VoiceChoice
 import app.marmalade.tts.reader.ReaderVoicePicker
 import app.marmalade.tts.data.db.VoiceAlias
 import app.marmalade.tts.install.EngineCatalog
-import app.marmalade.tts.service.PlaybackTransport
-import app.marmalade.tts.service.PreviewCompletions
+import app.marmalade.tts.playback.NarratorConfig
+import app.marmalade.tts.playback.NarratorHarness
+import app.marmalade.tts.playback.ResolveTarget
+import app.marmalade.tts.playback.Track
+import app.marmalade.tts.service.PlaybackHost
 import app.marmalade.tts.perf.DeviceProbe
 import app.marmalade.tts.ui.screen.FakeAliasDao
 import app.marmalade.tts.ui.screen.FakeDeviceProbe
@@ -23,10 +25,10 @@ import app.marmalade.tts.ui.screen.FakeSettings
 import app.marmalade.tts.util.MainDispatcherRule
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -112,7 +114,7 @@ class ReaderViewModelTest {
     }
 
     @Test
-    fun `page host is exposed for the loading state`() {
+    fun `page host is exposed for the loading state`() = runTest {
         assertEquals("example.com", newViewModel().pageHost)
     }
 
@@ -175,6 +177,10 @@ class ReaderViewModelTest {
     }
 
     // -- Playback binding -----------------------------------------------------
+    //
+    // Against the real Narrator (NarratorHarness: fake engine, virtual output,
+    // virtual time on this test's scheduler). The controller's sequencing is
+    // ReaderPlaybackControllerTest's job; these check the ViewModel's wiring.
 
     @Test
     fun `nothing is highlighted when the article never loaded`() = runTest {
@@ -189,14 +195,12 @@ class ReaderViewModelTest {
         val vm = newViewModel(extraction = threeBlocks())
 
         vm.state.first()
+        h.settle()
 
         assertEquals(0, vm.currentBlockIndex.first())
         assertEquals(ReaderPlaybackStatus.Playing, vm.playback.first().status)
-        // The block plus two ahead — the article's whole three, here.
-        assertEquals(
-            listOf("A heading", "The first paragraph.", "The second paragraph."),
-            speech.spokenTexts,
-        )
+        h.runUntil { h.firstHeard(articleId(), 0) != null }
+        assertEquals("A heading", h.kokoro.renders.first().text)
     }
 
     /**
@@ -212,10 +216,11 @@ class ReaderViewModelTest {
         )
 
         val state = vm.state.first()
+        h.run(3_000)
 
         assertTrue("expected Ready, got $state", state is ReaderUiState.Ready)
         assertEquals(ReaderPlaybackStatus.Idle, vm.playback.first().status)
-        assertTrue("nothing may be spoken", speech.spoken.isEmpty())
+        assertTrue("nothing may be spoken", h.kokoro.renders.isEmpty())
     }
 
     @Test
@@ -234,9 +239,9 @@ class ReaderViewModelTest {
         settings.setPrimaryAliasId("id-1x")
         val aliasDao = FakeAliasDao(initial = listOf(alias(id = "id-1x", speed = 1.0f)))
         val vm = newViewModel(extraction = threeBlocks(), settings = settings, aliasDao = aliasDao)
+        h.kokoro.installed = false
         vm.state.first()
-
-        completions.post(speech.spoken.first().requestId, PreviewCompletions.ErrorKind.MODEL_MISSING)
+        h.run(3_000)
 
         assertEquals(
             ReaderPlaybackError.EngineNotInstalled(
@@ -249,9 +254,9 @@ class ReaderViewModelTest {
     @Test
     fun `a missing engine with no primary alias reads as a plain failure`() = runTest {
         val vm = newViewModel(extraction = threeBlocks())
+        h.kokoro.installed = false
         vm.state.first()
-
-        completions.post(speech.spoken.first().requestId, PreviewCompletions.ErrorKind.MODEL_MISSING)
+        h.run(3_000)
 
         assertEquals(ReaderPlaybackError.Failed, vm.playbackError.first())
     }
@@ -261,12 +266,25 @@ class ReaderViewModelTest {
         val vm = newViewModel(extraction = threeBlocks())
         vm.state.first()
         assertNull(vm.playbackError.first())
-
-        completions.post(speech.spoken.first().requestId, PreviewCompletions.ErrorKind.FAILED)
+        h.kokoro.failWhen = { RuntimeException("boom") }
+        h.run(3_000)
         assertEquals(ReaderPlaybackError.Failed, vm.playbackError.first())
 
+        h.kokoro.failWhen = { null }
         vm.onPlayPause()
+        h.settle()
         assertNull(vm.playbackError.first())
+    }
+
+    /** Audio focus refused (a call in progress) reads as a plain failure. */
+    @Test
+    fun `audio focus refused surfaces as a failure`() = runTest {
+        val vm = newViewModel(extraction = threeBlocks())
+        h.focus.grant = false
+        vm.state.first()
+        h.run(3_000)
+
+        assertEquals(ReaderPlaybackError.Failed, vm.playbackError.first())
     }
 
     @Test
@@ -275,40 +293,41 @@ class ReaderViewModelTest {
         vm.state.first()
 
         vm.onBlockTapped(2)
+        h.runUntil { h.firstHeard(articleId(), 2) != null }
 
         assertEquals(2, vm.currentBlockIndex.first())
-        assertEquals("The second paragraph.", speech.spoken.last().text)
+        assertEquals(ReaderPlaybackStatus.Playing, vm.playback.first().status)
     }
 
     @Test
     fun `pausing keeps the highlight but stops the transport`() = runTest {
         val vm = newViewModel(extraction = threeBlocks())
         vm.state.first()
+        h.settle()
 
         vm.onPlayPause()
+        h.settle()
 
         assertEquals(ReaderPlaybackStatus.Paused, vm.playback.first().status)
         assertEquals(0, vm.currentBlockIndex.first())
     }
 
+    /**
+     * The device repro: backing out while the first block was still being
+     * synthesised left it to start speaking ~16 s after the user had left.
+     */
     @Test
-    fun `leaving the reader by back cancels queued synthesis before first audio`() = runTest {
+    fun `leaving the reader by back before first audio keeps it silent`() = runTest {
         val vm = newViewModel(extraction = threeBlocks())
         vm.state.first()
+        h.settle()
         assertEquals(ReaderPlaybackStatus.Playing, vm.playback.first().status)
-        // Freshly loaded: the lookahead has queued all three blocks and no
-        // completion has fired, i.e. nothing has produced audio yet — the
-        // before-first-audio window from the device repro.
-        val queued = speech.spoken.map { it.requestId }
-        assertEquals(3, queued.size)
-        assertTrue("nothing cancelled before back", speech.stopped.isEmpty())
+        assertTrue("nothing heard yet", h.heardStarts().isEmpty())
 
         vm.onBackFromReader()
+        h.run(20_000)
 
-        // Every queued request is cancelled, so none starts speaking once the
-        // user has left the screen (the reported defect: pause alone left them
-        // to fire ~16 s later).
-        assertEquals(queued.toSet(), speech.stopped.toSet())
+        assertEquals(0.0, h.audibleMs(Track.Main), 0.0)
         // Paused, not stopped: the highlight stays so returning resumes in place.
         assertEquals(ReaderPlaybackStatus.Paused, vm.playback.first().status)
         assertEquals(0, vm.currentBlockIndex.first())
@@ -318,18 +337,21 @@ class ReaderViewModelTest {
     fun `forward and backward walk the article`() = runTest {
         val vm = newViewModel(extraction = threeBlocks())
         vm.state.first()
+        h.runUntil { h.firstHeard(articleId(), 0) != null }
 
         vm.onNextBlock()
+        h.settle()
         assertEquals(1, vm.currentBlockIndex.first())
 
         // Block 1 only just started, so backward is "previous", not "restart".
         vm.onPreviousBlock()
+        h.settle()
         assertEquals(0, vm.currentBlockIndex.first())
     }
 
     /**
      * The session speed is playback state, not a setting: the ViewModel hands
-     * it to the controller, which moves the blocks in flight to it live.
+     * it to the controller, which moves the audio in flight to it live.
      * Nothing here touches SettingsRepository — that is what would make it
      * outlive the article, which is exactly what Max asked it not to do.
      */
@@ -337,11 +359,13 @@ class ReaderViewModelTest {
     fun `the session speed reaches playback`() = runTest {
         val vm = newViewModel(extraction = threeBlocks())
         vm.state.first()
+        h.settle()
 
         vm.onSpeedChange(1.5f)
+        h.settle()
 
         assertEquals(1.5f, vm.playback.first().speed, 0f)
-        assertEquals(1.5f, speech.speedChanges.last().second, 0f)
+        assertEquals(1.5f, h.article.speed, 0f)
     }
 
     /**
@@ -356,10 +380,10 @@ class ReaderViewModelTest {
         val aliasDao = FakeAliasDao(initial = listOf(alias(id = "id-fast", speed = 2.0f)))
         val vm = newViewModel(extraction = threeBlocks(), settings = settings, aliasDao = aliasDao)
         vm.state.first()
+        h.settle()
 
         assertEquals(2.0f, vm.playback.first().speed, 0f)
-        assertTrue(speech.spoken.isNotEmpty())
-        assertTrue(speech.spoken.all { it.speed == 2.0f })
+        assertEquals(2.0f, h.article.speed, 0f)
     }
 
     /** The alias slider stores float noise; the chip must match a clean value. */
@@ -370,6 +394,7 @@ class ReaderViewModelTest {
         val aliasDao = FakeAliasDao(initial = listOf(alias(id = "id-noisy", speed = 1.1000001f)))
         val vm = newViewModel(extraction = threeBlocks(), settings = settings, aliasDao = aliasDao)
         vm.state.first()
+        h.settle()
 
         assertEquals(1.1f, vm.playback.first().speed, 0f)
     }
@@ -413,15 +438,19 @@ class ReaderViewModelTest {
         val controller = newController()
         controller.open(heldArticle())
         controller.play()
+        h.settle()
         controller.next()
-        val spokenBefore = speech.spoken.size
+        h.runUntil { h.firstHeard(articleId(), 1) != null }
+        val t = h.now()
 
         val vm = newViewModel(controller = controller)
         vm.state.first()
+        h.settle()
 
         assertEquals(1, vm.currentBlockIndex.first())
         assertEquals(ReaderPlaybackStatus.Playing, vm.playback.first().status)
-        assertEquals(spokenBefore, speech.spoken.size)
+        assertTrue("nothing restarted", h.kokoro.renders.none { it.startMs > t && it.text == "The first paragraph." })
+        assertEquals(1, h.resolutions)
     }
 
     /** A different article in the controller is no reason to skip the fetch. */
@@ -453,6 +482,9 @@ class ReaderViewModelTest {
         engine = "kokoro-direct-v1_0",
     )
 
+    /** The voice the Narrator was asked to resolve for the article, each time it did. */
+    private fun articleVoices() = h.resolveTargets.filterIsInstance<ResolveTarget.Article>().map { it.choice }
+
     /** Another alias picked for the language starts at ITS speed, not the primary's. */
     @Test
     fun `an article read in another alias starts at that alias's speed`() = runTest {
@@ -466,10 +498,11 @@ class ReaderViewModelTest {
             voicePicker = FakeVoicePicker(zhAlias),
         )
         vm.state.first()
+        h.runUntil { h.firstHeard(articleId(), 0) != null }
 
         assertEquals(1.2f, vm.playback.first().speed, 0f)
-        assertTrue(speech.spoken.isNotEmpty())
-        assertTrue(speech.spoken.all { it.voice == zhAlias && it.speed == 1.2f })
+        assertEquals(1.2f, h.article.speed, 0f)
+        assertEquals(listOf<VoiceChoice>(zhAlias), articleVoices())
     }
 
     /** An installed voice has no alias, so no speed of its own: 1.0. */
@@ -485,21 +518,23 @@ class ReaderViewModelTest {
             voicePicker = FakeVoicePicker(zhInstalled),
         )
         vm.state.first()
+        h.runUntil { h.firstHeard(articleId(), 0) != null }
 
         assertEquals(1.0f, vm.playback.first().speed, 0f)
-        assertTrue(speech.spoken.all { it.voice == zhInstalled })
+        assertEquals(listOf<VoiceChoice>(zhInstalled), articleVoices())
     }
 
-    /** The live speed change still reaches the blocks read in the picked voice. */
+    /** The live speed change still reaches an article read in the picked voice. */
     @Test
     fun `a speed change applies to an article read in a picked voice`() = runTest {
         val vm = newViewModel(extraction = threeBlocks(), voicePicker = FakeVoicePicker(zhInstalled))
         vm.state.first()
-        val ids = speech.spoken.map { it.requestId }
+        h.settle()
 
         vm.onSpeedChange(1.5f)
+        h.settle()
 
-        assertEquals(ids to 1.5f, speech.speedChanges.last())
+        assertEquals(1.5f, h.article.speed, 0f)
     }
 
     /** A missing engine is named after the engine actually reading, not the primary's. */
@@ -514,9 +549,9 @@ class ReaderViewModelTest {
             aliasDao = aliasDao,
             voicePicker = FakeVoicePicker(zhInstalled),
         )
+        h.kokoro.installed = false
         vm.state.first()
-
-        completions.post(speech.spoken.first().requestId, PreviewCompletions.ErrorKind.MODEL_MISSING)
+        h.run(3_000)
 
         assertEquals(
             ReaderPlaybackError.EngineNotInstalled(
@@ -536,9 +571,10 @@ class ReaderViewModelTest {
 
         newViewModel(controller = controller, voicePicker = picker).state.first()
         controller.next()
+        h.runUntil { h.firstHeard(articleId(), 1) != null }
 
         assertEquals(0, picker.calls)
-        assertEquals(zhInstalled, speech.spoken.last().voice)
+        assertEquals(listOf<VoiceChoice>(zhInstalled), articleVoices())
     }
 
     @Test
@@ -616,7 +652,7 @@ class ReaderViewModelTest {
 
     // -- Helpers --------------------------------------------------------------
 
-    private suspend fun assertFailure(
+    private suspend fun TestScope.assertFailure(
         expected: ReaderFailure,
         fetch: FetchResult = success(),
         extraction: ExtractionResult = ExtractionResult.ExtractionFailed,
@@ -679,6 +715,8 @@ class ReaderViewModelTest {
         settings.setPrimaryAliasId("id-fast")
         val aliasDao = FakeAliasDao(initial = listOf(alias(id = "id-fast", speed = 1.5f)))
         val vm = newViewModel(extraction = threeBlocks(), settings = settings, aliasDao = aliasDao)
+        vm.state.first()
+        h.settle()
 
         assertTrue(vm.showSpeedWarning.first())
     }
@@ -689,7 +727,10 @@ class ReaderViewModelTest {
         settings.setPrimaryAliasId("id-slow")
         val aliasDao = FakeAliasDao(initial = listOf(alias(id = "id-slow", speed = 1.2f)))
         val vm = newViewModel(extraction = threeBlocks(), settings = settings, aliasDao = aliasDao)
+        vm.state.first()
+        h.settle()
 
+        assertEquals(1.2f, vm.playback.first().speed, 0f)
         assertFalse(vm.showSpeedWarning.first())
     }
 
@@ -705,9 +746,11 @@ class ReaderViewModelTest {
         val aliasDao = FakeAliasDao(initial = listOf(alias(id = "id-fast", speed = 2.0f)))
         val vm = newViewModel(extraction = threeBlocks(), settings = settings, aliasDao = aliasDao)
         vm.state.first()
+        h.settle()
         assertTrue(vm.showSpeedWarning.first())
 
         vm.onSpeedChange(1.0f)
+        h.settle()
 
         assertFalse(vm.showSpeedWarning.first())
     }
@@ -764,24 +807,23 @@ class ReaderViewModelTest {
         totalTextChars = 60,
     )
 
-    private val speech = FakeReaderSpeechClient()
-    private val completions = PreviewCompletions()
+    /** The real Narrator on the test's own scheduler; created by the first [newController] of a test. */
+    private var harness: NarratorHarness? = null
+    private val h: NarratorHarness get() = harness!!
 
-    /**
-     * A real controller over the fake service client. Its completion collector
-     * runs on the test's Main dispatcher (MainDispatcherRule), which keeps the
-     * ViewModel tests single-threaded; no completions are posted here — the
-     * sequencing itself is ReaderPlaybackControllerTest's job.
-     */
-    private fun newController() = ReaderPlaybackController(
-        speech = speech,
-        completions = completions,
-        transport = PlaybackTransport(),
-        clock = { 0L },
-        scope = CoroutineScope(Dispatchers.Main),
-    )
+    private fun articleId(): Long = h.narrator.articleId()!!
 
-    private fun newViewModel(
+    /** A real controller over the harness's Narrator, its projection on the test's scheduler. */
+    private fun TestScope.newController(): ReaderPlaybackController {
+        val h = harness ?: NarratorHarness(this, NarratorConfig(todaysDepthOnly = true)).also { harness = it }
+        return ReaderPlaybackController(
+            narrator = h.narrator,
+            host = PlaybackHost { true },
+            scope = backgroundScope,
+        )
+    }
+
+    private fun TestScope.newViewModel(
         fetch: FetchResult = success(),
         extraction: ExtractionResult = ExtractionResult.ExtractionFailed,
         extractor: FakeExtractor = FakeExtractor(extraction),

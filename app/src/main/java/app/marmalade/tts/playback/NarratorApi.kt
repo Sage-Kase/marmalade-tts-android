@@ -11,8 +11,7 @@ import kotlinx.coroutines.flow.StateFlow
 // The Narrator's public surface: commands in (NarratorControl, NarratorShell),
 // one StateFlow out, and the ports the service shell implements. See
 // docs/release/READER-SESSION-PLAN.md (local) §2.4 for the design and
-// REPO-MAP.md "Narrator" for the current wiring status (step B: NOT wired
-// into MarmaladeSynthService or the reader yet).
+// REPO-MAP.md "Narrator" for the current wiring status.
 // -----------------------------------------------------------------------------
 
 /**

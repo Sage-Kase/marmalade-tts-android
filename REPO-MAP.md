@@ -88,21 +88,20 @@ When investigating **{concern}**, start at **{files}**:
 - `service/MarmaladeTtsService.kt` — system TTS service (external
   apps call here); has `runBlocking` hot-path caches (v0.1.16) for
   voice→engine and rule lookup
-- `service/MarmaladeSynthService.kt` — foreground media-playback
-  service for long-form playback + transport controls. Only
-  `ACTION_SPEAK` (the one action sent via `startForegroundService`)
-  promotes it to foreground; stops use `stopSelfResult(lastStartId)` so a
-  newer SPEAK in flight still reaches its `startForeground`; a partial
-  wake lock is held while a request plays or waits and isn't paused.
-  A new SPEAK queues behind playing work but **replaces work the user
-  paused** (`replacesPausedWork`; an audio-focus pause — a call, a
-  notification duck — is not the user's, so it queues); the reader marks its follow-on blocks
-  `EXTRA_CONTINUATION` so they never do, and reads the `stopped` flag on
-  `PreviewCompletions.Completion` to fall back to Idle when replaced
+- `service/MarmaladeSynthService.kt` — the Narrator's foreground host
+  (step C1): a shell that turns intents into Narrator commands and projects
+  the Narrator's state onto the notification and media session
+  (`ServiceUi.render`). Only `ACTION_SPEAK` and `ACTION_HOST` (both sent via
+  `startForegroundService`) promote it; it stops itself once nothing is on air
+  (`stopSelfResult(lastStartId)`, so a newer start in flight still reaches its
+  `startForeground`). `ACTION_SPEAK` → `SpeakShim` → one Narrator one-shot and
+  one `PreviewCompletions` post. A new speak queues behind other spoken text,
+  reads over a playing article (which resumes after it) and **replaces an
+  article the user paused** (the Narrator decides — plan §2.8)
 - Order of the canonical chain: emoji-detect → preprocess →
-  strip-emoji → engine synth → ProsodyApplier → EffectChain (in
-  MarmaladeSynthService's streaming path the EffectChain step runs on the
-  playback side — see "effect chain at PLAYBACK" under Known quirks)
+  strip-emoji → engine synth → ProsodyApplier → EffectChain (for the
+  Narrator's audio the EffectChain step runs on the playback side — see
+  "effect chain at PLAYBACK" under Known quirks)
 
 ### Engines
 - `engine/EngineRegistry.kt` — **the one `engineName → TtsEngine` table**
@@ -150,11 +149,14 @@ When investigating **{concern}**, start at **{files}**:
   stream chunk, never joined first;
   `TtsEngine.maxInputChars` is the per-engine character cap.
 
-### Narrator (`playback/`) — built, NOT wired in yet
+### Narrator (`playback/`) — the owner of all in-app speech
 The reader-session redesign (local plan `docs/release/READER-SESSION-PLAN.md`,
-steps A → C1 → C2 → C3 → E → G). As of step B the package is pure Kotlin
-with no caller in the app: `MarmaladeSynthService`, the reader and
-`Synthesizer` still run today's per-request path. Step C1 wires it in.
+steps A → C1 → C2 → C3 → E → G). Since C1 every in-app read goes through the
+one Narrator: the reader drives it directly (`ReaderPlaybackController`), the
+Speak screen / previews / shares / Tasker reach it through the service's
+`ACTION_SPEAK` shim (`SpeakShim`; step E moves the in-app callers in-process),
+and `MarmaladeSynthService` is its foreground host. System TTS
+(`MarmaladeTtsService`) does not use it. The package itself is pure Kotlin.
 - `playback/NarratorApi.kt` — `NarratorControl` (commands, one
   `StateFlow<NarratorState>`), `NarratorShell` (focus/host signals) and the
   ports the service shell will implement (`SessionResolver`,
@@ -209,11 +211,21 @@ with no caller in the app: `MarmaladeSynthService`, the reader and
   continuous track). A refused format, failed write or parked track (head
   frozen with a full buffer) → `OutputEvent.TrackFailed` → the session fails.
   `service/ServiceUi.kt` is the pure state → notification/media-session table.
+  `service/SpeakShim.kt` holds the `ACTION_SPEAK` shim and `PlaybackHost`
+  (`ServicePlaybackHost` sends `ACTION_HOST` so the service is foreground
+  before the reader plays; the Narrator fails a session whose host never
+  comes up within 5 s). After a permanent focus loss the service leaves the
+  foreground (`STOP_FOREGROUND_DETACH`) with a swipe-away-able notification
+  whose delete intent stops the read; it reports a lost host to the Narrator
+  only when destroyed while still foreground.
 - Tests: `test/.../playback/` — `NarratorHarness` (virtual clock, fake
   ports, invariants), `FakeEngine` (lock, non-abortable mode, over-cap
   re-split, internal buffer), `VirtualAudioOutput` (real
   `StreamingEffectChain`, side-band frame marks), and the §5.2 scenarios in
-  `Narrator{Scenarios,Budget,Sessions}Test`.
+  `Narrator{Scenarios,Budget,Sessions}Test`. The reader's stories
+  (`ReaderPlaybackControllerTest`, `ReaderViewModelTest`), the shim
+  (`SpeakShimTest`) and the shell's duties (`NarratorShellTest`) run against
+  the same harness.
 
 ### Cloud API engine (hosted voices)
 - `engine/api/CloudApiEngine.kt` — OpenAI-compatible `/audio/speech`
@@ -318,8 +330,8 @@ with no caller in the app: `MarmaladeSynthService`, the reader and
   `settingsActivity` pointing at `MainActivity`.
 
 ### Other entry points
-- `service/MarmaladeSynthService.kt` — foreground service for long-
-  form Speak with media-session/lock-screen transport
+- `service/MarmaladeSynthService.kt` — the Narrator's foreground host,
+  with media-session/lock-screen transport (see Pipeline above)
 - `ui/intent/ShareIntentActivity.kt` — share-sheet target +
   `PROCESS_TEXT` selection action; dispatches to MarmaladeSynthService,
   or hands a shared link to reader mode
@@ -330,8 +342,9 @@ with no caller in the app: `MarmaladeSynthService`, the reader and
   PROCESS_TEXT included → speak). Unit-tested on the JVM.
 - `service/SpeakDispatcher.kt` — wraps the foreground-service start
   intent for shared text (share sheet, PROCESS_TEXT, the reader's "read
-  text as-is"); marks it `EXTRA_SHARED`, so MarmaladeSynthService's
-  `resolveRequest` detects the whole text's language once and, if the
+  text as-is"); marks it `EXTRA_SHARED`, so the Narrator's resolver
+  (`NarratorResolver`, `OneShotVoice.LanguageAware`) detects the whole
+  text's language once and, if the
   primary alias's voice doesn't speak it, uses the same choice as the
   reader (`LanguageVoiceSelector`: other on-device alias → installed on-device voice
   → primary), logged as `D/ShareVoice`. Explicit-voice callers (Speak
@@ -383,9 +396,9 @@ with no caller in the app: `MarmaladeSynthService`, the reader and
   (`VoiceMeta.languageCode`, language subtag only; a multilingual cloud
   voice — OpenAI-style, stored as `en-US` as a placeholder — counts as
   speaking everything, `CloudApiVoiceCatalog.hasKnownLanguage`), reads it in another
-  on-device alias whose voice does (sent as `EXTRA_ALIAS_ID` →
-  `TtsRouter.resolveAlias(aliasId=…)`), else an installed on-device,
-  pickable voice of that language (`EXTRA_VOICE`, dry, 1.0x), else the
+  on-device alias whose voice does (`VoiceChoice.Alias` →
+  `TtsRouter.resolveAlias(aliasId=…)` in `NarratorResolver`), else an installed on-device,
+  pickable voice of that language (`VoiceChoice.Installed`, dry, 1.0x), else the
   primary as before. **Never a cloud voice or cloud alias** (Max's privacy
   rule): text reaches a provider only through a cloud primary. Undetected language keeps the
   primary. A rebind keeps the article's voice; logged as `D/ReaderVoice`.
@@ -393,23 +406,21 @@ with no caller in the app: `MarmaladeSynthService`, the reader and
   session-only and an **absolute override** of the reading alias's speed,
   not a factor on it: each new article starts at that alias's own speed
   (`ReaderViewModel.startingSpeed` → `ReaderPlaybackController.open`),
-  and the reader sends it as `EXTRA_SESSION_SPEED`, which
-  MarmaladeSynthService applies *after* alias routing (voice, effect and
-  language still come from the alias). A non-chip alias speed gets its
+  and it is the Narrator's session speed, applied at playback *instead of*
+  the alias's speed (voice, effect and language still come from the
+  alias). A non-chip alias speed gets its
   own chip for the whole article (`readerSpeedChoices` over
   `ReaderPlaybackState.startingSpeed`), so picking another speed never
   removes the way back to it. A mid-article speed change is applied
-  live to the blocks already queued (no restart; see the
-  "effect chain at PLAYBACK" quirk below) — only a fixed-speed (cloud)
-  voice falls back to re-enqueueing from the current block.
-  **Jumps keep what is already queued** (`ReaderPlaybackController.jumpLocked`):
-  Forward, a tap or a contents pick onto a block already queued behind the
-  playing one stops only the requests in front of it, so the service plays
-  the target's prefetched audio at once instead of re-synthesising it
-  (logged `D/ReaderPlayback: jump to N kept queued request <id>` vs
-  `jump: restart from N`). Restarting the playing block, a non-queued target
-  and any seek while Paused still cancel everything — the service starts its
-  next queued request as soon as the paused one stops.
+  live (the writer's Tempo; no restart, no re-render — cloud voices too).
+  **The reader is a Narrator client** (`reader/ReaderPlaybackController`,
+  step C1): it holds the extracted article for rebinds, forwards commands
+  (`playArticle`/`pauseArticle`, `jumpTo`, `next`/`previous`, `setSpeed`,
+  `pause(Navigation)` on back) after `PlaybackHost.start()` for any command
+  that may start audio, and projects `NarratorState` onto
+  `ReaderPlaybackState` (a share reading over the article shows as Playing).
+  Forward or a tap onto the prepared next block plays its audio at once; the
+  Narrator keeps heard audio for an instant Back.
 - `ui/AppRootViewModel.kt` — collects theme preset + mode + onboarded
   flag from `SettingsRepository`; drives `MainActivity` decisions.
 - `ui/onboarding/OnboardingScreen.kt` + `OnboardingViewModel.kt` —
@@ -548,30 +559,26 @@ write Marmalade code.
   articulation — so all three set
   `TtsEngine.supportsNativeSpeed = false`. Kitten's per-voice priors are
   NOT user speed and stay in its tensor.
-  Both services route the request through `service/SpeedFallback.kt`
+  System TTS routes the request through `service/SpeedFallback.kt`
   first, which hands the engine 1.0 and prepends an
   `EffectBlock.Tempo(speed)` time-stretch to the effect chain (issue #7;
   Kokoro and Kitten joined 2026-09-12, mirroring the CLI's move to
   `sox tempo`).
   A new engine that can't (or shouldn't) honour `speed` only has to
-  override the flag.
-- **MarmaladeSynthService runs the effect chain at PLAYBACK, not in the
-  producer** (2026-09-28): the producer sends raw engine PCM (so RTF is
-  still measured pre-stretch) plus a `Shaping` (the chain spec);
-  `playFromChannel` runs `StreamingEffectChain` in ~100 ms slices right
-  before the AudioTrack. Reason: the reader's speed must change live — the
-  producer runs up to 8 chunks ahead, so a producer-side Tempo couldn't
-  follow a change. A reader request (`sessionSpeed`) on a time-stretching
-  engine gets a **live Tempo stage** (`StreamingEffectChain(liveTempo=…)`,
-  in front of the alias's effects) that re-reads
-  `service/LiveSessionSpeed` every slice; audible within the AudioTrack's
-  ~250 ms buffer, logged as `Live speed: request N tempo A -> B`. Cloud
-  (native speed) and the batched emoji path bake the speed in: they're
-  marked fixed, `ReaderSpeechClient.changeSpeed` returns false and the
-  reader re-enqueues via `seekTo` as before. Engine pre-roll
-  (`playbackRate`) is sized at stream start only, so a big mid-block speed
-  increase can briefly underrun on a slow device. `MarmaladeTtsService`
-  (system TTS) is unaffected — its chain still runs inline.
+  override the flag. The Narrator renders every engine at 1.0 and applies
+  every speed at playback (next quirk).
+- **The Narrator's effect chain runs at PLAYBACK, not in the render**
+  (2026-09-28, carried into the Narrator in C1): render jobs hand the
+  writer raw engine PCM rendered at 1.0 (so RTF is measured pre-stretch);
+  the writer (`service/BlockTrackOutput`, one `StreamingEffectChain` per
+  block with a live Tempo stage in front of the alias's effects) shapes it
+  in 50 ms slices right before the AudioTrack. A speed change is an
+  `OutputCommand.SetTempo`, audible within the AudioTrack's ~250 ms buffer,
+  logged `D/Narrator: speed A→B` — no restart, no re-render, cloud voices
+  included. Engine pre-roll (`playbackRate`) is sized at stream start only
+  (untouched until C3), so a big mid-block speed increase can briefly
+  underrun on a slow device. `MarmaladeTtsService` (system TTS) is
+  unaffected — its chain still runs inline.
 - **TTS engine registration requires `DEFAULT` category** on the
   `TTS_SERVICE` intent-filter AND `CHECK_TTS_DATA` activity AND a
   populated `tts_engine.xml` with `settingsActivity`. All three are

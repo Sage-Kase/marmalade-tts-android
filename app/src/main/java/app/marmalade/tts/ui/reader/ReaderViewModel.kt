@@ -17,12 +17,12 @@ import app.marmalade.tts.perf.DeviceProbe
 import app.marmalade.tts.perf.DeviceProbeSource
 import app.marmalade.tts.perf.EngineRecommender
 import app.marmalade.tts.perf.SpeedPerfWarning
+import app.marmalade.tts.playback.FailureKind
 import app.marmalade.tts.reader.ReaderParseDispatcher
 import app.marmalade.tts.reader.ReaderPlaybackController
 import app.marmalade.tts.reader.ReaderPlaybackState
 import app.marmalade.tts.lang.VoiceChoice
 import app.marmalade.tts.reader.ReaderVoicePicker
-import app.marmalade.tts.service.PreviewCompletions
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.net.URL
 import javax.inject.Inject
@@ -243,11 +243,11 @@ class ReaderViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     /**
-     * Why reading last stopped on its own, or null. The service suppresses its
-     * error notification for in-app requests (the caller is expected to show
-     * the error), so without this a failed read would just go quiet.
+     * Why reading last stopped on its own, or null. The service posts no
+     * error notification for the article (the reader is expected to show the
+     * error), so without this a failed read would just go quiet.
      *
-     * A missing engine is named after [readingEngine] — the one the service
+     * A missing engine is named after [readingEngine] — the one the Narrator
      * routed to. With no primary alias the service fell back to an engine
      * default we can't name, so that case reads as a plain failure.
      */
@@ -255,13 +255,13 @@ class ReaderViewModel @Inject constructor(
         combine(playback, readingEngine) { pb, engine ->
             when (pb.lastError) {
                 null -> null
-                PreviewCompletions.ErrorKind.MODEL_MISSING ->
+                FailureKind.MODEL_MISSING ->
                     if (engine.isEmpty()) {
                         ReaderPlaybackError.Failed
                     } else {
                         ReaderPlaybackError.EngineNotInstalled(engineLabelOf(engine))
                     }
-                PreviewCompletions.ErrorKind.FAILED -> ReaderPlaybackError.Failed
+                FailureKind.FAILED, FailureKind.FOCUS_DENIED -> ReaderPlaybackError.Failed
             }
         }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
@@ -326,8 +326,8 @@ class ReaderViewModel @Inject constructor(
 
     /**
      * Leaving the reader by back navigation (the top-bar arrow or system back)
-     * pauses playback AND cancels the reader's queued/in-flight synthesis, so
-     * nothing starts speaking after the user has left — including a back tap
+     * pauses playback AND stops preparing ahead, so nothing starts speaking
+     * after the user has left — including a back tap
      * during the pre-first-audio synthesis wait. Switching to another app does
      * NOT come through here — the FGS/MediaSession keeps that audio alive on
      * purpose. See [ReaderPlaybackController.pauseForNavigation].

@@ -46,7 +46,8 @@ data class NarratorConfig(
  * (shares, the Speak screen, previews, Tasker), focus, and what the writer
  * plays. Everyone else sends commands and reads [state].
  *
- * NOT wired in yet: nothing in the app constructs a Narrator until step C1.
+ * Built once per process by `di/NarratorModule`; MarmaladeSynthService is its
+ * foreground host and projects [state] onto the notification (step C1).
  *
  * **Threading.** One command loop on a dedicated single-thread dispatcher
  * ([newLoopDispatcher]); it suspends only on `receive()`. Every public method

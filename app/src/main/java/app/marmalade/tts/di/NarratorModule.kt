@@ -16,6 +16,8 @@ import app.marmalade.tts.service.NarratorPreparer
 import app.marmalade.tts.service.NarratorResolver
 import app.marmalade.tts.service.NarratorStats
 import app.marmalade.tts.service.NarratorWakeLock
+import app.marmalade.tts.service.PlaybackHost
+import app.marmalade.tts.service.ServicePlaybackHost
 import app.marmalade.tts.service.ServiceHost
 import dagger.Module
 import dagger.Provides
@@ -72,6 +74,10 @@ object NarratorModule {
 
     @Provides
     fun provideNarratorControl(narrator: Narrator): NarratorControl = narrator
+
+    /** MarmaladeSynthService as the reader's foreground host. An interface so the reader's tests can refuse it. */
+    @Provides
+    fun providePlaybackHost(impl: ServicePlaybackHost): PlaybackHost = impl
 
     /** Logcat tag of the Narrator's decision log (plan §5.4). */
     private const val NARRATOR_TAG = "Narrator"

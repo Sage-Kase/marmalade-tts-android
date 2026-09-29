@@ -1,341 +1,149 @@
 package app.marmalade.tts.service
 
 import android.content.Intent
-import android.media.AudioManager
-import app.marmalade.tts.service.MarmaladeSynthService.FocusAction
+import app.marmalade.tts.audio.EffectBlock
+import app.marmalade.tts.audio.EffectBlockJson
+import app.marmalade.tts.audio.EffectChain
+import app.marmalade.tts.audio.EffectPreset
+import app.marmalade.tts.data.KittenDirectVoiceCatalog
 import app.marmalade.tts.lang.VoiceChoice
+import app.marmalade.tts.playback.OneShotVoice
+import app.marmalade.tts.playback.Origin
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
 /**
- * Intent parsing and the pure decisions pulled out of the long-form
- * foreground service (RTF sampling, audio-focus transitions). Engine-name
- * narrowing moved to [app.marmalade.tts.engine.EngineRegistry] and is tested
- * there (EngineRegistryTest).
+ * The intent shim: how an `ACTION_SPEAK` (Speak screen and previews through
+ * Synthesizer, the share sheet through SpeakDispatcher, Tasker) becomes one
+ * Narrator one-shot. What the Narrator then does with it — alias routing, the
+ * language-aware share, replacing a paused article — is tested against the
+ * real Narrator (NarratorSessionsTest, NarratorResolverTest).
  *
- * That is what a JVM test can reach here: everything past them needs audio
- * focus, a notification channel, Hilt injection and real ONNX sessions.
- *
- * Robolectric only so the bare Service can be constructed; no injected
- * field is touched.
+ * Robolectric only so the bare Service can be constructed; no injected field
+ * is touched.
  */
 @RunWith(RobolectricTestRunner::class)
 class MarmaladeSynthServiceTest {
 
     private val service = MarmaladeSynthService()
 
-    // -- Session speed override -----------------------------------------------
+    private fun speak(build: Intent.() -> Unit = {}) =
+        Intent(MarmaladeSynthService.ACTION_SPEAK)
+            .putExtra(MarmaladeSynthService.EXTRA_TEXT, "Hello.")
+            .apply(build)
 
-    /**
-     * The reader's per-article speed rides its own extra so it survives alias
-     * routing and *replaces* the speed the primary alias resolves to
-     * (EXTRA_SPEED can't: on the alias route the alias's speed replaces it).
-     */
+    private fun parse(build: Intent.() -> Unit = {}) = service.parseRequest(speak(build))!!
+
+    /** Speak screen, previews, a Tasker call naming a voice: exactly that voice. */
     @Test
-    fun `the session speed is carried when the caller sends it`() {
-        val request = service.parseRequest(speakIntent(0.75f))
-
-        assertEquals(0.75f, request!!.sessionSpeed!!, 0f)
-    }
-
-    /**
-     * Every non-reader caller — share sheet, Tasker, the Speak screen — omits
-     * the extra, and must be spoken exactly as before.
-     */
-    @Test
-    fun `a request without the extra carries no session speed`() {
-        val request = service.parseRequest(speakIntent(sessionSpeed = null))
-
-        assertNull(request!!.sessionSpeed)
-    }
-
-    /** A zero, negative or NaN speed would silence the engine; ignore it, don't fail. */
-    @Test
-    fun `a nonsense session speed is ignored`() {
-        assertNull(service.parseRequest(speakIntent(0f))!!.sessionSpeed)
-        assertNull(service.parseRequest(speakIntent(-2f))!!.sessionSpeed)
-        assertNull(service.parseRequest(speakIntent(Float.NaN))!!.sessionSpeed)
-    }
-
-    /**
-     * The bug Max hit: a 2x alias read at the reader's 1x chip came out at 2x,
-     * because the chip multiplied the alias's speed. It must replace it.
-     */
-    @Test
-    fun `the session speed replaces the alias-routed speed rather than scaling it`() {
-        val routed = routedRequest(aliasSpeed = 2.0f, sessionSpeed = 1.0f)
-
-        assertEquals(1.0f, service.effectiveSpeed(routed), 0f)
-    }
-
-    @Test
-    fun `without a session speed the routed speed is unchanged`() {
-        val routed = routedRequest(aliasSpeed = 2.0f, sessionSpeed = null)
-
-        assertEquals(2.0f, service.effectiveSpeed(routed), 0f)
-    }
-
-    /**
-     * The reader names another alias when the primary's voice doesn't speak
-     * the article's language; it must still go through alias routing (no
-     * explicit voice), just to that alias.
-     */
-    @Test
-    fun `a named alias is carried and keeps the request on the alias route`() {
-        val request = service.parseRequest(
-            speakIntent(sessionSpeed = 1.0f).putExtra(MarmaladeSynthService.EXTRA_ALIAS_ID, "id-zh"),
-        )!!
-
-        assertEquals("id-zh", request.aliasId)
-        assertEquals(false, request.voiceExplicit)
-        assertNull(service.parseRequest(speakIntent(sessionSpeed = null))!!.aliasId)
-    }
-
-    // -- Shared text follows its language (Max, 2026-09-28) ----------------------
-
-    @Test
-    fun `a shared text with no voice gets the language-aware route`() {
-        val shared = service.parseRequest(
-            speakIntent(sessionSpeed = null).putExtra(MarmaladeSynthService.EXTRA_SHARED, true),
-        )!!
-
-        assertEquals(true, shared.shared)
-        assertEquals(true, service.isLanguageAwareShare(shared))
-    }
-
-    /** Speak screen, previews, the reader: routed exactly as before. */
-    @Test
-    fun `only shared text gets the language-aware route`() {
-        fun parsed(build: Intent.() -> Unit) =
-            service.parseRequest(speakIntent(sessionSpeed = null).apply(build))!!
-
-        // The reader: no share flag (and it may name its own alias).
-        assertEquals(false, service.isLanguageAwareShare(parsed {}))
-        // A caller that names a voice keeps it, shared or not.
-        assertEquals(
-            false,
-            service.isLanguageAwareShare(
-                parsed {
-                    putExtra(MarmaladeSynthService.EXTRA_SHARED, true)
-                    putExtra(MarmaladeSynthService.EXTRA_VOICE, "kitten-direct-v0_8:Bella")
-                },
-            ),
-        )
-        assertEquals(
-            false,
-            service.isLanguageAwareShare(
-                parsed {
-                    putExtra(MarmaladeSynthService.EXTRA_SHARED, true)
-                    putExtra(MarmaladeSynthService.EXTRA_ALIAS_ID, "id-zh")
-                },
-            ),
-        )
-    }
-
-    /** An installed voice no alias uses: that voice, dry, 1.0x, engine-default phonemizer. */
-    @Test
-    fun `a shared text moved to an installed voice is spoken dry at 1x`() {
-        val shared = service.parseRequest(
-            speakIntent(sessionSpeed = null)
-                .putExtra(MarmaladeSynthService.EXTRA_SHARED, true)
-                .putExtra(MarmaladeSynthService.EXTRA_EFFECT, "CAVE"),
-        )!!.copy(speed = 1.7f, phonemizationLanguage = "en-us")
-
-        val routed = service.withInstalledVoice(
-            shared,
-            VoiceChoice.Installed("kokoro-direct-v1_0:zf_xiaobei", "kokoro-direct-v1_0"),
-        )
-
-        assertEquals("kokoro-direct-v1_0:zf_xiaobei", routed.voice)
-        assertEquals("kokoro-direct-v1_0", routed.engine)
-        assertEquals(1.0f, routed.speed, 0f)
-        assertEquals(emptyList<Any>(), routed.effectBlocks)
-        assertNull(routed.phonemizationLanguage)
-        assertEquals(shared.text, routed.text)
-    }
-
-    private fun speakIntent(sessionSpeed: Float?) =
-        Intent(MarmaladeSynthService.ACTION_SPEAK).apply {
-            putExtra(MarmaladeSynthService.EXTRA_TEXT, "Hello.")
-            sessionSpeed?.let {
-                putExtra(MarmaladeSynthService.EXTRA_SESSION_SPEED, it)
-            }
+    fun `a named voice is spoken exactly as asked`() {
+        val parsed = parse {
+            putExtra(MarmaladeSynthService.EXTRA_VOICE, "kitten-direct-v0_8:Bella")
+            putExtra(MarmaladeSynthService.EXTRA_SPEED, 1.3f)
+            putExtra(MarmaladeSynthService.EXTRA_EFFECT, "CAVE")
+            putExtra(MarmaladeSynthService.EXTRA_LANG, "en-gb")
         }
 
-    /** A request as it stands after alias routing put the alias's speed on it. */
-    private fun routedRequest(aliasSpeed: Float, sessionSpeed: Float?) =
-        service.parseRequest(speakIntent(sessionSpeed))!!.copy(speed = aliasSpeed)
-
-    // -- A new speak vs paused work ---------------------------------------------
-
-    /**
-     * The approved P14 behaviour: a new speak while a read is paused drops
-     * that read and plays the new text now, instead of queueing silently
-     * behind a read the user may never resume.
-     */
-    @Test
-    fun `a new speak replaces paused work`() {
-        assertTrue(replaces(paused = true))
-    }
-
-    @Test
-    fun `a new speak queues behind playing work`() {
-        assertFalse(replaces(paused = false))
-    }
-
-    /** Nothing active: the request starts at once either way. */
-    @Test
-    fun `an idle service has nothing to replace`() {
-        assertFalse(replaces(paused = true, hasActive = false))
-    }
-
-    /**
-     * Paused work already being stopped — by a stop, or by the request that
-     * replaced it — is gone; a second new speak right behind the first must
-     * queue behind it, not knock it out too.
-     */
-    @Test
-    fun `a speak behind a replacement queues`() {
-        assertFalse(replaces(paused = true, stopping = true))
-    }
-
-    /** The reader's next block must not throw out the article it continues. */
-    @Test
-    fun `a continuation never replaces paused work`() {
-        assertFalse(replaces(paused = true, continuation = true))
-    }
-
-    @Test
-    fun `the continuation flag is carried and defaults off`() {
-        assertFalse(service.parseRequest(speakIntent(sessionSpeed = null))!!.continuation)
-        val continued = speakIntent(sessionSpeed = null)
-            .putExtra(MarmaladeSynthService.EXTRA_CONTINUATION, true)
-        assertTrue(service.parseRequest(continued)!!.continuation)
-    }
-
-    /**
-     * A call or a notification duck pauses the read through audio focus; a
-     * share arriving then must queue behind the article (which resumes when
-     * focus returns), not cancel it.
-     */
-    @Test
-    fun `a new speak queues behind an audio-focus pause`() {
-        assertFalse(replaces(paused = true, pausedByFocus = true))
-    }
-
-    private fun replaces(
-        paused: Boolean,
-        pausedByFocus: Boolean = false,
-        hasActive: Boolean = true,
-        stopping: Boolean = false,
-        continuation: Boolean = false,
-    ) = MarmaladeSynthService.replacesPausedWork(paused, pausedByFocus, hasActive, stopping, continuation)
-
-    // -- Rolling engine RTF -----------------------------------------------------
-
-    /** One second of 24 kHz audio rendered in half a second: RTF 0.5. */
-    @Test
-    fun `a clean warm utterance yields its RTF`() {
-        val rtf = MarmaladeSynthService.engineRtfSample(
-            warm = true, skewed = false,
-            renderNanos = 500_000_000L, audioSamples = 24_000L, sampleRate = 24_000,
-        )
-
-        assertEquals(0.5, rtf!!, 1e-9)
-    }
-
-    /**
-     * The engines keep rendering into their own flow buffer while the
-     * collector is backpressured or paused, so the gaps after it under-measure
-     * render time. Sampling those used to drive the rolling RTF so low that
-     * the speed-up warning stopped firing.
-     */
-    @Test
-    fun `a backpressured or paused utterance is not sampled`() {
-        assertNull(
-            MarmaladeSynthService.engineRtfSample(
-                warm = true, skewed = true,
-                renderNanos = 10_000_000L, audioSamples = 240_000L, sampleRate = 24_000,
-            ),
-        )
-    }
-
-    @Test
-    fun `cold or too-short utterances are not sampled`() {
-        assertNull(
-            MarmaladeSynthService.engineRtfSample(
-                warm = false, skewed = false,
-                renderNanos = 500_000_000L, audioSamples = 24_000L, sampleRate = 24_000,
-            ),
-        )
-        // 0.1 s of audio — below the 0.2 s floor.
-        assertNull(
-            MarmaladeSynthService.engineRtfSample(
-                warm = true, skewed = false,
-                renderNanos = 50_000_000L, audioSamples = 2_400L, sampleRate = 24_000,
-            ),
-        )
-    }
-
-    // -- Audio focus ------------------------------------------------------------
-
-    @Test
-    fun `a transient loss pauses playing audio`() {
-        for (loss in listOf(
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK,
-        )) {
-            assertEquals(
-                FocusAction.PAUSE,
-                MarmaladeSynthService.focusAction(loss, paused = false, pausedByFocus = false),
-            )
-        }
-    }
-
-    @Test
-    fun `regaining focus resumes a pause the focus loss caused`() {
+        assertEquals("Hello.", parsed.request.text)
         assertEquals(
-            FocusAction.RESUME,
-            MarmaladeSynthService.focusAction(
-                AudioManager.AUDIOFOCUS_GAIN, paused = true, pausedByFocus = true,
+            OneShotVoice.Explicit(
+                voiceId = "kitten-direct-v0_8:Bella",
+                effectBlocks = EffectChain.blocksForPreset(EffectPreset.CAVE),
+                phonemizationLanguage = "en-gb",
+                speed = 1.3f,
+                engine = null,
             ),
+            parsed.request.voice,
+        )
+        assertNull("the voice's own speed, not an override", parsed.request.speed)
+    }
+
+    /** No voice named: the primary alias, with the caller's own extras if no alias is set. */
+    @Test
+    fun `no voice goes to the primary alias, the caller's extras as the fallback`() {
+        val voice = parse { putExtra(MarmaladeSynthService.EXTRA_ENGINE, "kokoro-direct-v1_0") }.request.voice
+
+        assertEquals(
+            OneShotVoice.Routed(
+                VoiceChoice.Primary,
+                fallback = OneShotVoice.Explicit(
+                    voiceId = KittenDirectVoiceCatalog.DEFAULT_VOICE_ID,
+                    engine = "kokoro-direct-v1_0",
+                ),
+            ),
+            voice,
         )
     }
 
-    /** The bug: any GAIN resumed any pause, undoing the user's own. */
+    /** Shared text follows its language (Max, 2026-09-28). */
     @Test
-    fun `regaining focus leaves a user pause alone`() {
-        assertEquals(
-            FocusAction.NONE,
-            MarmaladeSynthService.focusAction(
-                AudioManager.AUDIOFOCUS_GAIN, paused = true, pausedByFocus = false,
-            ),
-        )
-    }
+    fun `shared text with no voice gets the language-aware route`() {
+        val voice = parse { putExtra(MarmaladeSynthService.EXTRA_SHARED, true) }.request.voice
 
-    /** A transient loss on top of a user pause must not adopt it as its own. */
-    @Test
-    fun `a transient loss while user-paused changes nothing`() {
         assertEquals(
-            FocusAction.NONE,
-            MarmaladeSynthService.focusAction(
-                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT, paused = true, pausedByFocus = false,
-            ),
+            OneShotVoice.LanguageAware(OneShotVoice.Explicit(KittenDirectVoiceCatalog.DEFAULT_VOICE_ID)),
+            voice,
         )
     }
 
     @Test
-    fun `a permanent loss stops`() {
-        assertEquals(
-            FocusAction.STOP,
-            MarmaladeSynthService.focusAction(
-                AudioManager.AUDIOFOCUS_LOSS, paused = false, pausedByFocus = false,
-            ),
-        )
+    fun `a caller that names a voice keeps it, shared or not`() {
+        val voice = parse {
+            putExtra(MarmaladeSynthService.EXTRA_SHARED, true)
+            putExtra(MarmaladeSynthService.EXTRA_VOICE, "kitten-direct-v0_8:Bella")
+        }.request.voice
+
+        assertEquals(OneShotVoice.Explicit("kitten-direct-v0_8:Bella"), voice)
+    }
+
+    /** An in-app request has a screen to show its errors; the rest get a notification. */
+    @Test
+    fun `an in-app request id makes an in-app one-shot, none an external one`() {
+        val inApp = parse { putExtra(MarmaladeSynthService.EXTRA_REQUEST_ID, 42L) }
+        assertEquals(42L, inApp.requestId)
+        assertEquals(Origin.InApp, inApp.request.origin)
+
+        val external = parse()
+        assertEquals(0L, external.requestId)
+        assertEquals(Origin.External, external.request.origin)
+    }
+
+    /** Custom effects have no preset name, so in-app callers send the exact chain. */
+    @Test
+    fun `an in-app effect chain wins over the preset, a broken one falls back to it`() {
+        val chain = listOf(EffectBlock.Reverb(50f))
+        val exact = parse {
+            putExtra(MarmaladeSynthService.EXTRA_VOICE, "kitten-direct-v0_8:Bella")
+            putExtra(MarmaladeSynthService.EXTRA_EFFECT, "CAVE")
+            putExtra(MarmaladeSynthService.EXTRA_EFFECT_BLOCKS, EffectBlockJson.encode(chain))
+        }.request.voice as OneShotVoice.Explicit
+        assertEquals(chain, exact.effectBlocks)
+
+        val broken = parse {
+            putExtra(MarmaladeSynthService.EXTRA_VOICE, "kitten-direct-v0_8:Bella")
+            putExtra(MarmaladeSynthService.EXTRA_EFFECT, "CAVE")
+            putExtra(MarmaladeSynthService.EXTRA_EFFECT_BLOCKS, "{not json")
+        }.request.voice as OneShotVoice.Explicit
+        assertEquals(EffectChain.blocksForPreset(EffectPreset.CAVE), broken.effectBlocks)
+    }
+
+    /** A typo'd extra from a third-party caller is spoken dry rather than failing. */
+    @Test
+    fun `an unknown effect preset is spoken dry`() {
+        val voice = parse {
+            putExtra(MarmaladeSynthService.EXTRA_VOICE, "kitten-direct-v0_8:Bella")
+            putExtra(MarmaladeSynthService.EXTRA_EFFECT, "ECHO_CHAMBER")
+        }.request.voice as OneShotVoice.Explicit
+
+        assertEquals(emptyList<EffectBlock>(), voice.effectBlocks)
+    }
+
+    @Test
+    fun `a request without text is refused`() {
+        assertNull(service.parseRequest(Intent(MarmaladeSynthService.ACTION_SPEAK)))
+        assertNull(service.parseRequest(speak { putExtra(MarmaladeSynthService.EXTRA_TEXT, "   ") }))
     }
 }
