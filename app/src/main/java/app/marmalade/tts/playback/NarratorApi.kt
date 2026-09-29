@@ -32,19 +32,44 @@ interface NarratorControl {
         autoplay: Boolean,
     )
 
-    /** Idle → cursor, Finished → segment 0, Paused → resume (re-requests focus if lost). */
+    /**
+     * Idle → cursor, Finished → segment 0, Paused → resume (re-requests focus if lost).
+     * Acts on the one-shot on air if there is one, else the article (the
+     * notification and media keys: "the thing you hear").
+     */
     fun play()
 
+    /** [pause] for the one-shot on air if there is one, else the article; Navigation always the article. */
     fun pause(reason: PauseReason = PauseReason.User)
 
     fun togglePlayPause()
 
+    /**
+     * [play] for the article only — the reader's own button. With a one-shot
+     * on air the article starts behind it (or, interrupted, resumes after it).
+     */
+    fun playArticle()
+
+    /**
+     * A user pause of the article only — the reader's own button. An article
+     * a one-shot is reading over then stays paused after it instead of resuming.
+     */
+    fun pauseArticle()
+
     /** Tap / contents pick: `play = true`; a transport seek keeps a pause. */
     fun jumpTo(index: Int, play: Boolean)
 
+    /**
+     * The next segment; past the last one the article is Finished. Keeps a
+     * pause; from Idle / Finished it starts playing at the target.
+     */
     fun next()
 
-    /** Previous block within [NarratorConfig.restartWindowMs] of the segment's first HEARD frame, else restart it. */
+    /**
+     * Previous block within [NarratorConfig.restartWindowMs] of the segment's
+     * first HEARD frame, else restart it. Keeps a pause; from Idle / Finished
+     * it starts playing at the target.
+     */
     fun previous()
 
     /** The article session's speed, clamped to [MIN_SPEED]..[MAX_SPEED]; applied live, no re-render. */

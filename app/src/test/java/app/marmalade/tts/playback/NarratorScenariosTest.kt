@@ -306,6 +306,86 @@ class NarratorScenariosTest {
     }
 
     @Test
+    fun `Next past the last segment finishes the article, and Play starts it over`() = runTest {
+        val h = harness()
+        val segs = article(2)
+        h.open(segs)
+        val id = h.narrator.articleId()!!
+        h.narrator.jumpTo(1, play = true)
+        h.runUntil { h.firstHeard(id, 1) != null }
+        val t = h.now()
+        h.narrator.next()
+        h.run(2_000)
+        assertEquals(Status.Finished, h.article.status)
+        assertEquals(1, h.article.index)
+        assertEquals(0.0, h.audibleMs(Track.Main, from = t + 10), 0.0)
+        h.checkInvariants()
+        h.narrator.play()
+        h.runUntil { h.firstHeard(id, 0, after = t) != null }
+        assertEquals(0, h.article.index)
+        h.done()
+    }
+
+    @Test
+    fun `Next and Previous from a stopped article play the target`() = runTest {
+        val h = harness()
+        val segs = article(4)
+        h.open(segs, autoplay = false)
+        val id = h.narrator.articleId()!!
+        h.narrator.next()
+        h.runUntil(what = "segment 1 heard") { h.firstHeard(id, 1) != null }
+        assertEquals(Status.Playing, h.article.status)
+        assertEquals(null, h.firstHeard(id, 0))
+        h.narrator.stop()
+        h.settle()
+        val t = h.now()
+        h.narrator.previous()
+        h.runUntil(what = "a segment heard again") { h.heardStarts().any { it.first > t } }
+        assertEquals(Status.Playing, h.article.status)
+        h.done()
+    }
+
+    @Test
+    fun `playArticle starts the article behind a one-shot on air, not the one-shot`() = runTest {
+        val h = harness()
+        val segs = article(2)
+        h.open(segs, autoplay = false)
+        val id = h.narrator.articleId()!!
+        val shot = h.narrator.speakOneShot(OneShotRequest(paragraph(1, fill = 'q'), OneShotVoice.LanguageAware, Origin.External))
+        h.runUntil { h.state.oneShot?.status == Status.Playing }
+        h.narrator.playArticle()
+        h.settle()
+        assertEquals(Status.Buffering, h.article.status)
+        assertEquals(Status.Playing, h.state.oneShot?.status)
+        h.runUntil { shot.outcome.isCompleted }
+        assertEquals(Outcome.Played, shot.outcome.getCompleted())
+        h.runUntil(what = "article heard after the share") { h.firstHeard(id, 0) != null }
+        h.done()
+    }
+
+    @Test
+    fun `pauseArticle keeps an interrupted article paused after the share`() = runTest {
+        val h = harness()
+        val segs = article(2)
+        h.open(segs)
+        val id = h.narrator.articleId()!!
+        h.runUntil { h.firstHeard(id, 0) != null }
+        val shot = h.narrator.speakOneShot(OneShotRequest(paragraph(1, fill = 'q'), OneShotVoice.LanguageAware, Origin.External))
+        h.settle()
+        assertEquals(Status.Paused(PausedBy.Interrupt), h.article.status)
+        h.narrator.pauseArticle()
+        h.settle()
+        assertEquals(Status.Paused(PausedBy.User), h.article.status)
+        assertEquals("the share keeps playing", Status.Buffering, h.state.oneShot?.status)
+        h.runUntil { shot.outcome.isCompleted }
+        val done = h.now()
+        h.run(3_000)
+        assertEquals(Status.Paused(PausedBy.User), h.article.status)
+        assertEquals(0.0, h.audibleMs(Track.Main, from = done), 0.0)
+        h.done()
+    }
+
+    @Test
     fun `no Previous or Next for shared text`() = runTest {
         val h = harness()
         val handle = h.narrator.speakOneShot(

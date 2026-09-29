@@ -148,6 +148,8 @@ class Narrator(
     override fun play() { inbox.trySend(Msg.Play) }
     override fun pause(reason: PauseReason) { inbox.trySend(Msg.Pause(reason)) }
     override fun togglePlayPause() { inbox.trySend(Msg.Toggle) }
+    override fun playArticle() { inbox.trySend(Msg.PlayArticle) }
+    override fun pauseArticle() { inbox.trySend(Msg.PauseArticle) }
     override fun jumpTo(index: Int, play: Boolean) { inbox.trySend(Msg.Jump(index, play)) }
     override fun next() { inbox.trySend(Msg.Next) }
     override fun previous() { inbox.trySend(Msg.Previous) }
@@ -178,6 +180,8 @@ class Narrator(
         data object Play : Msg
         data class Pause(val reason: PauseReason) : Msg
         data object Toggle : Msg
+        data object PlayArticle : Msg
+        data object PauseArticle : Msg
         data class Jump(val index: Int, val play: Boolean) : Msg
         data object Next : Msg
         data object Previous : Msg
@@ -297,8 +301,12 @@ class Narrator(
             Msg.Toggle -> controlTarget()?.let {
                 if (it.wantsAudio) pauseSession(it, PausedBy.User) else playSession(it)
             }
+            Msg.PlayArticle -> article?.let(::playSession)
+            Msg.PauseArticle -> article?.let {
+                if (it.wantsAudio || it.status == Status.Paused(PausedBy.Interrupt)) pauseSession(it, PausedBy.User)
+            }
             is Msg.Jump -> article?.let { jump(it, msg.index, msg.play) }
-            Msg.Next -> article?.let { if (it.cursor + 1 < it.segs.size) jump(it, it.cursor + 1, play = false) }
+            Msg.Next -> article?.let(::nextNow)
             Msg.Previous -> article?.let(::previousNow)
             is Msg.Speed -> article?.let { setSpeedNow(it, msg.speed) }
             Msg.Stop -> stopAll()
@@ -470,12 +478,23 @@ class Narrator(
         }
     }
 
+    /** Past the last segment Next ends the article, as if it had played to its end. */
+    private fun nextNow(s: Session) {
+        if (s.cursor + 1 < s.segs.size) {
+            jump(s, s.cursor + 1, play = s.status !is Status.Paused)
+            return
+        }
+        log("next past the end: finished")
+        stopArticle(s)
+        s.status = Status.Finished
+    }
+
     private fun previousNow(s: Session) {
         val heardAt = s.heardStartAt
         val paused = s.pausedAt?.let { clock() - it } ?: 0L
         val elapsed = if (heardAt == null) 0L else clock() - heardAt - s.pausedInSegmentMs - paused
         val target = if (elapsed < config.restartWindowMs && s.cursor > 0) s.cursor - 1 else s.cursor
-        jump(s, target, play = false)
+        jump(s, target, play = s.status !is Status.Paused)
     }
 
     private fun setSpeedNow(s: Session, speed: Float) {

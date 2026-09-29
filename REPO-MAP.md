@@ -181,7 +181,11 @@ with no caller in the app: `MarmaladeSynthService`, the reader and
   next; preparing continues while paused except after `PauseReason.Navigation`;
   every speed change (cloud too) is the writer's live Tempo, engines render
   at 1.0; permanent focus loss → `Paused(FocusLoss)`; 30 min paused → stopped
-  (Idle, the shell stops); Previous/Next act on the article only.
+  (Idle, the shell stops); Previous/Next act on the article only (Next past
+  the last block finishes it; from a stopped article both start playing, as
+  the reader always did). `play`/`pause`/`toggle` act on the one-shot on air,
+  else the article (notification, media keys); `playArticle`/`pauseArticle`
+  are the reader's article-only buttons.
   A stop drops the article's audio and restarts its block on Play — a
   re-render need not cut the same chunks (Kokoro's short first piece).
 - `playback/SegmentRenderer.kt` — one render job: prepare, stream the
