@@ -167,6 +167,7 @@ class Narrator(
 
     override fun onFocusChange(change: FocusChange) { inbox.trySend(Msg.Focus(change)) }
     override fun onHostChanged(foreground: Boolean) { inbox.trySend(Msg.Host(foreground)) }
+    override fun onNoticeShown(oneShotId: Long) { inbox.trySend(Msg.NoticeShown(oneShotId)) }
 
     // -- messages -----------------------------------------------------------------
 
@@ -192,6 +193,7 @@ class Narrator(
         data class CancelOneShot(val id: Long) : Msg
         data class Focus(val change: FocusChange) : Msg
         data class Host(val foreground: Boolean) : Msg
+        data class NoticeShown(val oneShotId: Long) : Msg
 
         // child-job and writer events
         data class Resolved(val sessionId: Long, val token: Long, val result: Result<ResolvedVoice>) : Msg
@@ -317,6 +319,7 @@ class Narrator(
             }
             is Msg.Focus -> focusNow(msg.change)
             is Msg.Host -> if (!msg.foreground) hostLost()
+            is Msg.NoticeShown -> if (notice?.oneShotId == msg.oneShotId) notice = null
             is Msg.Resolved -> resolvedNow(msg)
             is Msg.Rendered -> renderedNow(msg)
             is Msg.Out -> outputNow(msg.event)
@@ -347,6 +350,8 @@ class Narrator(
         oneShots.firstOrNull { it.active } ?: article
 
     private fun playSession(s: Session) {
+        // The user is asking for audio again: an old failure is no news.
+        notice = null
         when (val st = s.status) {
             Status.Buffering, Status.Playing -> return
             is Status.Paused -> {

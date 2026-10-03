@@ -252,6 +252,9 @@ class MarmaladeSynthService : Service() {
         ServiceUi.errorToPost(state, lastErrorId)?.let {
             lastErrorId = it.oneShotId
             postErrorNotification(it)
+            // The notice outlives this instance in the Narrator; acknowledged,
+            // so the next instance doesn't post it again.
+            narrator.onNoticeShown(it.oneShotId)
         }
         when {
             !next.onAir -> scheduleIdleCheck()

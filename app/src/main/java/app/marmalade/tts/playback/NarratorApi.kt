@@ -94,6 +94,12 @@ interface NarratorShell {
 
     /** The host service became foreground (true) or was demoted/destroyed (false). */
     fun onHostChanged(foreground: Boolean)
+
+    /**
+     * The shell has shown [NarratorState.notice] for this one-shot; it is
+     * cleared, so a later host (a new service instance) never posts it again.
+     */
+    fun onNoticeShown(oneShotId: Long)
 }
 
 enum class PauseReason {
@@ -162,7 +168,11 @@ data class OneShotView(
     val text: String = "",
 )
 
-/** A failure the shell must surface as a notification (UI-less sessions only). */
+/**
+ * A failure the shell must surface as a notification (UI-less sessions only).
+ * Held until the shell acknowledges it ([NarratorShell.onNoticeShown]) or the
+ * next session is started.
+ */
 data class ErrorNotice(val oneShotId: Long, val kind: FailureKind, val engine: String?)
 
 data class NarratorState(

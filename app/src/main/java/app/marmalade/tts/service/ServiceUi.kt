@@ -91,7 +91,12 @@ data class ServiceUi(
         fun wantsWakeLock(state: NarratorState): Boolean =
             listOf(state.oneShot?.status, state.article?.status).any { it == Status.Buffering || it == Status.Playing }
 
-        /** The error to post for a UI-less one-shot, once per id ([ErrorNotice] stays set until the next one-shot). */
+        /**
+         * The error to post for a UI-less one-shot, once per id. The notice
+         * stays set in the Narrator until the shell acknowledges it
+         * (`onNoticeShown`) or a session starts; [lastPostedId] covers the
+         * moment before the acknowledgement lands.
+         */
         fun errorToPost(state: NarratorState, lastPostedId: Long?): ErrorNotice? =
             state.notice?.takeIf { it.oneShotId != lastPostedId }
 

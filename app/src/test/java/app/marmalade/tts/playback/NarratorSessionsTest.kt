@@ -305,6 +305,35 @@ class NarratorSessionsTest {
         h.done()
     }
 
+    /** The notice lives in the Narrator, not the service: once shown it must not come back. */
+    @Test
+    fun `16b2 - a shown notice is cleared, a stale acknowledgement changes nothing`() = runTest {
+        val h = harness()
+        h.kokoro.installed = false
+        val first = h.narrator.speakOneShot(share())
+        h.runUntil { first.outcome.isCompleted }
+        h.narrator.onNoticeShown(first.id + 99)
+        h.settle()
+        assertEquals(first.id, h.state.notice?.oneShotId)
+        h.narrator.onNoticeShown(first.id)
+        h.settle()
+        assertNull(h.state.notice)
+        h.done()
+    }
+
+    @Test
+    fun `16b3 - starting a session clears an unshown notice`() = runTest {
+        val h = harness()
+        h.kokoro.installed = false
+        val shot = h.narrator.speakOneShot(share())
+        h.runUntil { shot.outcome.isCompleted }
+        assertEquals(shot.id, h.state.notice?.oneShotId)
+        h.kokoro.installed = true
+        h.open(article(1))
+        assertNull(h.state.notice)
+        h.done()
+    }
+
     /** A track the device refused or the OS parked: the session fails like a render failure. */
     @Test
     fun `16c - a failed track fails its session once, a stale report changes nothing`() = runTest {
