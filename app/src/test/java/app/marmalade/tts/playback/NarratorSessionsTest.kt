@@ -134,6 +134,29 @@ class NarratorSessionsTest {
         h.done()
     }
 
+    /** The article queued behind a one-shot on Main, then paused by the user, must not follow it. */
+    @Test
+    fun `9e - an article paused behind a one-shot stays silent when the one-shot ends`() = runTest {
+        val h = harness()
+        h.open(article(2), autoplay = false)
+        val id = h.narrator.articleId()!!
+        val handle = h.narrator.speakOneShot(share())
+        h.narrator.playArticle()
+        h.narrator.pauseArticle()
+        h.settle()
+        assertEquals(Status.Paused(PausedBy.User), h.article.status)
+        h.runUntil { handle.outcome.isCompleted }
+        h.run(5_000)
+        assertEquals(Outcome.Played, handle.outcome.getCompleted())
+        assertTrue("nothing of the paused article written", h.output.commands.none { (_, c) -> c is OutputCommand.Begin && c.sessionId == id })
+        assertNull(h.firstHeard(id, 0))
+        assertEquals(Status.Paused(PausedBy.User), h.article.status)
+        // Play still starts it.
+        h.narrator.playArticle()
+        h.runUntil { h.firstHeard(id, 0) != null }
+        h.done()
+    }
+
     @Test
     fun `cancelling one queued one-shot leaves the others`() = runTest {
         val h = harness()

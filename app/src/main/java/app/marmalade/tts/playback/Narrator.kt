@@ -943,10 +943,13 @@ class Narrator(
     /** Hand the writer every chunk it can take, in play order, per track. */
     private fun pump(track: Track) {
         if (!host.isForeground()) return
-        for (s in program(track)) {
+        for ((i, s) in program(track).withIndex()) {
             // Only a session the start policy released (or one following
             // another on this track) is written: a held one creates no track.
             if (s.voice == null || !s.startGranted) return
+            // A follower the user paused waits for its own play: written
+            // behind the head, it would play on gaplessly after it.
+            if (i > 0 && !s.wantsAudio) return
             if (!s.begun) {
                 val first = firstWritable(s) ?: return
                 output.submit(
@@ -972,8 +975,9 @@ class Narrator(
                 output.submit(OutputCommand.End(track, s.id, s.epoch))
                 s.ended = true
             }
-            // Written to its end: the next session on this track follows gaplessly.
-            program(track).getOrNull(program(track).indexOf(s) + 1)?.let { it.startGranted = true }
+            // Written to its end: the next session on this track follows
+            // gaplessly — unless it is paused.
+            program(track).getOrNull(i + 1)?.takeIf { it.wantsAudio }?.let { it.startGranted = true }
         }
     }
 
