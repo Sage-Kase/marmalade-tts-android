@@ -658,6 +658,9 @@ class Narrator(
         if (focusHeld) return true
         log("focus request")
         focusHeld = focus.request()
+        // A fresh grant is never suspended: a transient loss belonged to the
+        // hold before it, and its GAIN will never come.
+        if (focusHeld) focusSuspended = false
         if (!focusHeld) {
             log("focus denied")
             if (s.isArticle) {
@@ -1013,6 +1016,7 @@ class Narrator(
             log("focus abandon")
             focus.abandon()
             focusHeld = false
+            focusSuspended = false
         }
         article?.let { if (!it.active) releaseResidency(it) }
     }

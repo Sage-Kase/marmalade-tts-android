@@ -172,6 +172,43 @@ class NarratorSessionsTest {
         h.done()
     }
 
+    /** The GAIN for a hold that was abandoned never comes; the next hold must not wait for it. */
+    @Test
+    fun `8a2 - a stop during a transient loss, then play - audio is heard`() = runTest {
+        val h = harness()
+        h.open(article(2))
+        val id = h.narrator.articleId()!!
+        h.runUntil { h.firstHeard(id, 0) != null }
+        h.narrator.onFocusChange(FocusChange.LossTransient)
+        h.settle()
+        h.narrator.stop()
+        h.settle()
+        assertFalse(h.state.focusHeld)
+        val t = h.now()
+        h.narrator.play()
+        h.runUntil(what = "audio after the stop") { h.firstHeard(id, 0, after = t + 1) != null }
+        assertEquals(Status.Playing, h.article.status)
+        assertEquals(2, h.focus.requests)
+        h.done()
+    }
+
+    @Test
+    fun `8a3 - a one-shot that ends during a transient loss does not silence the next one`() = runTest {
+        val h = harness()
+        val first = h.narrator.speakOneShot(share())
+        h.runUntil { h.state.oneShot?.status == Status.Playing }
+        h.narrator.onFocusChange(FocusChange.LossTransient)
+        h.settle()
+        h.narrator.cancelOneShot(first.id)
+        h.settle()
+        val t = h.now()
+        val second = h.narrator.speakOneShot(share())
+        h.runUntil(what = "the second one-shot heard") { h.heardStarts().any { it.first > t && it.second.sessionId == second.id } }
+        h.runUntil { second.outcome.isCompleted }
+        assertEquals(Outcome.Played, second.outcome.getCompleted())
+        h.done()
+    }
+
     @Test
     fun `8b - a user pause survives a transient loss and regain`() = runTest {
         val h = harness()
