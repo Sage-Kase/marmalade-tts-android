@@ -134,12 +134,20 @@ class MarmaladeSynthService : Service() {
     private var lastErrorId: Long? = null
     private var idleCheck: Job? = null
 
+    /** Left the foreground because nothing was on air ([leaveForegroundIfIdle]); a new read brings it back. */
+    private var demotedIdle = false
+
     override fun onCreate() {
         super.onCreate()
         notificationManager = getSystemService(NotificationManager::class.java)
         ensureNotificationChannel()
         ensureMediaSession()
-        shim.onSettled = { scope.launch { scheduleIdleCheck() } }
+        shim.onSettled = {
+            scope.launch {
+                leaveForegroundIfIdle()
+                scheduleIdleCheck()
+            }
+        }
         scope.launch { narrator.state.collect(::show) }
     }
 
@@ -236,6 +244,7 @@ class MarmaladeSynthService : Service() {
             startForeground(NOTIFICATION_ID, notification)
         }
         idleCheck?.cancel()
+        demotedIdle = false
         host.foreground = true
         narrator.onHostChanged(true)
     }
@@ -258,6 +267,7 @@ class MarmaladeSynthService : Service() {
 
     private fun show(state: NarratorState) {
         val next = ServiceUi.render(state, mediaState)
+        val wasOnAir = ui?.onAir == true
         ui = next
         mediaState = next.mediaState
         updateMediaSession(next)
@@ -269,8 +279,21 @@ class MarmaladeSynthService : Service() {
             narrator.onNoticeShown(it.oneShotId)
         }
         when {
-            !next.onAir -> scheduleIdleCheck()
-            next.ongoing -> notificationManager?.notify(NOTIFICATION_ID, buildNotification(next))
+            !next.onAir -> {
+                // Stopped or done: the "Speaking…" notification and its live
+                // Pause go now; only stopping the service waits for the grace.
+                if (wasOnAir) leaveForegroundIfIdle()
+                scheduleIdleCheck()
+            }
+            next.ongoing -> {
+                // A read started again right after an idle demotion (Stop,
+                // then Play in the reader): back to the foreground.
+                if (demotedIdle && !host.foreground) {
+                    runCatching { promoteToForeground() }
+                        .onFailure { Log.w(TAG, "Could not return to the foreground", it) }
+                }
+                notificationManager?.notify(NOTIFICATION_ID, buildNotification(next))
+            }
             else -> {
                 // §6 Q6: another app took the sound for good. Paused in place,
                 // out of the foreground, and the notification can be swiped
@@ -282,6 +305,20 @@ class MarmaladeSynthService : Service() {
                 notificationManager?.notify(NOTIFICATION_ID, buildNotification(next))
             }
         }
+    }
+
+    /**
+     * Nothing on air and no one-shot handed over: leave the foreground and
+     * remove the notification at once. The service itself stops after the
+     * grace ([scheduleIdleCheck]); a read arriving meanwhile promotes again.
+     */
+    private fun leaveForegroundIfIdle() {
+        if (!host.foreground || shim.busy) return
+        if (ServiceUi.render(narrator.state.value, mediaState).onAir) return
+        host.foreground = false
+        demotedIdle = true
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        notificationManager?.cancel(NOTIFICATION_ID)
     }
 
     /**

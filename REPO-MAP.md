@@ -92,9 +92,11 @@ When investigating **{concern}**, start at **{files}**:
   (step C1): a shell that turns intents into Narrator commands and projects
   the Narrator's state onto the notification and media session
   (`ServiceUi.render`). Only `ACTION_SPEAK` and `ACTION_HOST` (both sent via
-  `startForegroundService`) promote it; it stops itself once nothing is on air
-  (`stopSelfResult(lastStartId)`, so a newer start in flight still reaches its
-  `startForeground`). `ACTION_SPEAK` → `SpeakShim` → one Narrator one-shot and
+  `startForegroundService`) promote it; once nothing is on air it leaves the
+  foreground and drops the notification at once (no stale "Speaking…" with a
+  live Pause after Stop; a read arriving within the grace promotes it again)
+  and stops itself 1.5 s later (`stopSelfResult(lastStartId)`, so a newer
+  start in flight still reaches its `startForeground`). `ACTION_SPEAK` → `SpeakShim` → one Narrator one-shot and
   one `PreviewCompletions` post. A new speak queues behind other spoken text,
   reads over a playing article (which resumes after it) and **replaces an
   article the user paused** (the Narrator decides — plan §2.8)
