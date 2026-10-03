@@ -166,7 +166,9 @@ and `MarmaladeSynthService` is its foreground host. System TTS
 - `playback/RenderPlanner.kt` — pure "what to render next": ~60 s ahead for
   on-device voices (also while paused), cloud only this segment + the next.
   `NarratorConfig(todaysDepthOnly = true)` depth-limits every voice — how
-  C1–C3 must run until G (Pocket holds its lock for a whole utterance).
+  C1–C3 must run until G (Pocket holds its lock for a whole utterance). The
+  60 s cap applies to depth-limited voices too, so one huge segment (a long
+  share with no blank lines) never renders whole into the heap.
 - `playback/AudioOutput.kt` — the writer port: stream items (Begin/Write/End)
   queue at their frame, controls (Play/Pause/Flush/SetTempo) apply at the
   next slice; every chunk tagged `(sessionId, epoch, segment, chunk)`.
@@ -193,7 +195,8 @@ and `MarmaladeSynthService` is its foreground host. System TTS
 - `playback/SegmentRenderer.kt` — one render job: prepare, stream the
   engine at 1.0, wait for the budget permit between chunks, one TTFA sample
   and one RTF sample per job (chunks after a permit wait are skewed: the
-  engines keep rendering into their own 64-chunk buffer meanwhile).
+  engines keep rendering into their own buffer meanwhile — cut from the
+  channelFlow's 64 to `ENGINE_AHEAD_CHUNKS = 8` by a fused `.buffer(8)`).
 - Device side (step C1): `di/NarratorModule.kt` builds the one `Narrator`
   (`NarratorConfig(todaysDepthOnly = true)` until G, loop on
   `Narrator.newLoopDispatcher()`, logcat tag `Narrator`) over

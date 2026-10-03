@@ -47,8 +47,17 @@ class RenderPlannerTest {
         assertTrue(RenderPlanner.mayContinue(item(0, own = 59_000.0)))
         assertFalse(RenderPlanner.mayContinue(item(0, own = 60_000.0)))
         assertFalse(RenderPlanner.mayContinue(item(3, before = 55_000.0, own = 6_000.0)))
-        // Cloud has no ms cap inside its depth — today's behaviour.
-        assertTrue(RenderPlanner.mayContinue(item(1, cloud = true, before = 90_000.0)))
+        assertTrue(RenderPlanner.mayContinue(item(1, cloud = true, before = 30_000.0)))
         assertFalse(RenderPlanner.mayContinue(item(2, cloud = true)))
+    }
+
+    /** A depth-limited voice (cloud, or any voice until G) stops at the time budget too. */
+    @Test
+    fun `one huge depth-limited segment stops at the budget`() {
+        assertTrue(RenderPlanner.mayContinue(item(0, cloud = true, own = 59_000.0)))
+        assertFalse(RenderPlanner.mayContinue(item(0, cloud = true, own = 60_000.0)))
+        assertFalse(RenderPlanner.mayContinue(item(1, cloud = true, before = 60_000.0)))
+        val full = listOf(item(0, complete = true, cloud = true, own = 61_000.0), item(1, cloud = true, before = 61_000.0))
+        assertNull(RenderPlanner.next(full))
     }
 }

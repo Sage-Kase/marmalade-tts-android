@@ -100,7 +100,9 @@ class FakeEngine(
         phonemizationLanguage: String?,
         playbackRate: Float,
     ): Flow<SynthAudio> = stream(text, voiceId, speed, phonemizationLanguage)
-        .let { if (internalBuffer) it.buffer(64) else it }
+        // Default capacity (64), like the engines' channelFlow, so the
+        // renderer's own buffer(n) fuses with it the same way.
+        .let { if (internalBuffer) it.buffer() else it }
 
     private fun stream(text: String, voiceId: String, speed: Float, phonemizationLanguage: String?) = flow {
         requests += Triple(voiceId, phonemizationLanguage, speed)

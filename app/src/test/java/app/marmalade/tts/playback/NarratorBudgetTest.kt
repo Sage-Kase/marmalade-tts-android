@@ -212,9 +212,37 @@ class NarratorBudgetTest {
             maxBytes = maxOf(maxBytes, h.narrator.bufferedBytes())
         }
         val bytesPerMs = 48.0 // 24 kHz mono PCM16
-        val bound = (60_000 + 60_000 + 3 * 3_630) * bytesPerMs
+        // Budget ahead + heard audio kept for Back + what the engine may have
+        // rendered into its buffer before a closed permit was seen.
+        val bound = (60_000 + 60_000 + (SegmentRenderer.ENGINE_AHEAD_CHUNKS + 3) * 3_630) * bytesPerMs
         assertTrue("max buffered $maxBytes bytes > bound $bound", maxBytes <= bound)
         assertTrue("still reading", h.article.status == Status.Playing)
+        h.done()
+    }
+
+    /** Until G every voice is depth-limited; that must not lift the memory bound inside one segment. */
+    @Test
+    fun `24b - a 20k-char share with no blank lines stays bounded at today's depth, also paused`() = runTest {
+        val h = harness(NarratorConfig(todaysDepthOnly = true))
+        h.kokoro.internalBuffer = true
+        val huge = List(334) { sentence(60, fill = 'a' + (it % 26)) }.joinToString(" ")
+        assertTrue(huge.length >= 20_000)
+        h.open(listOf(huge))
+        val id = h.narrator.articleId()!!
+        h.runUntil { h.firstHeard(id, 0) != null }
+        h.narrator.pause()
+        var maxBytes = 0L
+        repeat(600) {
+            h.run(1_000)
+            maxBytes = maxOf(maxBytes, h.narrator.bufferedBytes())
+        }
+        val chunkMs = 3_630
+        val bytesPerMs = 48.0 // 24 kHz mono PCM16
+        val bound = (60_000 + (SegmentRenderer.ENGINE_AHEAD_CHUNKS + 2) * chunkMs) * bytesPerMs
+        assertTrue("max buffered $maxBytes bytes > bound $bound", maxBytes <= bound)
+        val rendered = h.kokoro.renders.count { !it.aborted && it.endMs >= 0 }
+        assertTrue("rendered $rendered chunks while paused", rendered * chunkMs <= 60_000 + (SegmentRenderer.ENGINE_AHEAD_CHUNKS + 3) * chunkMs)
+        assertEquals(Status.Paused(PausedBy.User), h.article.status)
         h.done()
     }
 

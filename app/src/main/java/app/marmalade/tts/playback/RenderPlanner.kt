@@ -14,7 +14,9 @@ package app.marmalade.tts.playback
  *    segment and the next one ([CLOUD_DEPTH_SEGMENTS]) — preparing further
  *    costs money and sends text to the provider for paragraphs the user may
  *    skip.
- * What the listener needs NOW (their own segment with nothing banked) is
+ * Every voice, depth-limited or not, also stops at the time budget: one huge
+ * segment (a long share with no blank lines) is never rendered whole into the
+ * heap. What the listener needs NOW (their own segment with nothing banked) is
  * always allowed.
  */
 object RenderPlanner {
@@ -30,8 +32,8 @@ object RenderPlanner {
         /** Fully rendered, every chunk from the listener's position still held. */
         val complete: Boolean,
         /**
-         * Prepare only [CLOUD_DEPTH_SEGMENTS] past the listener instead of the
-         * time budget: cloud voices always, every voice while
+         * Prepare only [CLOUD_DEPTH_SEGMENTS] past the listener, on top of
+         * the time budget: cloud voices always, every voice while
          * [NarratorConfig.todaysDepthOnly] is set.
          */
         val depthLimited: Boolean,
@@ -48,16 +50,13 @@ object RenderPlanner {
         items.firstOrNull { !it.complete && allowed(it, budgetMs) }
 
     /** May the render job working on [item] render one more chunk? */
-    fun mayContinue(item: Item, budgetMs: Double = ON_DEVICE_BUDGET_MS): Boolean {
-        if (item.depthLimited) return item.segmentsAhead <= CLOUD_DEPTH_SEGMENTS
-        val ahead = item.aheadMsBefore + item.ownAheadMs
-        return ahead < budgetMs
-    }
+    fun mayContinue(item: Item, budgetMs: Double = ON_DEVICE_BUDGET_MS): Boolean =
+        withinDepth(item) && item.aheadMsBefore + item.ownAheadMs < budgetMs
 
     private fun allowed(item: Item, budgetMs: Double): Boolean =
-        if (item.depthLimited) {
-            item.segmentsAhead <= CLOUD_DEPTH_SEGMENTS
-        } else {
-            (item.segmentsAhead == 0 && item.aheadMsBefore == 0.0) || item.aheadMsBefore < budgetMs
-        }
+        withinDepth(item) &&
+            ((item.segmentsAhead == 0 && item.aheadMsBefore == 0.0) || item.aheadMsBefore < budgetMs)
+
+    private fun withinDepth(item: Item): Boolean =
+        !item.depthLimited || item.segmentsAhead <= CLOUD_DEPTH_SEGMENTS
 }

@@ -7,6 +7,7 @@ import app.marmalade.tts.preprocessing.Emotion
 import app.marmalade.tts.preprocessing.ProsodyApplier
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.first
 
 /** What one render job reports back to the Narrator's loop. */
@@ -17,7 +18,8 @@ internal sealed interface RenderEvent {
      * chunk collected after the job's first such wait: the engines render
      * ahead into their own buffer (a 64-chunk channelFlow) while the collector
      * waits, so those chunks arrive with near-zero gaps and would drag the
-     * RTF far below the truth — they are neither sampled nor recorded.
+     * RTF far below the truth — they are neither sampled nor recorded. That
+     * buffer is cut to [SegmentRenderer.ENGINE_AHEAD_CHUNKS].
      */
     class Chunk(val index: Int, val audio: SynthAudio, val renderMs: Long, val skewed: Boolean) : RenderEvent
 
@@ -63,9 +65,11 @@ internal class SegmentRenderer(
             // Model load is not render speed: load first, then time chunks.
             val warm = engine.isLoaded()
             engine.ensureModelLoaded()
+            // Fuses with the engines' channelFlow (64 by default): while the
+            // permit is closed the engine renders at most this far ahead.
             val stream = engine.synthesizeStream(
                 prepared.text, voice.voiceId, 1f, prepared.phonemizationLanguage, playbackRate,
-            )
+            ).buffer(ENGINE_AHEAD_CHUNKS)
             val startedAt = clock()
             var lastResume = startedAt
             var first = true
@@ -131,5 +135,11 @@ internal class SegmentRenderer(
     companion object {
         /** Same floor as the service's RTF sampling: shorter audio is too noisy. */
         const val MIN_RTF_AUDIO_MS = 200.0
+
+        /**
+         * Chunks an engine may render past a closed permit — the old service's
+         * SYNTH_BUFFER_CHUNKS bound, until C3 makes it RENDEZVOUS.
+         */
+        const val ENGINE_AHEAD_CHUNKS = 8
     }
 }
