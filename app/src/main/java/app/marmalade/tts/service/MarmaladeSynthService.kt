@@ -27,6 +27,7 @@ import app.marmalade.tts.lang.VoiceChoice
 import app.marmalade.tts.playback.ErrorNotice
 import app.marmalade.tts.playback.FailureKind
 import app.marmalade.tts.playback.Narrator
+import app.marmalade.tts.playback.NarratorConfig
 import app.marmalade.tts.playback.NarratorState
 import app.marmalade.tts.playback.OneShotRequest
 import app.marmalade.tts.playback.OneShotVoice
@@ -192,6 +193,10 @@ class MarmaladeSynthService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        // Detached after a permanent focus loss with the article still paused
+        // in place: the system may stop a background service like this one,
+        // but the article and its notification stay.
+        val detachedOnAir = !host.foreground && ui?.let { it.onAir && !it.ongoing } == true
         // Destroyed while hosting (the system took the service away): nothing
         // on air can be heard any more, so the Narrator stops it. The service's
         // own idle stop has already left the foreground, and a service detached
@@ -206,8 +211,15 @@ class MarmaladeSynthService : Service() {
         scope.cancel()
         mediaSession?.release()
         mediaSession = null
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        notificationManager?.cancel(NOTIFICATION_ID)
+        if (detachedOnAir) {
+            // Re-posted without the released media session: a plain
+            // notification whose Resume (which brings a new instance up),
+            // Stop and swipe-away still reach the article.
+            notificationManager?.notify(NOTIFICATION_ID, buildNotification(ui))
+        } else {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            notificationManager?.cancel(NOTIFICATION_ID)
+        }
         super.onDestroy()
     }
 
@@ -463,8 +475,13 @@ class MarmaladeSynthService : Service() {
             .setOngoing(ongoing)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
         actions.forEach(builder::addAction)
-        // Swiping away the notification left after a permanent focus loss stops the read.
-        if (!ongoing) builder.setDeleteIntent(servicePendingIntent(ACTION_STOP))
+        // Swiping away the notification left after a permanent focus loss
+        // stops the read. It may outlive this service (onDestroy), so it also
+        // clears itself once the Narrator's paused timeout has ended the read.
+        if (!ongoing) {
+            builder.setDeleteIntent(servicePendingIntent(ACTION_STOP))
+            builder.setTimeoutAfter(PAUSED_NOTIFICATION_TIMEOUT_MS)
+        }
         ui?.articleKey?.let { builder.setContentIntent(readerPendingIntent(it)) }
         mediaSession?.sessionToken?.let { token ->
             val compact = IntArray(minOf(COMPACT_ACTIONS, actions.size)) { it }
@@ -556,6 +573,9 @@ class MarmaladeSynthService : Service() {
 
         /** Any constant will do — the extras are what change, per article. */
         private const val READER_CONTENT_REQUEST_CODE = 100
+
+        /** The Narrator's paused timeout (§6 Q7): a detached notification goes with it. */
+        private val PAUSED_NOTIFICATION_TIMEOUT_MS = NarratorConfig().pausedTimeoutMs
 
         /** How long nothing on air must last before the service stops (see scheduleIdleCheck). */
         private const val IDLE_GRACE_MS = 1_500L

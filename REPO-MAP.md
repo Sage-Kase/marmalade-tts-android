@@ -220,7 +220,10 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   comes up within 5 s). After a permanent focus loss the service leaves the
   foreground (`STOP_FOREGROUND_DETACH`) with a swipe-away-able notification
   whose delete intent stops the read; it reports a lost host to the Narrator
-  only when destroyed while still foreground.
+  only when destroyed while still foreground. Destroyed while detached (the
+  system stops background services), it leaves that notification up, re-posted
+  without the released media session, timing out with the Narrator's 30 min
+  paused timeout.
 - Tests: `test/.../playback/` — `NarratorHarness` (virtual clock, fake
   ports, invariants), `FakeEngine` (lock, non-abortable mode, over-cap
   re-split, internal buffer), `VirtualAudioOutput` (real
