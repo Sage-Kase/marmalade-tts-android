@@ -157,6 +157,24 @@ class NarratorSessionsTest {
         h.done()
     }
 
+    /** Intent callers (Tasker's EXTRA_SPEED, the Speak screen) get system TTS's range, not the reader's. */
+    @Test
+    fun `a one-shot's speed is clamped to 0_25-4, not the reader's 0_5-3`() = runTest {
+        val h = harness()
+        h.oneShotVoices = { voice(aliasSpeed = 4f) }
+        val fast = h.narrator.speakOneShot(share())
+        val slow = h.narrator.speakOneShot(share(fill = 'r').copy(speed = 0.1f))
+        val odd = h.narrator.speakOneShot(share(fill = 's').copy(speed = Float.NaN))
+        h.runUntil(maxMs = 300_000) { odd.outcome.isCompleted }
+        val tempos = h.output.commands.map { it.second }.filterIsInstance<OutputCommand.Begin>()
+            .associate { it.sessionId to it.tempo }
+        assertEquals(4f, tempos[fast.id])
+        assertEquals(0.25f, tempos[slow.id])
+        assertEquals(1f, tempos[odd.id])
+        listOf(fast, slow, odd).forEach { assertEquals(Outcome.Played, it.outcome.getCompleted()) }
+        h.done()
+    }
+
     @Test
     fun `cancelling one queued one-shot leaves the others`() = runTest {
         val h = harness()

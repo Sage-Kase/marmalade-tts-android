@@ -415,7 +415,8 @@ class Narrator(
         msg.result
             .onSuccess { v ->
                 s.voice = v
-                if (s.speed == null) s.speed = clampSpeed(v.aliasSpeed)
+                // Only a one-shot resolves its speed: an article opens with one.
+                if (s.speed == null) s.speed = clampOneShotSpeed(v.aliasSpeed)
                 log("voice session=${s.id} engine=${v.engine} voice=${v.voiceId} speed=${s.tempo}")
             }
             .onFailure { fail(s, FailureKind.FAILED, it.message) }
@@ -518,7 +519,7 @@ class Narrator(
             kind = Kind.OneShot(req.origin, msg.outcome),
             texts = texts,
             target = ResolveTarget.OneShot(req),
-            speed = req.speed?.let(::clampSpeed),
+            speed = req.speed?.let(::clampOneShotSpeed),
             startingSpeed = req.speed ?: 1f,
         )
         if (texts.isEmpty()) {
@@ -1177,6 +1178,9 @@ class Narrator(
 
         fun clampSpeed(speed: Float): Float =
             if (speed.isNaN()) 1f else speed.coerceIn(NarratorControl.MIN_SPEED, NarratorControl.MAX_SPEED)
+
+        fun clampOneShotSpeed(speed: Float): Float =
+            if (speed.isNaN()) 1f else speed.coerceIn(NarratorControl.MIN_ONE_SHOT_SPEED, NarratorControl.MAX_ONE_SHOT_SPEED)
 
         /** Shared text is spoken as paragraphs (blank-line separated); blank ones are dropped. */
         fun splitParagraphs(text: String): List<String> =

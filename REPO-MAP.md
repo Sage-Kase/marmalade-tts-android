@@ -186,7 +186,8 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   start of the interrupted chunk; ~60 s ahead on-device, cloud this block +
   next; preparing continues while paused except after `PauseReason.Navigation`;
   every speed change (cloud too) is the writer's live Tempo, engines render
-  at 1.0; permanent focus loss → `Paused(FocusLoss)`; 30 min paused → stopped
+  at 1.0 (speed range: the article 0.5–3, the reader's chips; a one-shot
+  0.25–4, system TTS's range, for Tasker's `EXTRA_SPEED`); permanent focus loss → `Paused(FocusLoss)`; 30 min paused → stopped
   (Idle, the shell stops); Previous/Next act on the article only (Next past
   the last block finishes it; from a stopped article both start playing, as
   the reader always did). `play`/`pause`/`toggle` act on the one-shot on air,

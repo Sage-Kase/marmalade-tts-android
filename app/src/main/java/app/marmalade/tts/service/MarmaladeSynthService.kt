@@ -60,7 +60,7 @@ import kotlinx.coroutines.launch
 //                                          alias, KittenDirectVoiceCatalog.
 //                                          DEFAULT_VOICE_ID and these extras).
 //     EXTRA_SPEED  (Float, optional)    — length-scale style; 1.0 = native,
-//                                          > 1 = faster. Default 1.0.
+//                                          > 1 = faster, 0.25–4.0. Default 1.0.
 //     EXTRA_EFFECT (String, optional)   — EffectPreset name (NONE / CAVE /
 //                                          TELEPHONE). Default NONE.
 //

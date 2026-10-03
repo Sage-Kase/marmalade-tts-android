@@ -188,7 +188,9 @@ class StreamingEffectChainTest {
 
     @Test
     fun `tempo output length is the input over the factor`() {
-        for (factor in listOf(2.0f, 1.5f, 0.75f)) {
+        // 0.25: the slow end of a one-shot's range (Tasker's EXTRA_SPEED);
+        // the 4.0 end is covered by the above-2x test below.
+        for (factor in listOf(2.0f, 1.5f, 0.75f, 0.25f)) {
             for (n in listOf(20_000, 20_300, 24_000 + 777)) {
                 val out = streamLive(signal(n), start = factor)
                 // Within a hop: the final half-frame plays at unit speed.

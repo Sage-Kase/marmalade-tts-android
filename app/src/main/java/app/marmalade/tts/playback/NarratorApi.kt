@@ -83,8 +83,18 @@ interface NarratorControl {
     fun cancelOneShot(id: Long)
 
     companion object {
+        /** The article's (the reader's) speed range: its chips and sheet. */
         const val MIN_SPEED = 0.5f
         const val MAX_SPEED = 3.0f
+
+        /**
+         * A one-shot's speed range (Speak screen, previews, shares, Tasker's
+         * `EXTRA_SPEED`): what system TTS and the cloud engine accept. Before
+         * C1 the intent's speed went to the engine or Tempo unclamped; the
+         * writer's Tempo is tested across this range (StreamingEffectChainTest).
+         */
+        const val MIN_ONE_SHOT_SPEED = 0.25f
+        const val MAX_ONE_SHOT_SPEED = 4.0f
     }
 }
 
