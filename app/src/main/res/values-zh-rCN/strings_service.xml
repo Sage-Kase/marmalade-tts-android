@@ -8,6 +8,7 @@
     <string name="service_synth_state_speaking_text">正在朗读：%1$s</string>
     <string name="service_synth_state_speaking">正在朗读</string>
     <string name="service_synth_state_paused">已暂停</string>
+    <string name="service_synth_state_loading_article">正在加载文章…</string>
     <string name="service_synth_action_pause">暂停</string>
     <string name="service_synth_action_resume">继续</string>
     <string name="service_synth_action_stop">停止</string>

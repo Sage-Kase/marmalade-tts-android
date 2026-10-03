@@ -8,6 +8,7 @@
     <string name="service_synth_state_speaking_text">बोल रहा है: %1$s</string>
     <string name="service_synth_state_speaking">बोल रहा है</string>
     <string name="service_synth_state_paused">रुका हुआ</string>
+    <string name="service_synth_state_loading_article">लेख लोड हो रहा है…</string>
     <string name="service_synth_action_pause">रोकें</string>
     <string name="service_synth_action_resume">फिर से चलाएँ</string>
     <string name="service_synth_action_stop">बंद करें</string>

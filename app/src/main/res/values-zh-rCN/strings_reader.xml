@@ -22,6 +22,7 @@
     <string name="reader_next_block">下一段</string>
     <string name="reader_progress">第 %1$d 段，共 %2$d 段</string>
     <string name="reader_read_from_here">从这里开始朗读</string>
+    <string name="reader_error_background_start">无法在后台开始朗读。请点按“播放”。</string>
 
     <!-- 显示设置：背景、字体、文字大小 -->
     <string name="reader_display_sample">Aa</string>

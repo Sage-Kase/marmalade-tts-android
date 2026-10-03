@@ -91,7 +91,8 @@ class SpeakShim internal constructor(
  * Brings [MarmaladeSynthService] up as a foreground service before a UI
  * command that must start audio (plan §2.4's NarratorClient): the Narrator may
  * render at once, but plays only once the host is foreground. False when the
- * OS refused the start — nothing will play.
+ * OS refused the start (the app is in the background) and no host is up —
+ * nothing will play.
  */
 fun interface PlaybackHost {
     fun start(): Boolean
@@ -100,15 +101,20 @@ fun interface PlaybackHost {
 @Singleton
 class ServicePlaybackHost @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val serviceHost: ServiceHost,
 ) : PlaybackHost {
 
     override fun start(): Boolean {
         val intent = Intent(context, MarmaladeSynthService::class.java)
             .setAction(MarmaladeSynthService.ACTION_HOST)
             .setPackage(context.packageName)
-        return runCatching { ContextCompat.startForegroundService(context, intent) }
+        val started = runCatching { ContextCompat.startForegroundService(context, intent) }
             .onFailure { Log.w(TAG, "Playback host refused to start", it) }
             .isSuccess
+        // Refused from the background, but the host is already in the
+        // foreground (holding an article load, ArticleLoadHold): that is all
+        // a play needs.
+        return started || serviceHost.foreground
     }
 
     private companion object {

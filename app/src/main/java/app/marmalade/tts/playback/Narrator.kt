@@ -732,7 +732,7 @@ class Narrator(
         val waiting = (oneShots + listOfNotNull(article)).filter {
             it.wantsAudio || it.status == Status.Paused(PausedBy.Interrupt)
         }
-        for (s in waiting) fail(s, FailureKind.FAILED, "host never became foreground")
+        for (s in waiting) fail(s, FailureKind.HOST_REFUSED, "host never became foreground")
     }
 
     // -- render jobs -------------------------------------------------------------------------

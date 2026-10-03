@@ -595,6 +595,7 @@ private fun PlaybackErrorLine(error: ReaderPlaybackError, palette: ReaderPalette
         is ReaderPlaybackError.EngineNotInstalled ->
             stringResource(R.string.service_synth_error_engine_not_installed, error.engineLabel)
         ReaderPlaybackError.Failed -> stringResource(R.string.speak_error_synthesis_failed)
+        ReaderPlaybackError.StartRefused -> stringResource(R.string.reader_error_background_start)
     }
     Surface(color = palette.highlight, contentColor = palette.text) {
         Row(

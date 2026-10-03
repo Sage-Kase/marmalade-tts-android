@@ -428,7 +428,7 @@ class NarratorSessionsTest {
         h.open(article(2))
         val handle = h.narrator.speakOneShot(share())
         h.run(7_000)
-        assertEquals(Status.Failed(FailureKind.FAILED), h.article.status)
+        assertEquals(Status.Failed(FailureKind.HOST_REFUSED), h.article.status)
         h.done()
         assertTrue(handle.outcome.isCompleted)
     }

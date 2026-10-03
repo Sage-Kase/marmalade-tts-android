@@ -8,6 +8,7 @@
     <string name="service_synth_state_speaking_text">Lettura: %1$s</string>
     <string name="service_synth_state_speaking">Lettura in corso</string>
     <string name="service_synth_state_paused">In pausa</string>
+    <string name="service_synth_state_loading_article">Caricamento articolo…</string>
     <string name="service_synth_action_pause">Pausa</string>
     <string name="service_synth_action_resume">Riprendi</string>
     <string name="service_synth_action_stop">Interrompi</string>

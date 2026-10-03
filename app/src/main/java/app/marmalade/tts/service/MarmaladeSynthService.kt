@@ -40,6 +40,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 // -----------------------------------------------------------------------------
@@ -82,7 +83,12 @@ import kotlinx.coroutines.launch
 //       PreviewCompletions post; ACTION_STOP_REQUEST cancels that one). The
 //       reader sends no speech intents: it drives the Narrator directly and
 //       only sends ACTION_HOST (ServicePlaybackHost) to bring this service
-//       up as the foreground host before a command that plays;
+//       up as the foreground host before a command that plays. A shared link
+//       sends ACTION_HOST at once (ArticleLoadHold), while the share is still
+//       in front: the service stays up showing "Loading article…" until the
+//       reader plays it or gives up, so an article that loads after the user
+//       switched apps still starts reading (Android refuses a foreground
+//       service started from the background);
 //     - is the Android 16 host: audio plays only while this service is
 //       foreground with a media session (ServiceHost tells the Narrator);
 //     - projects the Narrator's state onto the notification and the media
@@ -115,6 +121,8 @@ class MarmaladeSynthService : Service() {
 
     @Inject lateinit var completions: PreviewCompletions
 
+    @Inject lateinit var loadHold: ArticleLoadHold
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     /**
@@ -137,6 +145,9 @@ class MarmaladeSynthService : Service() {
     /** Left the foreground because nothing was on air ([leaveForegroundIfIdle]); a new read brings it back. */
     private var demotedIdle = false
 
+    /** The shared article being loaded under [ArticleLoadHold], or null. */
+    private var loading: String? = null
+
     override fun onCreate() {
         super.onCreate()
         notificationManager = getSystemService(NotificationManager::class.java)
@@ -148,7 +159,12 @@ class MarmaladeSynthService : Service() {
                 scheduleIdleCheck()
             }
         }
-        scope.launch { narrator.state.collect(::show) }
+        scope.launch {
+            combine(narrator.state, loadHold.loading, ::Pair).collect { (state, url) ->
+                loading = url
+                show(state)
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -173,8 +189,10 @@ class MarmaladeSynthService : Service() {
                     shim.speak(parsed.request, parsed.requestId)
                 }
             }
-            // The reader (ServicePlaybackHost), before a command that plays.
-            ACTION_HOST -> promoteToForeground()
+            // The reader (ServicePlaybackHost) before a command that plays,
+            // or a shared link about to load (ArticleLoadHold).
+            ACTION_HOST -> runCatching { promoteToForeground() }
+                .onFailure { Log.w(TAG, "Could not enter the foreground", it) }
             // Everything else is a control intent, sent with plain
             // startService (Synthesizer.cancel, the notification's buttons)
             // and never promoted — except a resume, which must be foreground
@@ -236,7 +254,7 @@ class MarmaladeSynthService : Service() {
      * declaration (mediaPlayback); the 3-arg overload exists since API 29.
      */
     private fun promoteToForeground() {
-        val notification = buildNotification(ui)
+        val notification = foregroundNotification()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
         } else {
@@ -279,6 +297,12 @@ class MarmaladeSynthService : Service() {
             narrator.onNoticeShown(it.oneShotId)
         }
         when {
+            // A shared link is loading: stay up, saying so, until the reader
+            // plays it or gives up (ArticleLoadHold).
+            !next.onAir && loading != null -> {
+                idleCheck?.cancel()
+                if (host.foreground) notificationManager?.notify(NOTIFICATION_ID, foregroundNotification())
+            }
             !next.onAir -> {
                 // Stopped or done: the "Speaking…" notification and its live
                 // Pause go now; only stopping the service waits for the grace.
@@ -313,7 +337,7 @@ class MarmaladeSynthService : Service() {
      * grace ([scheduleIdleCheck]); a read arriving meanwhile promotes again.
      */
     private fun leaveForegroundIfIdle() {
-        if (!host.foreground || shim.busy) return
+        if (!host.foreground || busy()) return
         if (ServiceUi.render(narrator.state.value, mediaState).onAir) return
         host.foreground = false
         demotedIdle = true
@@ -330,13 +354,16 @@ class MarmaladeSynthService : Service() {
         idleCheck?.cancel()
         idleCheck = scope.launch {
             delay(IDLE_GRACE_MS)
-            if (ServiceUi.render(narrator.state.value, mediaState).onAir || shim.busy) return@launch
+            if (ServiceUi.render(narrator.state.value, mediaState).onAir || busy()) return@launch
             host.foreground = false
             stopForeground(STOP_FOREGROUND_REMOVE)
             notificationManager?.cancel(NOTIFICATION_ID)
             stopSelfResult(lastStartId)
         }
     }
+
+    /** Work handed over that isn't on air yet: a one-shot in the Narrator's inbox, or an article loading. */
+    private fun busy(): Boolean = shim.busy || loadHold.loading.value != null
 
     // -- media session ----------------------------------------------------------
 
@@ -434,7 +461,8 @@ class MarmaladeSynthService : Service() {
                 R.string.service_synth_error_engine_not_installed,
                 EngineRegistry.displayName(notice.engine ?: EngineRegistry.DEFAULT_ENGINE),
             )
-            FailureKind.FAILED, FailureKind.FOCUS_DENIED -> getString(R.string.service_synth_error_failed)
+            FailureKind.FAILED, FailureKind.FOCUS_DENIED, FailureKind.HOST_REFUSED ->
+                getString(R.string.service_synth_error_failed)
         }
         val n = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.service_synth_notification_title))
@@ -529,6 +557,23 @@ class MarmaladeSynthService : Service() {
             )
         }
         return builder.build()
+    }
+
+    /** What startForeground shows: the playback notification, or "Loading article…" while one loads. */
+    private fun foregroundNotification(): Notification {
+        val url = loading
+        if (ui?.onAir == true || url == null) return buildNotification(ui)
+        // No actions: there is nothing to pause yet. Tapping opens the reader,
+        // and backing out of it before the article loads cancels the read.
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle(getString(R.string.service_synth_notification_title))
+            .setContentText(getString(R.string.service_synth_state_loading_article))
+            .setSmallIcon(R.drawable.ic_stat_marmalade_speaking)
+            .setOnlyAlertOnce(true)
+            .setOngoing(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setContentIntent(readerPendingIntent(url))
+            .build()
     }
 
     private fun servicePendingIntent(action: String): PendingIntent {

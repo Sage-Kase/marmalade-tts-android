@@ -262,7 +262,7 @@ class ReaderPlaybackControllerTest {
         h.run(3_000)
 
         assertEquals(ReaderPlaybackStatus.Idle, state.status)
-        assertEquals(FailureKind.FAILED, state.lastError)
+        assertEquals(FailureKind.HOST_REFUSED, state.lastError)
         assertTrue(h.kokoro.renders.isEmpty())
 
         hostAllowed = true

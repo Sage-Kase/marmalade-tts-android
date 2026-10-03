@@ -137,7 +137,18 @@ enum class PausedBy {
     Interrupt,
 }
 
-enum class FailureKind { MODEL_MISSING, FAILED, FOCUS_DENIED }
+enum class FailureKind {
+    MODEL_MISSING,
+    FAILED,
+    FOCUS_DENIED,
+
+    /**
+     * The foreground host never came up: Android refuses to start a
+     * foreground service from the background (targetSdk 31+). Play works
+     * again once the app is in front.
+     */
+    HOST_REFUSED,
+}
 
 sealed interface Status {
     data object Idle : Status

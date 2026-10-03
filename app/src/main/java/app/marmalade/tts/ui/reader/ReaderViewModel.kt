@@ -23,6 +23,7 @@ import app.marmalade.tts.reader.ReaderPlaybackController
 import app.marmalade.tts.reader.ReaderPlaybackState
 import app.marmalade.tts.lang.VoiceChoice
 import app.marmalade.tts.reader.ReaderVoicePicker
+import app.marmalade.tts.service.ArticleLoadHold
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.net.URL
 import javax.inject.Inject
@@ -124,8 +125,15 @@ sealed interface ReaderPlaybackError {
     /** The voice's engine isn't installed. [engineLabel] names it for the user. */
     data class EngineNotInstalled(val engineLabel: String) : ReaderPlaybackError
 
-    /** Synthesis failed, or the playback service wouldn't start. */
+    /** Synthesis failed. */
     data object Failed : ReaderPlaybackError
+
+    /**
+     * Android refused to start the playback service from the background (the
+     * article finished loading after the user switched apps and no host was
+     * up). Play works once the reader is in front.
+     */
+    data object StartRefused : ReaderPlaybackError
 }
 
 /** The primary alias's engine, or a neutral default. */
@@ -142,6 +150,7 @@ class ReaderViewModel @Inject constructor(
     private val voicePicker: ReaderVoicePicker,
     @ReaderParseDispatcher private val parseDispatcher: CoroutineDispatcher,
     private val savedStateHandle: SavedStateHandle,
+    private val loadHold: ArticleLoadHold,
 ) : ViewModel() {
 
     /** The shared link. Non-null in practice — the route can't be built without it. */
@@ -262,6 +271,7 @@ class ReaderViewModel @Inject constructor(
                         ReaderPlaybackError.EngineNotInstalled(engineLabelOf(engine))
                     }
                 FailureKind.FAILED, FailureKind.FOCUS_DENIED -> ReaderPlaybackError.Failed
+                FailureKind.HOST_REFUSED -> ReaderPlaybackError.StartRefused
             }
         }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
@@ -287,7 +297,18 @@ class ReaderViewModel @Inject constructor(
         }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     init {
-        viewModelScope.launch { load() }
+        viewModelScope.launch {
+            // The share's load hold (ArticleLoadHold) ends with the load:
+            // played, failed, rebound, or cancelled by backing out.
+            try {
+                load()
+            } finally {
+                loadHold.end(url)
+            }
+            // This link shared again while this reader is on top reaches no
+            // new reader, and there is nothing left to load.
+            loadHold.loading.collect { if (it == url) loadHold.end(url) }
+        }
         // Probe once, off the load path. The warning falls back to the static
         // rule until this lands, so a slow probe never blocks the sheet.
         viewModelScope.launch { deviceProbeState.value = deviceProbe.probe() }

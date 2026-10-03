@@ -8,6 +8,7 @@
     <string name="service_synth_state_speaking_text">Falando: %1$s</string>
     <string name="service_synth_state_speaking">Falando</string>
     <string name="service_synth_state_paused">Pausado</string>
+    <string name="service_synth_state_loading_article">Carregando artigo…</string>
     <string name="service_synth_action_pause">Pausar</string>
     <string name="service_synth_action_resume">Retomar</string>
     <string name="service_synth_action_stop">Parar</string>

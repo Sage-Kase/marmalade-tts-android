@@ -7,7 +7,10 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import app.marmalade.tts.MainActivity
 import app.marmalade.tts.R
+import app.marmalade.tts.service.ArticleLoadHold
 import app.marmalade.tts.service.SpeakDispatcher
+import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
 // -----------------------------------------------------------------------------
 // Data flow
@@ -29,7 +32,9 @@ import app.marmalade.tts.service.SpeakDispatcher
 //     │
 //     ├── ShareRouting.routeFor(action, text)
 //     │
-//     ├── ShareRoute.Reader ──► MainActivity + EXTRA_READER_URL
+//     ├── ShareRoute.Reader ──► ArticleLoadHold.begin (host up now, while we
+//     │                          │   are in front: "Loading article…")
+//     │                          ──► MainActivity + EXTRA_READER_URL
 //     │                          │
 //     │                          ▼
 //     │                        Routes.Reader — fetch, extract, render
@@ -57,7 +62,10 @@ import app.marmalade.tts.service.SpeakDispatcher
  * [app.marmalade.tts.service.MarmaladeSynthService] or hand a shared link to
  * MainActivity's reader screen, then finish.
  */
+@AndroidEntryPoint
 class ShareIntentActivity : ComponentActivity() {
+
+    @Inject lateinit var loadHold: ArticleLoadHold
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -70,8 +78,14 @@ class ShareIntentActivity : ComponentActivity() {
         finish()
     }
 
-    /** Hand the shared link to the reader screen in MainActivity. */
+    /**
+     * Hand the shared link to the reader screen in MainActivity. The playback
+     * host comes up first, while this activity is in front and Android still
+     * allows it: if the user switches apps before the article loads, the
+     * reader's autoplay finds the host up and reads anyway.
+     */
     private fun openReader(route: ShareRoute.Reader) {
+        loadHold.begin(route.url)
         startActivity(
             Intent(this, MainActivity::class.java).apply {
                 putExtra(MainActivity.EXTRA_READER_URL, route.url)

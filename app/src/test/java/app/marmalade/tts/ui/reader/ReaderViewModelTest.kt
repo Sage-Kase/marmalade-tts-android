@@ -17,6 +17,7 @@ import app.marmalade.tts.playback.NarratorConfig
 import app.marmalade.tts.playback.NarratorHarness
 import app.marmalade.tts.playback.ResolveTarget
 import app.marmalade.tts.playback.Track
+import app.marmalade.tts.service.ArticleLoadHold
 import app.marmalade.tts.service.PlaybackHost
 import app.marmalade.tts.perf.DeviceProbe
 import app.marmalade.tts.ui.screen.FakeAliasDao
@@ -167,6 +168,7 @@ class ReaderViewModelTest {
             voicePicker = FakeVoicePicker(VoiceChoice.Primary),
             parseDispatcher = Dispatchers.Main,
             savedStateHandle = SavedStateHandle(),
+            loadHold = ArticleLoadHold({ true }, backgroundScope),
         )
 
         assertEquals(
@@ -274,6 +276,64 @@ class ReaderViewModelTest {
         vm.onPlayPause()
         h.settle()
         assertNull(vm.playbackError.first())
+    }
+
+    /**
+     * The article loaded after the user switched apps and no host was up
+     * (Android refuses a foreground service from the background): a specific
+     * message, not "Synthesis failed", and Play works once the app is in front.
+     */
+    @Test
+    fun `a host refused in the background says so, and Play works once in front`() = runTest {
+        hostAllowed = false
+        val vm = newViewModel(extraction = threeBlocks())
+        vm.state.first()
+        h.run(3_000)
+
+        assertEquals(ReaderPlaybackError.StartRefused, vm.playbackError.first())
+        assertEquals(ReaderPlaybackStatus.Idle, vm.playback.first().status)
+
+        hostAllowed = true
+        vm.onPlayPause()
+        h.runUntil { h.firstHeard(articleId(), 0) != null }
+        assertNull(vm.playbackError.first())
+        assertEquals(ReaderPlaybackStatus.Playing, vm.playback.first().status)
+    }
+
+    /** The share's "Loading article…" hold ends with the load, whatever the outcome. */
+    @Test
+    fun `the share's load hold ends when the article fails to load`() = runTest {
+        val hold = ArticleLoadHold({ true }, backgroundScope)
+        hold.begin(url)
+        val vm = newViewModel(fetch = FetchResult.TooLarge, loadHold = hold)
+
+        assertEquals(ReaderUiState.Failed(ReaderFailure.TooLarge), vm.state.first())
+        assertNull(hold.loading.value)
+    }
+
+    @Test
+    fun `the share's load hold ends once the loaded article is playing`() = runTest {
+        val hold = ArticleLoadHold({ true }, backgroundScope)
+        hold.begin(url)
+        val vm = newViewModel(extraction = threeBlocks(), loadHold = hold)
+        vm.state.first()
+        h.settle()
+
+        assertNull(hold.loading.value)
+        h.runUntil { h.firstHeard(articleId(), 0) != null }
+        assertEquals(ReaderPlaybackStatus.Playing, vm.playback.first().status)
+    }
+
+    /** Re-sharing the link of the reader on top reaches no new reader: its hold ends at once. */
+    @Test
+    fun `a re-share of the article on top ends its hold at once`() = runTest {
+        val hold = ArticleLoadHold({ true }, backgroundScope)
+        newViewModel(extraction = threeBlocks(), loadHold = hold).state.first()
+        h.settle()
+
+        hold.begin(url)
+        h.settle()
+        assertNull(hold.loading.value)
     }
 
     /** Audio focus refused (a call in progress) reads as a plain failure. */
@@ -809,6 +869,9 @@ class ReaderViewModelTest {
 
     /** The real Narrator on the test's own scheduler; created by the first [newController] of a test. */
     private var harness: NarratorHarness? = null
+
+    /** What the fake playback host answers: false = Android refused it (in the background). */
+    private var hostAllowed = true
     private val h: NarratorHarness get() = harness!!
 
     private fun articleId(): Long = h.narrator.articleId()!!
@@ -818,7 +881,7 @@ class ReaderViewModelTest {
         val h = harness ?: NarratorHarness(this, NarratorConfig(todaysDepthOnly = true)).also { harness = it }
         return ReaderPlaybackController(
             narrator = h.narrator,
-            host = PlaybackHost { true },
+            host = PlaybackHost { hostAllowed },
             scope = backgroundScope,
         )
     }
@@ -837,6 +900,7 @@ class ReaderViewModelTest {
         parseDispatcher: CoroutineDispatcher = Dispatchers.Main,
         savedState: Map<String, Any> = emptyMap(),
         handle: SavedStateHandle = savedStateHandle(sharedText, savedState),
+        loadHold: ArticleLoadHold = ArticleLoadHold({ true }, backgroundScope),
     ) = ReaderViewModel(
         fetcher = fetcher,
         extractor = extractor,
@@ -847,6 +911,7 @@ class ReaderViewModelTest {
         voicePicker = voicePicker,
         parseDispatcher = parseDispatcher,
         savedStateHandle = handle,
+        loadHold = loadHold,
     )
 
     /** The nav args, plus whatever a restored ViewModel would find saved. */

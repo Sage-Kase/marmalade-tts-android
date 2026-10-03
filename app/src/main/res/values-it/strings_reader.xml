@@ -22,6 +22,7 @@
     <string name="reader_next_block">Paragrafo successivo</string>
     <string name="reader_progress">%1$d di %2$d</string>
     <string name="reader_read_from_here">Leggi da qui</string>
+    <string name="reader_error_background_start">Impossibile avviare la lettura in background. Tocca Riproduci.</string>
 
     <!-- Pannello di visualizzazione: sfondo, carattere, dimensione del testo -->
     <string name="reader_display_sample">Aa</string>

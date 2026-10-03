@@ -220,7 +220,16 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   `service/SpeakShim.kt` holds the `ACTION_SPEAK` shim and `PlaybackHost`
   (`ServicePlaybackHost` sends `ACTION_HOST` so the service is foreground
   before the reader plays; the Narrator fails a session whose host never
-  comes up within 5 s). After a permanent focus loss the service leaves the
+  comes up within 5 s with `FailureKind.HOST_REFUSED`). **Android refuses
+  `startForegroundService` from the background** (targetSdk 36): a link shared
+  then left before it loads would autoplay into that wall. So
+  `service/ArticleLoadHold.kt` starts the host from `ShareIntentActivity`
+  (still in front) and the service shows "Loading article…" until the reader's
+  load is over (`ReaderViewModel` ends the hold after play / failure / rebind /
+  back-out; 90 s timeout); `ServicePlaybackHost.start()` counts an
+  already-foreground host as success. A refused start from the background shows
+  `reader_error_background_start` ("Couldn't start reading in the background.
+  Tap Play."), not "Synthesis failed". After a permanent focus loss the service leaves the
   foreground (`STOP_FOREGROUND_DETACH`) with a swipe-away-able notification
   whose delete intent stops the read; it reports a lost host to the Narrator
   only when destroyed while still foreground. Destroyed while detached (the

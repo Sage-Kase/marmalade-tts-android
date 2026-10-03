@@ -94,7 +94,8 @@ data class ReaderPlaybackState(
     val voice: VoiceChoice = VoiceChoice.Primary,
     /**
      * Why playback last stopped on its own — a failed synthesis, a missing
-     * engine, audio focus refused, or a host service that wouldn't start — or
+     * engine, audio focus refused, or a host service that wouldn't start
+     * ([FailureKind.HOST_REFUSED]: Android refused it from the background) — or
      * null. Set alongside the fall back to Idle, cleared the next time
      * playback starts. A Stop the user asked for is not an error.
      */
@@ -237,8 +238,9 @@ class ReaderPlaybackController internal constructor(
 
     /**
      * Bring the host service up before a command that may start audio. When the
-     * OS refuses, nothing would ever play: the reader falls back to Idle and
-     * says why instead of sitting on a silent Playing.
+     * OS refuses (the app is in the background and no host is up), nothing
+     * would ever play: the reader falls back to Idle and says why instead of
+     * sitting on a silent Playing; Play works once the app is in front.
      */
     private fun startHost(): Boolean {
         val ok = host.start()
@@ -264,7 +266,7 @@ class ReaderPlaybackController internal constructor(
                 startingSpeed = view?.startingSpeed ?: held.startingSpeed,
                 voice = held.voice,
             )
-            if (held.refused) return base.copy(lastError = FailureKind.FAILED)
+            if (held.refused) return base.copy(lastError = FailureKind.HOST_REFUSED)
             return when (val s = view?.status ?: Status.Idle) {
                 Status.Idle -> base
                 Status.Buffering, Status.Playing -> base.copy(status = ReaderPlaybackStatus.Playing)
