@@ -113,6 +113,16 @@ When investigating **{concern}**, start at **{files}**:
   apps), `onDevice` (all but cloud: residency, native-handle release,
   "release all") and `warmable` (on-device minus developer-only). A new
   engine is added HERE; never write another `when (engineName)` dispatch.
+- **Debug-only bench (`app/src/debug/.../devbench/`, issue #1 "B1", 2026-10-04)**:
+  `Kokoro7mDevEngine` (Kokoro-7M-Distill as a `KokoroDirectEngine` subclass,
+  one style row, en-us, bundle **sideloaded** into
+  `filesDir/engines/kokoro-7m-dev/`) and `EngineBenchService`, an adb-only
+  foreground service (exported, guarded by `android.permission.DUMP`) that
+  renders a sentence file through any engine to WAVs **without playing
+  anything** and logs `B1Bench` lines (TTFA, RTF, load ms, PSS delta, thermal).
+  Neither is in `EngineRegistry`/`EngineCatalog`: the debug source set keeps
+  them out of every release build, developer mode included. Usage in the
+  service's file comment; tests in `app/src/testDebug/`.
 - `engine/SherpaEngine.kt` — abstract base (loadLock, ensureModelLoaded,
   synthesize, release, floatToPcm16, sampleRate)
 - `engine/KittenEngine.kt`, `engine/KokoroEngine.kt` — subclasses,
