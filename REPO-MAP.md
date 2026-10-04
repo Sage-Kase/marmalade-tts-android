@@ -285,11 +285,26 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   into `VoiceLatencyTracker` + RTF into settings, `NarratorWakeLock`/`WakeLockArm`
   = held while buffering/playing, re-armed per heard chunk), `EngineResidency`
   (the `ResidencyPort`), `KeepaliveCoordinator` (session start) and
-  `service/BlockTrackOutput.kt` — C1's writer: one thread per track is the only
-  AudioTrack caller, non-blocking writes, but still a track + effect chain per
-  block, drained and released at each paragraph (today's gap; C2 makes it one
-  continuous track). A refused format, failed write or parked track (head
-  frozen with a full buffer) → `OutputEvent.TrackFailed` → the session fails.
+  `service/AudioTrackOutput.kt` — the writer (step C2): ONE thread,
+  `narrator-writer`, is the only caller of the in-app AudioTracks (at most two:
+  `Track.Main`, `Track.Interrupt`). It runs `playback/TrackWriter.kt` — pure
+  Kotlin, the same code the harness runs — per track: a flat state machine
+  that applies commands between ≤ 20 ms input slices and writes non-blocking.
+  **Playback is continuous**: one track for every block of a session and across
+  sessions at the same sample rate (no drain, rebuild or chain restart at a
+  paragraph); a Begin at another rate waits until the audio ahead is heard,
+  then rebuilds at that boundary frame. One `StreamingEffectChain` (live Tempo
+  + alias effects) per session. Flush = pause → `AudioTrack.flush()` (ignored
+  while playing!) → head and frame marks reset → older epochs dropped. **The
+  mixer plays whole periods**, so a track's last few tens of ms stay unplayed
+  until more data comes (the old per-block "head stalled … abandoning drain"):
+  when the writer has nothing to write and real audio is stuck, it pads
+  silence just past it (at a session end at once, mid-session after 40 ms).
+  Logcat `D/AudioTrackOutput`: `track opened|released|rebuild`, and per block
+  boundary `seg A→B session=S pad=Xms underrun=Yms` (0/0 = gapless). A refused
+  format, failed write or parked track (head frozen 2.5 s while playing real
+  audio) → `OutputEvent.TrackFailed` → the session fails. A track idle 30 s is
+  released; a paused or idle writer sleeps on its inbox.
   `service/ServiceUi.kt` is the pure state → notification/media-session table.
   `service/SpeakShim.kt` holds the `ACTION_SPEAK` shim and `PlaybackHost`
   (`ServicePlaybackHost` sends `ACTION_HOST` so the service is foreground
@@ -312,8 +327,10 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   paused timeout.
 - Tests: `test/.../playback/` — `NarratorHarness` (virtual clock, fake
   ports, invariants), `FakeEngine` (lock, non-abortable mode, over-cap
-  re-split, internal buffer), `VirtualAudioOutput` (real
-  `StreamingEffectChain`, side-band frame marks), and the §5.2 scenarios in
+  re-split, internal buffer), `VirtualAudioOutput` (the device's own
+  `TrackWriter` over a virtual AudioTrack that plays whole mixer periods,
+  ignores a flush while playing and can be parked; side-band frame tags, so
+  stale audio is caught frame-exact), and the §5.2 scenarios in
   `Narrator{Scenarios,Budget,Sessions}Test`. The reader's stories
   (`ReaderPlaybackControllerTest`, `ReaderViewModelTest`), the shim
   (`SpeakShimTest`) and the shell's duties (`NarratorShellTest`) run against
@@ -662,9 +679,9 @@ write Marmalade code.
 - **The Narrator's effect chain runs at PLAYBACK, not in the render**
   (2026-09-28, carried into the Narrator in C1): render jobs hand the
   writer raw engine PCM rendered at 1.0 (so RTF is measured pre-stretch);
-  the writer (`service/BlockTrackOutput`, one `StreamingEffectChain` per
-  block with a live Tempo stage in front of the alias's effects) shapes it
-  in 50 ms slices right before the AudioTrack. A speed change is an
+  the writer (`playback/TrackWriter` in `service/AudioTrackOutput`, one
+  `StreamingEffectChain` per session with a live Tempo stage in front of the
+  alias's effects) shapes it in 20 ms slices right before the AudioTrack. A speed change is an
   `OutputCommand.SetTempo`, audible within the AudioTrack's ~250 ms buffer,
   logged `D/Narrator: speed A→B` — no restart, no re-render, cloud voices
   included. Engine pre-roll (`playbackRate`) is sized at stream start only

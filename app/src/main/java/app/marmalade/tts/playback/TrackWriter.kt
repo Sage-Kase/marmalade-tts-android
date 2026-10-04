@@ -171,7 +171,9 @@ class TrackWriter(
 
     /**
      * One unit of work. Returns the ms the runner may wait for a command
-     * before the next step (0: step again at once).
+     * before the next step: 0 to step again at once, [UNTIL_COMMAND] when
+     * nothing can change until a command arrives (paused, or nothing to
+     * play) — so an idle or paused writer sleeps instead of polling.
      */
     fun step(): Long {
         syncPlayState()
@@ -181,7 +183,7 @@ class TrackWriter(
             failSession("AudioTrack parked: head frozen while playing")
             return 0
         }
-        if (pending != null) return if (writePending()) 0 else FULL_WAIT_MS
+        if (pending != null) return if (writePending()) 0 else fullWait()
         val item = queue.firstOrNull()
         val progressed = when (item) {
             null -> false
@@ -195,7 +197,7 @@ class TrackWriter(
         }
         if (progressed) {
             idleSince = null
-            return if (pending == null || writePending()) 0 else FULL_WAIT_MS
+            return if (pending == null || writePending()) 0 else fullWait()
         }
         return starved()
     }
@@ -274,6 +276,9 @@ class TrackWriter(
         pendingTag = tag
     }
 
+    /** The track is full: while it plays, look again shortly; paused, it can't drain. */
+    private fun fullWait(): Long = if (started) FULL_WAIT_MS else UNTIL_COMMAND
+
     private fun pendingSize(): Int = pending?.let { it.size - pendingAt } ?: 0
 
     /** Write what's pending; true when all of it went in. */
@@ -309,16 +314,23 @@ class TrackWriter(
      * Pad while real audio is stuck unplayed; release a track idle for long.
      */
     private fun starved(): Long {
-        val t = out ?: return IDLE_WAIT_MS
+        val t = out ?: return UNTIL_COMMAND
         val h = head()
         val now = clock()
         if (!started || h >= realEnd) {
             if (started && h >= written && emptySince == null && realEnd > 0) emptySince = now
             if (session == null && queue.isEmpty() && marks.isEmpty() && h >= realEnd) {
                 val since = idleSince ?: now.also { idleSince = it }
-                if (now - since >= idleReleaseMs) releaseTrack("idle")
+                val left = idleReleaseMs - (now - since)
+                if (left <= 0) {
+                    releaseTrack("idle")
+                    return UNTIL_COMMAND
+                }
+                return if (started) minOf(IDLE_WAIT_MS, left) else left
             }
-            return IDLE_WAIT_MS
+            // Paused: nothing moves until a command. Playing and starved
+            // mid-session: watch for the next chunk's frames.
+            return if (started) IDLE_WAIT_MS else UNTIL_COMMAND
         }
         // Mid-session the next chunk may be a moment away: pad only once the
         // head has really stopped short of the real end. At a session's end
@@ -503,7 +515,10 @@ class TrackWriter(
         /** Head stuck this long while padded: the mixer wants more; double the pad. */
         private const val PAD_GROW_MS = 120L
 
-        private const val FULL_WAIT_MS = 5L
+        /** [step]'s "wait for the next command, however long". */
+        const val UNTIL_COMMAND = Long.MAX_VALUE
+
+        private const val FULL_WAIT_MS = 10L
         private const val PAD_WAIT_MS = 5L
         private const val IDLE_WAIT_MS = 20L
     }
