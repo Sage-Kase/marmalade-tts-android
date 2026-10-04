@@ -331,7 +331,9 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   `TrackWriter` over a virtual AudioTrack that plays whole mixer periods,
   ignores a flush while playing and can be parked; side-band frame tags, so
   stale audio is caught frame-exact), and the §5.2 scenarios in
-  `Narrator{Scenarios,Budget,Sessions}Test`. The reader's stories
+  `Narrator{Scenarios,Budget,Sessions,Output}Test` (Output = C2: no gap at a
+  paragraph, one track per session, stale epochs, flush mid-write, rate
+  change, interrupt, parked track). The reader's stories
   (`ReaderPlaybackControllerTest`, `ReaderViewModelTest`), the shim
   (`SpeakShimTest`) and the shell's duties (`NarratorShellTest`) run against
   the same harness.
