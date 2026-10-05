@@ -62,7 +62,13 @@ import kotlinx.coroutines.withContext
 // differs from the unsplit render by ~0.5 dB mel, the same as two unsplit
 // renders differ from each other (Kitten's source is random).
 //
-// Sideloaded into `${filesDir}/engines/kitten-stream-dev/`; voice style
+// Sideloaded into `${filesDir}/engines/kitten-stream-dev/`. An optional
+// `dev.properties` there overrides the slicing (`first`, `slice`, `context`,
+// in frames) and turns on ORT profiling (`profile=true`, JSON written to
+// `files/bench/prof-*` when the engine is released), so on-device
+// experiments need no reinstall. `whole=true` runs the installed, unsplit
+// kitten.onnx through the same session setup instead: the control for
+// attributing the split graphs' cost on the phone. Voice style
 // tables are read from the installed KittenDirect bundle. Chunking, style row,
 // speed priors and inter-chunk gaps mirror [KittenDirectEngine]. Not in
 // EngineRegistry or any catalog: only [EngineBenchService] calls it, and the
@@ -88,7 +94,9 @@ class KittenStreamDevEngine @Inject constructor(
     @Volatile private var env: OrtEnvironment? = null
     private var planner: OrtSession? = null
     private var gen: OrtSession? = null
+    private var whole: OrtSession? = null
     private var phonemizer: EspeakPhonemizer? = null
+    private var dev = DevConfig()
     private val styleTables = HashMap<String, FloatArray>()
     private val normTables = HashMap<String, FloatArray>()
 
@@ -105,9 +113,14 @@ class KittenStreamDevEngine @Inject constructor(
                 if (env != null) return@withLock
                 if (!isInstalled()) throw EngineNotInstalledException(engineName)
                 val threads = settings.intraOpThreads.firstOrNull() ?: CpuClusterDetector.detectPerfCoreCount()
+                dev = DevConfig.read(File(dir, "dev.properties"))
                 val ort = OrtEnvironment.getEnvironment()
-                planner = options(threads).use { ort.createSession(File(dir, PLANNER).absolutePath, it) }
-                gen = options(threads).use { ort.createSession(File(dir, GEN).absolutePath, it) }
+                planner = options(threads, "planner").use { ort.createSession(File(dir, PLANNER).absolutePath, it) }
+                gen = options(threads, "gen").use { ort.createSession(File(dir, GEN).absolutePath, it) }
+                if (dev.whole) {
+                    val model = File(ctx.filesDir, "engines/${KittenDirectEngine.ENGINE_NAME}/kitten.onnx")
+                    whole = options(threads, "whole").use { ort.createSession(model.absolutePath, it) }
+                }
                 phonemizer = EspeakPhonemizer(
                     libPath = EspeakPhonemizer.APK_LIB_NAME,
                     dataPath = sharedEspeak.ensure().absolutePath,
@@ -115,16 +128,16 @@ class KittenStreamDevEngine @Inject constructor(
                     fixupModel = EnPhonemeFixups.Model.KITTEN,
                 ).also { check(it.open() >= 0) { "espeak failed to open" } }
                 env = ort
-                Log.i(TAG, "loaded threads=$threads context=${KittenStreamSlicing.CONTEXT_FRAMES} " +
-                    "first=${KittenStreamSlicing.FIRST_SLICE_FRAMES} slice=${KittenStreamSlicing.SLICE_FRAMES} frames")
+                Log.i(TAG, "loaded threads=$threads $dev")
                 // Warm both graphs (first-call kernel setup) before anyone times a synth.
                 renderChunk("Hi.", "Hi.", WARMUP_VOICE, 1f, "en-us") { _, _ -> }
             }
         }
     }
 
-    private fun options(threads: Int) = OrtSession.SessionOptions().apply {
+    private fun options(threads: Int, name: String) = OrtSession.SessionOptions().apply {
         setIntraOpNumThreads(threads)
+        if (dev.profile) enableProfiling(File(ctx.filesDir, "bench/prof-$name").absolutePath)
         setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
         setMemoryPatternOptimization(true)
         if (Build.SUPPORTED_ABIS.firstOrNull() != "x86_64") {
@@ -209,6 +222,11 @@ class KittenStreamDevEngine @Inject constructor(
         val style = styleRow(voice, rowText.length)
         val modelSpeed = KittenDirectEngine.effectiveModelSpeed(voice, speed)
 
+        whole?.let { model ->
+            renderWhole(ort, model, ids, style, modelSpeed)?.let { emit(it, true) }
+            return
+        }
+
         val tPlan = System.nanoTime()
         val idsT = OnnxTensor.createTensor(ort, java.nio.LongBuffer.wrap(LongArray(ids.size) { ids[it].toLong() }), longArrayOf(1, ids.size.toLong()))
         val styleT = OnnxTensor.createTensor(ort, FloatBuffer.wrap(style), longArrayOf(1, STYLE_DIM.toLong()))
@@ -236,7 +254,7 @@ class KittenStreamDevEngine @Inject constructor(
             "planner contract broken: Σdur=${dur.sum()} xFrames=$xFrames har=${har.size}"
         }
         val speech = KittenStreamSlicing.speechFrames(ids, dur) ?: return
-        val slices = KittenStreamSlicing.slices(speech, totalFrames)
+        val slices = KittenStreamSlicing.slices(speech, totalFrames, dev.first, dev.slice, dev.context)
         Log.d(PERF_TAG, "kstream plan=${planMs}ms tokens=${ids.size} frames=$totalFrames speech=${speech.first}..${speech.last} slices=${slices.size}")
 
         val gn = normTable(voice)
@@ -274,6 +292,25 @@ class KittenStreamDevEngine @Inject constructor(
         }
     }
 
+    /** The unsplit model, timed and trimmed like KittenDirect (`whole=true` control). */
+    private fun renderWhole(ort: OrtEnvironment, model: OrtSession, ids: IntArray, style: FloatArray, speed: Float): ShortArray? {
+        val t0 = System.nanoTime()
+        val idsT = OnnxTensor.createTensor(ort, java.nio.LongBuffer.wrap(LongArray(ids.size) { ids[it].toLong() }), longArrayOf(1, ids.size.toLong()))
+        val styleT = OnnxTensor.createTensor(ort, FloatBuffer.wrap(style), longArrayOf(1, STYLE_DIM.toLong()))
+        val speedT = OnnxTensor.createTensor(ort, FloatBuffer.wrap(floatArrayOf(speed)), longArrayOf(1))
+        try {
+            model.run(mapOf("input_ids" to idsT, "style" to styleT, "speed" to speedT)).use { r ->
+                val wav = r[0].value as FloatArray
+                val dur = KittenDirectEngine.extractDurations(r[1].value) ?: return null
+                Log.d(PERF_TAG, "kstream whole=${(System.nanoTime() - t0) / 1_000_000}ms tokens=${ids.size} frames=${dur.sum()}")
+                val trimmed = KittenTrim.trim(ids, wav, dur) ?: return null
+                return ShortArray(trimmed.size) { (trimmed[it].coerceIn(-1f, 1f) * 32767f).toInt().toShort() }
+            }
+        } finally {
+            idsT.close(); styleT.close(); speedT.close()
+        }
+    }
+
     private fun directFloats(n: Int): FloatBuffer =
         ByteBuffer.allocateDirect(n * 4).order(ByteOrder.nativeOrder()).asFloatBuffer()
 
@@ -297,12 +334,40 @@ class KittenStreamDevEngine @Inject constructor(
     override fun release() {
         runBlocking {
             lock.withLock {
+                if (dev.profile) {
+                    runCatching { Log.i(TAG, "profile planner=${planner?.endProfiling()} gen=${gen?.endProfiling()} whole=${whole?.endProfiling()}") }
+                }
                 runCatching { planner?.close() }
                 runCatching { gen?.close() }
+                runCatching { whole?.close() }
                 runCatching { phonemizer?.close() }
-                planner = null; gen = null; phonemizer = null
+                planner = null; gen = null; whole = null; phonemizer = null
                 styleTables.clear(); normTables.clear()
                 env = null
+            }
+        }
+    }
+
+    /** Slicing and profiling, overridable from `dev.properties` in the bundle directory. */
+    private data class DevConfig(
+        val first: Int = KittenStreamSlicing.FIRST_SLICE_FRAMES,
+        val slice: Int = KittenStreamSlicing.SLICE_FRAMES,
+        val context: Int = KittenStreamSlicing.CONTEXT_FRAMES,
+        val profile: Boolean = false,
+        val whole: Boolean = false,
+    ) {
+        companion object {
+            fun read(file: File): DevConfig {
+                if (!file.isFile) return DevConfig()
+                val p = java.util.Properties().apply { file.inputStream().use { load(it) } }
+                val d = DevConfig()
+                return DevConfig(
+                    first = p.getProperty("first")?.toIntOrNull() ?: d.first,
+                    slice = p.getProperty("slice")?.toIntOrNull() ?: d.slice,
+                    context = p.getProperty("context")?.toIntOrNull() ?: d.context,
+                    profile = p.getProperty("profile") == "true",
+                    whole = p.getProperty("whole") == "true",
+                )
             }
         }
     }
