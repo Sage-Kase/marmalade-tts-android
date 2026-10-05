@@ -123,6 +123,16 @@ When investigating **{concern}**, start at **{files}**:
   Neither is in `EngineRegistry`/`EngineCatalog`: the debug source set keeps
   them out of every release build, developer mode included. Usage in the
   service's file comment; tests in `app/src/testDebug/`.
+  `KittenStreamDevEngine` (issue #3 "D1a", same rules) is Kitten nano cut
+  into a planner graph (text model, durations, pitch, decoder front,
+  harmonic source; run ONCE per chunk with one style row) and a generator
+  graph rendered in 0.5 s / 1 s frame slices with 4 frames of context.
+  The generator's InstanceNorms are replaced by fixed per-voice statistics
+  (`genstats/<voice>.bin`), which is what makes slices join exactly; the
+  whole-utterance norm statistics are the one thing Kitten can't stream.
+  Bundle sideloaded into `filesDir/engines/kitten-stream-dev/`; voice
+  tables come from the installed KittenDirect bundle. Graph surgery
+  scripts and the phone protocol: `~/coding/scratch/kitten-stream-d1a/`.
 - `engine/SherpaEngine.kt` — abstract base (loadLock, ensureModelLoaded,
   synthesize, release, floatToPcm16, sampleRate)
 - `engine/KittenEngine.kt`, `engine/KokoroEngine.kt` — subclasses,
