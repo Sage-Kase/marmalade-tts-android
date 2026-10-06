@@ -691,6 +691,8 @@ write Marmalade code.
   one trained through this STFT compensates for it. The 7M student was, and
   the patch makes it worse. Same issue: the style row (`kokoroStyleRow`'s
   count vs upstream's count−1) is audibly and measurably irrelevant.
+  **Not shipped (Max, blind listen 2026-10-06):** he could not hear the
+  patched 82M from today's on any clip, so the v23 bundle stays as is.
 
 ## Where the docs live
 
