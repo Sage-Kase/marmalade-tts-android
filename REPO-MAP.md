@@ -693,6 +693,13 @@ write Marmalade code.
   count vs upstream's count−1) is audibly and measurably irrelevant.
   **Not shipped (Max, blind listen 2026-10-06):** he could not hear the
   patched 82M from today's on any clip, so the v23 bundle stays as is.
+- **Kitten nano 0.8 is trainable** (issue #7 "K0", 2026-10-06). Its baked
+  `kitten.onnx` is an fp32 Kokoro `KModel` (hidden 128, 2 layers, a 256-wide
+  decoder, the same ALBERT and 178-symbol vocab) and was trained through this
+  same `CustomSTFT`. A PyTorch rebuild loading the ONNX weights matches it to
+  fp32 rounding (identical durations), and fine-tunes on chocolate. Rebuild,
+  weight map, Kokoro→Kitten teacher pipeline and measured training cost:
+  `~/coding/scratch/kitten-trainable-k0/README.md`.
 
 ## Where the docs live
 
