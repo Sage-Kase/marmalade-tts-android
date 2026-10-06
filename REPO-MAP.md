@@ -677,6 +677,20 @@ write Marmalade code.
   If we ever want multi-lang Kokoro via sherpa-onnx, use either the
   **fp32 `kokoro-multi-lang-v1_0`** (~349 MB) or the team-validated
   **`kokoro-int8-multi-lang-v1_1`** (~92 MB). Never int8-v1.0.
+- **Our Kokoro-family ONNX files carry a broken inverse STFT** (issue #6,
+  2026-10-05). Kokoro's export-friendly `CustomSTFT` (`disable_complex=True`)
+  never doubles the one-sided middle bins and never divides by the window
+  overlap. So DC and Nyquist come out 2× too strong: +6 dB rumble below
+  100 Hz, −3–4 dB presence across 1–10 kHz, +3 dB fizz near 12 kHz. This is
+  in the shipped 82M int8 v23 and the fp32 it came from (Kitten and the
+  German Thorsten files contain the same weights). It costs the 82M UTMOS 4.48 → 4.36 (Heart) and
+  4.31 → 3.97 (Michael). The fix is data, not code: scale the two fp32
+  initializers `kmodel.decoder.generator.stft.weight_backward_{real,imag}`
+  (rows 1..9 ×2, all ÷1.5;
+  `~/coding/scratch/kokoro-upstream-ab/patch_istft.py`). **Check per model:**
+  one trained through this STFT compensates for it. The 7M student was, and
+  the patch makes it worse. Same issue: the style row (`kokoroStyleRow`'s
+  count vs upstream's count−1) is audibly and measurably irrelevant.
 
 ## Where the docs live
 
