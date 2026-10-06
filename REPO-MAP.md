@@ -123,6 +123,12 @@ When investigating **{concern}**, start at **{files}**:
   Neither is in `EngineRegistry`/`EngineCatalog`: the debug source set keeps
   them out of every release build, developer mode included. Usage in the
   service's file comment; tests in `app/src/testDebug/`.
+  The 7M only works on misaki's phoneme spellings (issue #4: plain espeak
+  gave 31–34% WER, upstream's own pipeline 3–4%), so it overrides
+  `KokoroDirectEngine.englishPhonemes` (a no-op seam for Kokoro-82M) with
+  tied espeak → `EspeakToMisaki`, a port of misaki's own EspeakFallback.
+  **A small student is only as good as the front end it was distilled on**:
+  check that before blaming the model.
   `KittenStreamDevEngine` (issue #3 "D1a", same rules) is Kitten nano cut
   into a planner graph (text model, durations, pitch, decoder front,
   harmonic source; run ONCE per chunk with one style row) and a generator

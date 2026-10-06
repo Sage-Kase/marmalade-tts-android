@@ -237,6 +237,14 @@ open class KokoroDirectEngine @Inject constructor(
     protected open val warmupVoiceKey: String
         get() = KokoroDirectVoiceCatalog.voices.first().id.substringAfter(':')
 
+    /**
+     * English IPA for [text] — see [espeakPhonemes]. Kokoro-82M takes untied
+     * espeak + EnPhonemeFixups as is. The debug-only Kokoro-7M student
+     * (issue #4) overrides this: it only works on misaki's spellings.
+     */
+    protected open fun englishPhonemes(phon: EspeakPhonemizer, text: String, lang: String): String =
+        phon.phonemize(text, lang)
+
     private val engineDir: File get() = File(ctx.filesDir, "engines/$engineName")
     private val acousticModelFile: File get() = File(engineDir, MODEL_FILE)
     private val voicesFile: File get() = File(engineDir, VOICES_FILE)
@@ -839,7 +847,7 @@ open class KokoroDirectEngine @Inject constructor(
      */
     private fun espeakPhonemes(phon: EspeakPhonemizer, text: String, lang: String): String =
         when {
-            lang.startsWith("en") -> phon.phonemize(text, lang)
+            lang.startsWith("en") -> englishPhonemes(phon, text, lang)
             lang == "de" -> GermanG2P.forEspeak(phon).phonemes(text)
             else -> KokoroLangSubstitutions.apply(
                 KokoroEspeakG2P.postprocess(phon.phonemize(text, lang, tie = true)),

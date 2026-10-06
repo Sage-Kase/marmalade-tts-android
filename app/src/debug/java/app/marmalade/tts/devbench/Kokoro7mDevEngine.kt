@@ -3,6 +3,7 @@ package app.marmalade.tts.devbench
 import android.content.Context
 import app.marmalade.tts.data.SettingsRepository
 import app.marmalade.tts.engine.kokoro.KokoroDirectEngine
+import app.marmalade.tts.phonemizer.EspeakPhonemizer
 import app.marmalade.tts.phonemizer.SharedEspeakData
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -22,7 +23,10 @@ import javax.inject.Singleton
 //
 //   * one style pack (`af_msa`, the pack the student was distilled against)
 //     → voices.bin is [1, 510, 256] and [speakerIdFor] is always 0;
-//   * English only → [espeakVoiceFor] is always "en-us".
+//   * English only → [espeakVoiceFor] is always "en-us";
+//   * English IPA is tied espeak rewritten to misaki's spellings
+//     ([englishPhonemes], [EspeakToMisaki]). The student was distilled on
+//     misaki only and garbles plain espeak (issue #4).
 //
 // The model is SIDELOADED, never downloaded: the bench pushes model.onnx,
 // voices.bin and tokens.txt into `${filesDir}/engines/kokoro-7m-dev/` with
@@ -49,6 +53,13 @@ class Kokoro7mDevEngine @Inject constructor(
 
     /** English only. */
     override fun espeakVoiceFor(voiceKey: String): String = "en-us"
+
+    /**
+     * Tied espeak rewritten to misaki's spellings, the only ones the student
+     * was distilled on (issue #4: 31–34% → 3.5–5.5% WER). See [EspeakToMisaki].
+     */
+    override fun englishPhonemes(phon: EspeakPhonemizer, text: String, lang: String): String =
+        EspeakToMisaki.convert(phon.phonemize(text, lang, tie = true))
 
     override val warmupVoiceKey: String = VOICE_KEY
 
