@@ -50,4 +50,37 @@ class KokoroStreamSlicingTest {
         assertEquals(listOf(0 until 10), KokoroStreamSlicing.slices(10, tailStart = 0).map { it.keep })
         assertEquals(emptyList<IntRange>(), KokoroStreamSlicing.slices(0, tailStart = 0).map { it.keep })
     }
+
+    @Test
+    fun `pause frames count every pad, punctuation and space token`() {
+        val dur = longArrayOf(6, 5, 5, 2, 8, 2, 3, 9)
+        assertEquals(6L + 2 + 2 + 3 + 9, KokoroGenStats.pauseFrames(ids, dur))
+    }
+
+    @Test
+    fun `norm table applies the linear stats model per channel`() {
+        // S = 2 channels; rows: mean c0..c2, var c0..c2, scale, bias, eps
+        val model = floatArrayOf(
+            1f, 0f, // mean c0
+            2f, 0f, // mean c1 (× p)
+            0f, 1f, // mean c2 (× ln T)
+            4f, 1f, // var c0
+            0f, 0f, // var c1
+            0f, 0f, // var c2
+            2f, 1f, // scale
+            0.5f, 0f, // bias
+            0f, 0f, // eps
+        )
+        val t = KokoroGenStats.normTable(model, pauseFraction = 0.25, frames = 1)
+        // channel 0: mean 1.5, var 4 → a = 2/2 = 1, b = 0.5 − 1.5 = −1
+        // channel 1: mean 0 (ln 1), var 1 → a = 1, b = 0
+        assertEquals(listOf(1f, 1f, -1f, 0f), t.toList())
+    }
+
+    @Test
+    fun `a negative predicted variance is floored, not NaN`() {
+        val model = FloatArray(KokoroGenStats.MODEL_ROWS).also { it[3] = -5f; it[6] = 1f }
+        val t = KokoroGenStats.normTable(model, pauseFraction = 0.3, frames = 100)
+        assertTrue(t.all { it.isFinite() })
+    }
 }

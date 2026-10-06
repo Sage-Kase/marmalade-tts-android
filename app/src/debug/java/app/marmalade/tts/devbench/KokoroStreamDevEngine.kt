@@ -55,11 +55,12 @@ import kotlinx.coroutines.withContext
 //                 frame-rate front, and the harmonic source. Runs ONCE per
 //                 chunk with one style row: nothing is re-planned per slice.
 //   gen.onnx      x, s, har window, gn → audio
-//                 The iSTFTNet generator. Its 48 InstanceNorms are replaced
-//                 by fixed per-voice statistics (`gn`, genstats/<voice>.bin),
-//                 which makes it purely convolutional, so slices rendered
-//                 with [KittenStreamSlicing.CONTEXT_FRAMES] of context join
-//                 exactly.
+//                 The iSTFTNet generator. Its 48 InstanceNorms take their
+//                 statistics from the `gn` input, computed once per chunk from
+//                 the voice's small model (genstats/<voice>.bin, see
+//                 [KokoroGenStats]) and the planner's durations. That makes it
+//                 purely convolutional, so slices rendered with
+//                 [KittenStreamSlicing.CONTEXT_FRAMES] of context join exactly.
 //
 // Chunking mirrors KokoroDirect (TextChunker.planByTokens, the whole
 // sentence's style row on every piece) except that sentences stay whole up to
@@ -102,7 +103,7 @@ class KokoroStreamDevEngine @Inject constructor(
     private var phonemizer: EspeakPhonemizer? = null
     private var voices: FloatBuffer? = null
     private var dev = DevConfig()
-    private val normTables = HashMap<String, FloatArray>()
+    private val statsModels = HashMap<String, FloatArray>()
 
     override fun isInstalled(): Boolean =
         File(dir, PLANNER).isFile && File(dir, GEN).isFile && File(dir, "genstats").isDirectory &&
@@ -270,7 +271,8 @@ class KokoroStreamDevEngine @Inject constructor(
             val slices = KokoroStreamSlicing.slices(totalFrames, tail, dev.first, dev.slice, dev.context)
             Log.d(PERF_TAG, "kkstream plan=${planMs}ms tokens=${ids.size} frames=$totalFrames tail=$tail slices=${slices.size}")
 
-            val gn = normTable(voice)
+            val pause = KokoroGenStats.pauseFrames(ids, dur).toDouble() / totalFrames
+            val gn = KokoroGenStats.normTable(statsModel(voice), pause, totalFrames)
             val channels = x.size / xLen
             val gnT = OnnxTensor.createTensor(ort, FloatBuffer.wrap(gn), longArrayOf(2, (gn.size / 2).toLong()))
             val sT = OnnxTensor.createTensor(ort, FloatBuffer.wrap(s), longArrayOf(1, s.size.toLong()))
@@ -328,8 +330,8 @@ class KokoroStreamDevEngine @Inject constructor(
         return FloatArray(STYLE_DIM).also { src.get(it) }
     }
 
-    /** float32 [2, S]: per-channel multiply (row 0) and add (row 1) for the generator's norm layers. */
-    private fun normTable(voice: String): FloatArray = normTables.getOrPut(voice) {
+    /** The voice's generator-stats model, float32 [[KokoroGenStats.MODEL_ROWS], S]. */
+    private fun statsModel(voice: String): FloatArray = statsModels.getOrPut(voice) {
         val file = File(dir, "genstats/$voice.bin")
         check(file.isFile) { "no generator stats for $voice (genstats/$voice.bin)" }
         val bytes = file.readBytes()
@@ -347,7 +349,7 @@ class KokoroStreamDevEngine @Inject constructor(
                 runCatching { whole?.close() }
                 runCatching { phonemizer?.close() }
                 planner = null; gen = null; whole = null; phonemizer = null; voices = null
-                normTables.clear()
+                statsModels.clear()
                 env = null
             }
         }

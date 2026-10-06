@@ -53,3 +53,47 @@ internal object KokoroStreamSlicing {
         )
     }
 }
+
+/**
+ * Per-chunk statistics for the generator's 48 norm layers (issue #5).
+ *
+ * Kokoro's generator statistics move with the chunk far more than Kitten's:
+ * one fixed per-voice average is off by ~2.9 dB on held-out sentences, mostly
+ * as a level change (short chunks come out quieter, long ones louder). Most
+ * of that is explained by two things the planner already knows before any
+ * audio is made: the share of frames spent in pauses (pad, punctuation and
+ * space tokens) and the chunk's length. So each voice ships a small linear
+ * model instead of a fixed table (desktop fit, `statsmodel.py`):
+ *
+ *   mean, var = c0 + c1·p + c2·ln(T)   per channel, p = pause fraction, T = frames
+ *
+ * and the norm becomes y = x·a + b with a = scale / √(var + eps), b = bias − mean·a.
+ */
+internal object KokoroGenStats {
+
+    /** Rows of a voice's model table, each [S] floats: mean c0..c2, var c0..c2, scale, bias, eps. */
+    const val MODEL_ROWS = 9
+
+    /** Frames spent in pad / punctuation / space tokens (ids ≤ [SPACE_TOKEN]). */
+    fun pauseFrames(ids: IntArray, durFrames: LongArray): Long {
+        var n = 0L
+        for (i in ids.indices) if (ids[i] <= SPACE_TOKEN) n += durFrames[i]
+        return n
+    }
+
+    /** The generator's `gn` input, float32 [2, S] (row 0 = a, row 1 = b), for one chunk. */
+    fun normTable(model: FloatArray, pauseFraction: Double, frames: Int): FloatArray {
+        require(model.size % MODEL_ROWS == 0) { "model table is ${model.size} floats, not $MODEL_ROWS rows" }
+        val s = model.size / MODEL_ROWS
+        val lnT = Math.log(frames.toDouble())
+        val out = FloatArray(2 * s)
+        for (c in 0 until s) {
+            val mean = model[c] + model[s + c] * pauseFraction + model[2 * s + c] * lnT
+            val v = maxOf(model[3 * s + c] + model[4 * s + c] * pauseFraction + model[5 * s + c] * lnT, 1e-6)
+            val a = model[6 * s + c] / Math.sqrt(v + model[8 * s + c])
+            out[c] = a.toFloat()
+            out[s + c] = (model[7 * s + c] - mean * a).toFloat()
+        }
+        return out
+    }
+}

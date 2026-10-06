@@ -134,7 +134,10 @@ When investigating **{concern}**, start at **{files}**:
   tables come from the installed KittenDirect bundle. Graph surgery
   scripts and the phone protocol: `~/coding/scratch/kitten-stream-d1a/`.
   `KokoroStreamDevEngine` (issue #5 "D1c", same rules) is the same cut of the
-  shipped int8 Kokoro v23 model (48 generator norms → `genstats/<voice>.bin`),
+  shipped int8 Kokoro v23 model. Its 48 generator norms can't use one fixed
+  table per voice (~2.9 dB off); `genstats/<voice>.bin` is a small per-voice
+  linear model, and `KokoroGenStats` turns it into each chunk's table from the
+  pause share and length,
   English voices only. It keeps sentences whole up to the 500-token cap (no
   short first piece; streaming replaces it), and its slices never cut inside
   the trailing pause, so KokoroDirect's tail trim applies to the last slice
