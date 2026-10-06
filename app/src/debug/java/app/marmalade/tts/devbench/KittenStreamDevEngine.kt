@@ -68,7 +68,9 @@ import kotlinx.coroutines.withContext
 // `files/bench/prof-*` when the engine is released), so on-device
 // experiments need no reinstall. `whole=true` runs the installed, unsplit
 // kitten.onnx through the same session setup instead: the control for
-// attributing the split graphs' cost on the phone. Voice style
+// attributing the split graphs' cost on the phone. `spin=true` and
+// `mempattern=false` flip those two ORT session options (issue #5's per-call
+// overhead experiments). Voice style
 // tables are read from the installed KittenDirect bundle. Chunking, style row,
 // speed priors and inter-chunk gaps mirror [KittenDirectEngine]. Not in
 // EngineRegistry or any catalog: only [EngineBenchService] calls it, and the
@@ -139,10 +141,10 @@ class KittenStreamDevEngine @Inject constructor(
         setIntraOpNumThreads(threads)
         if (dev.profile) enableProfiling(File(ctx.filesDir, "bench/prof-$name").absolutePath)
         setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
-        setMemoryPatternOptimization(true)
+        setMemoryPatternOptimization(dev.memPattern)
         if (Build.SUPPORTED_ABIS.firstOrNull() != "x86_64") {
             addXnnpack(mapOf("intra_op_num_threads" to threads.toString()))
-            addConfigEntry("session.intra_op.allow_spinning", "0")
+            addConfigEntry("session.intra_op.allow_spinning", if (dev.spin) "1" else "0")
         }
     }
 
@@ -355,6 +357,8 @@ class KittenStreamDevEngine @Inject constructor(
         val context: Int = KittenStreamSlicing.CONTEXT_FRAMES,
         val profile: Boolean = false,
         val whole: Boolean = false,
+        val spin: Boolean = false,
+        val memPattern: Boolean = true,
     ) {
         companion object {
             fun read(file: File): DevConfig {
@@ -367,6 +371,8 @@ class KittenStreamDevEngine @Inject constructor(
                     context = p.getProperty("context")?.toIntOrNull() ?: d.context,
                     profile = p.getProperty("profile") == "true",
                     whole = p.getProperty("whole") == "true",
+                    spin = p.getProperty("spin") == "true",
+                    memPattern = p.getProperty("mempattern") != "false",
                 )
             }
         }

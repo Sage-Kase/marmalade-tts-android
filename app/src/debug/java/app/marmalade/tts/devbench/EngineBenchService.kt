@@ -38,8 +38,9 @@ import kotlinx.coroutines.launch
 // Timing lands in logcat (`B1Bench` lines here, plus each engine's own
 // `StreamPerf` lines), so a run is attributable from logs alone.
 //
-// Dev engines outside the registry: kokoro-7m-dev (issue #1) and
-// kitten-stream-dev (issue #3, Kitten planned once and decoded in slices).
+// Dev engines outside the registry: kokoro-7m-dev (issue #1),
+// kitten-stream-dev (issue #3, Kitten planned once and decoded in slices) and
+// kokoro-stream-dev (issue #5, the same cut for Kokoro-82M).
 //
 // Started from adb only — the debug manifest guards it with
 // android.permission.DUMP, which the shell holds and apps don't:
@@ -66,6 +67,7 @@ class EngineBenchService : Service() {
     @Inject lateinit var registry: EngineRegistry
     @Inject lateinit var kokoro7m: Kokoro7mDevEngine
     @Inject lateinit var kittenStream: KittenStreamDevEngine
+    @Inject lateinit var kokoroStream: KokoroStreamDevEngine
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     @Volatile private var running = false
@@ -131,6 +133,7 @@ class EngineBenchService : Service() {
     private fun engineFor(name: String): TtsEngine? = when (name) {
         Kokoro7mDevEngine.ENGINE -> kokoro7m
         KittenStreamDevEngine.ENGINE -> kittenStream
+        KokoroStreamDevEngine.ENGINE -> kokoroStream
         else -> registry.find(name)
     }
 
@@ -141,7 +144,7 @@ class EngineBenchService : Service() {
         Log.i(TAG, "start run=${c.run} engine=$name voice=${c.voice} sentences=${c.sentences.size} passes=${c.passes} pace=${c.pace} ${thermal()}")
 
         // Clean baseline: no engine resident, then load only the target.
-        (registry.onDevice + kokoro7m + kittenStream).forEach { it.release() }
+        (registry.onDevice + kokoro7m + kittenStream + kokoroStream).forEach { it.release() }
         System.gc()
         delay(1_500)
         val pssBeforeKb = Debug.getPss()
