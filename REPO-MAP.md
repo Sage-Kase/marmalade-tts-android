@@ -700,6 +700,13 @@ write Marmalade code.
   fp32 rounding (identical durations), and fine-tunes on chocolate. Rebuild,
   weight map, Kokoro→Kitten teacher pipeline and measured training cost:
   `~/coding/scratch/kitten-trainable-k0/README.md`.
+  **Kitten nano is band-limited to ~8 kHz** (nothing above 7.8 kHz; Kokoro
+  has a full 8–12 kHz octave). Fine-tuning it on a full-band teacher with
+  only StyleTTS2's spectral-convergence loss fills that band with hiss and
+  steady tones at the iSTFT bin centres (9.6/10.8 kHz), pauses included (#8).
+  Either low-pass the teacher to ~7.8 kHz or add log-mel L1; train on crops
+  with real context each side, or every sentence ends in a tick. Details:
+  `~/coding/scratch/kitten-trainable-k0/k0-hiss/README.md`.
 
 ## Where the docs live
 
