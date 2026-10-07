@@ -276,7 +276,7 @@ until validated across a range of devices, then promoted to `1.0.0`.
   dumps latents + re-decodes them under multiple window policies for diagnosing/tuning
   the mimi decoder. Root-caused the glitch above; kept for ongoing optimization work.
 
-## [Unreleased]
+## [0.1.3] — 2026-05-22
 
 ### Changed
 - Engine install path is now single-archive download + extraction.
