@@ -149,7 +149,15 @@ When investigating **{concern}**, start at **{files}**:
   generator call carries ~120 ms of fixed overhead, so small slices cost real
   CPU (issue #5). Since issue #9 the slices are 0.5 s, 1 s, then doubling to
   4 s (`max` knob; `max=40` restores the fixed 1 s schedule the #3/#5 tables
-  were measured with).
+  were measured with). **Intra-op spinning helps the split path only** (#5
+  clean phone bench, 2026-10-07, Heart, B1 set; first audio median/worst, RTF):
+  - today's KokoroDirect: 1.81 s / 5.6 s, RTF 0.70;
+  - streamed: 1.36 s / 2.3 s, RTF 0.85;
+  - streamed with `spin=true`: 0.94 s / 1.38 s, RTF 0.79;
+  - the unsplit model with spin: RTF 0.78 vs 0.75 without.
+  The planner and every slice are many short ORT calls, and sleeping pool
+  threads pay a wake-up on each. Weigh spinning's idle-CPU and battery cost
+  before adopting it.
 - **Debug-only model timing (`devbench/OnnxBenchService`, issue #12 "X1")**:
   times ANY `.onnx`/`.ort` file with no engine around it, silently (outputs
   are dropped). One adb start = one line of `files/x1/specs.txt` = one
