@@ -23,7 +23,10 @@ import kotlinx.coroutines.launch
  *  - `flush()` ignored while playing, as AudioTrack does — so a writer that
  *    forgot to pause first would leave stale audio audible, and the harness
  *    would see it;
- *  - the head resets to 0 on flush.
+ *  - the head resets to 0 on flush;
+ *  - optionally ([startThresholdMs]) AudioTrack's start threshold: a new or
+ *    flushed track plays nothing until that much is queued (on a device it
+ *    is about the whole buffer, so set [bufferMs] to match).
  *
  * Chunk identity travels as SIDE-BAND tags on every written frame run, so
  * "heard" and "stale" are measured after the chain, frame-exact. PCM values
@@ -35,6 +38,7 @@ class VirtualAudioOutput(
     private val sliceMs: Long = 10,
     private val bufferMs: Int = 30,
     stallMs: Long = TrackWriter.DEFAULT_STALL_MS,
+    private val startThresholdMs: Int = 0,
 ) : AudioOutput {
 
     /** One audible slice of one track: what the listener hears in [atMs, atMs + sliceMs). */
@@ -68,6 +72,11 @@ class VirtualAudioOutput(
 
     /** The writer's own log lines. */
     val writerLog = ArrayList<String>()
+
+    private val padded = HashMap<Track, Double>()
+
+    /** Silence the writer padded with on [track], in ms, over the run. */
+    fun paddedMs(track: Track): Double = padded[track] ?: 0.0
 
     private var sink: (OutputEvent) -> Unit = {}
     private val pending = ArrayDeque<OutputCommand>()
@@ -170,6 +179,10 @@ class VirtualAudioOutput(
         private inner class Run(var frames: Int, val tag: ChunkTag?)
 
         override val capacityFrames: Int = sampleRate * bufferMs / 1000
+        private val thresholdFrames = sampleRate * startThresholdMs / 1000
+
+        /** Waiting for [thresholdFrames] before the first frame plays (new or flushed track). */
+        private var filling = thresholdFrames > 0
         private val runs = ArrayDeque<Run>()
         private var queued = 0
         private var head = 0L
@@ -184,6 +197,7 @@ class VirtualAudioOutput(
             if (n <= 0) return 0
             runs.addLast(Run(n, tag))
             queued += n
+            if (tag == null) padded[track] = paddedMs(track) + n * 1000.0 / sampleRate
             return n
         }
 
@@ -205,6 +219,7 @@ class VirtualAudioOutput(
             runs.clear()
             queued = 0
             head = 0
+            filling = thresholdFrames > 0
         }
 
         override fun release() {
@@ -217,7 +232,8 @@ class VirtualAudioOutput(
         /** Play [ms] of audio: whole periods only, nothing at all when parked. */
         fun play(ms: Long): Heard {
             val period = (sampleRate * ms / 1000).toInt()
-            val take = if (parked || queued < period) 0 else period
+            if (filling && queued >= thresholdFrames) filling = false
+            val take = if (parked || filling || queued < period) 0 else period
             var left = take
             var real = 0
             var stale = false

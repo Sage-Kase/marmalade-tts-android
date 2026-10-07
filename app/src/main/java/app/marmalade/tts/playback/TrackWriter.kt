@@ -325,6 +325,10 @@ class TrackWriter(
         val h = head()
         val now = clock()
         if (!started || h >= realEnd) {
+            // The stuck audio got through: the next stall starts from a small
+            // pad again (a grown one would queue up to a buffer of silence
+            // at every later session end or underrun).
+            if (started) padAheadMs = PAD_AHEAD_MS
             if (started && h >= written && emptySince == null && realEnd > 0) emptySince = now
             if (session == null && queue.isEmpty() && marks.isEmpty() && h >= realEnd) {
                 val since = idleSince ?: now.also { idleSince = it }
@@ -418,6 +422,7 @@ class TrackWriter(
         written = 0
         realEnd = 0
         paddedFrames = 0
+        padAheadMs = PAD_AHEAD_MS
         lastHead = -1
         lastProgressAt = clock()
         emptySince = null

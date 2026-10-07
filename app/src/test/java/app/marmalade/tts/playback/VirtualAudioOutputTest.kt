@@ -20,9 +20,10 @@ class VirtualAudioOutputTest {
 
     private fun pcm(ms: Int, rate: Int = 24_000) = ShortArray(rate * ms / 1000) { (it % 100).toShort() }
 
-    private class Rig(scope: TestScope, parkNext: Track? = null) {
+    private class Rig(scope: TestScope, parkNext: Track? = null, bufferMs: Int = 30, startThresholdMs: Int = 0) {
         val clock = { scope.testScheduler.currentTime }
-        val out = VirtualAudioOutput(scope.backgroundScope, clock).also { it.parkNext = parkNext }
+        val out = VirtualAudioOutput(scope.backgroundScope, clock, bufferMs = bufferMs, startThresholdMs = startThresholdMs)
+            .also { it.parkNext = parkNext }
         val events = ArrayList<Pair<Long, OutputEvent>>()
 
         init {
@@ -259,6 +260,29 @@ class VirtualAudioOutputTest {
         run(4_000)
         val failed = r.events.mapNotNull { it.second as? OutputEvent.TrackFailed }
         assertEquals(listOf(7L, 8L), failed.map { it.sessionId })
+    }
+
+    @Test
+    fun `padding grown to beat a start threshold shrinks back once the tail is heard`() = runTest {
+        // Device-like track: 250 ms buffer that starts only when full. A short
+        // first session needs ~a buffer of padding to start at all; that must
+        // not stick, or every later session end queues a buffer of silence.
+        val r = Rig(this, bufferMs = 250, startThresholdMs = 250)
+        r.begin()
+        r.write(tag(0), pcm(100))
+        r.end()
+        r.out.submit(OutputCommand.Play(Track.Main))
+        run(3_000)
+        assertNotNull("session 7 heard to its end", r.at { it is OutputEvent.SessionEnded && it.sessionId == 7L })
+        val padBefore = r.out.paddedMs(Track.Main)
+        assertTrue("the first session needed a big pad: $padBefore ms", padBefore >= 140.0)
+        r.begin(session = 8)
+        r.write(tag(0, session = 8), pcm(100))
+        r.end(session = 8)
+        run(3_000)
+        assertNotNull("session 8 heard to its end", r.at { it is OutputEvent.SessionEnded && it.sessionId == 8L })
+        val pad8 = r.out.paddedMs(Track.Main) - padBefore
+        assertTrue("session 8 padded $pad8 ms", pad8 <= 80.0)
     }
 
     @Test
