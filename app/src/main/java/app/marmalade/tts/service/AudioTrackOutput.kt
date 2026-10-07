@@ -96,9 +96,9 @@ class AudioTrackOutput internal constructor(
         } catch (t: Throwable) {
             Log.e(TAG, "$track writer error", t)
             try {
-                w.failSession(t.message ?: t.javaClass.simpleName)
+                w.failTrack(t.message ?: t.javaClass.simpleName)
             } catch (t2: Throwable) {
-                Log.e(TAG, "$track writer could not fail its session", t2)
+                Log.e(TAG, "$track writer could not fail its track", t2)
             }
             null
         }

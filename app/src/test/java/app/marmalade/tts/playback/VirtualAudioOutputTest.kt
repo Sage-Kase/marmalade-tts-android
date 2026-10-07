@@ -232,6 +232,36 @@ class VirtualAudioOutputTest {
     }
 
     @Test
+    fun `a parked track fails a session already written to its end - nothing is left waiting for its end`() = runTest {
+        // 200 ms fits the buffer whole: no pending audio, no queued item, the
+        // session already ended on the writer's side. Only the marks still
+        // say whose audio is stuck (the emulator caught this, #11).
+        val r = Rig(this, parkNext = Track.Main)
+        r.begin()
+        r.write(tag(0), pcm(20))
+        r.end()
+        r.out.submit(OutputCommand.Play(Track.Main))
+        run(4_000)
+        val failed = r.events.single { it.second is OutputEvent.TrackFailed }.second as OutputEvent.TrackFailed
+        assertEquals(7L to 1, failed.sessionId to failed.epoch)
+    }
+
+    @Test
+    fun `a parked track fails every session queued on it, in order`() = runTest {
+        val r = Rig(this, parkNext = Track.Main)
+        r.begin()
+        r.write(tag(0), pcm(10))
+        r.end()
+        r.begin(session = 8)
+        r.write(tag(0, session = 8), pcm(2_000))
+        r.end(session = 8)
+        r.out.submit(OutputCommand.Play(Track.Main))
+        run(4_000)
+        val failed = r.events.mapNotNull { it.second as? OutputEvent.TrackFailed }
+        assertEquals(listOf(7L, 8L), failed.map { it.sessionId })
+    }
+
+    @Test
     fun `a track with nothing to play is released after a while and rebuilt on the next Begin`() = runTest {
         val r = Rig(this)
         r.begin()

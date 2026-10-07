@@ -180,7 +180,7 @@ class TrackWriter(
         fireMarks()
         if (stalled()) {
             log("$name: playback head parked at ${head()} with ${realEnd - head()} frames unplayed")
-            failSession("AudioTrack parked: head frozen while playing")
+            failTrack("AudioTrack parked: head frozen while playing")
             return 0
         }
         if (pending != null) return if (writePending()) 0 else fullWait()
@@ -202,16 +202,23 @@ class TrackWriter(
         return starved()
     }
 
-    /** Fail what this track is playing: the device refused, broke or parked it. Also the runner's last resort. */
-    fun failSession(message: String) {
-        val tag = pendingTag ?: (queue.firstOrNull() as? OutputCommand.Write)?.tag
-        val begin = session ?: queue.firstOrNull() as? OutputCommand.Begin
-        val sessionId = tag?.sessionId ?: begin?.sessionId
-        val epoch = tag?.epoch ?: begin?.epoch
+    /**
+     * The device refused, broke or parked the track: release it and fail
+     * every session with audio on it or queued for it, in play order — each
+     * would otherwise wait forever for its end. A short session can be on the
+     * track whole, its End already applied: only its marks still name it.
+     * Also the runner's last resort.
+     */
+    fun failTrack(message: String) {
+        val owners = LinkedHashSet<Pair<Long, Int>>()
+        for (m in marks) owners += ownerOf(m.event)
+        pendingTag?.let { owners += it.sessionId to it.epoch }
+        session?.let { owners += it.sessionId to it.epoch }
+        for (c in queue) ownerOf(c)?.let { owners += it }
         queue.clear()
         dropSession()
         releaseTrack("failed")
-        if (sessionId != null && epoch != null) emit(OutputEvent.TrackFailed(track, sessionId, epoch, message))
+        for ((sessionId, epoch) in owners) emit(OutputEvent.TrackFailed(track, sessionId, epoch, message))
     }
 
     // -- stream items -----------------------------------------------------------------
@@ -291,7 +298,7 @@ class TrackWriter(
         val n = t.write(pcm, pendingAt, pcm.size - pendingAt, pendingTag)
         if (n < 0) {
             log("$name: write returned $n")
-            failSession("AudioTrack.write returned $n")
+            failTrack("AudioTrack.write returned $n")
             return true
         }
         if (n > 0) {
@@ -351,7 +358,7 @@ class TrackWriter(
             val n = minOf(framesFor(t, sliceMs).toLong(), target - unplayed).toInt()
             val accepted = t.write(ShortArray(n), 0, n, null)
             if (accepted < 0) {
-                failSession("AudioTrack.write returned $accepted")
+                failTrack("AudioTrack.write returned $accepted")
                 return 0
             }
             written += accepted
@@ -367,7 +374,7 @@ class TrackWriter(
             factory.open(item.sampleRate)
         } catch (e: Exception) {
             log("$name: no track at ${item.sampleRate} Hz: ${e.message}")
-            failSession("AudioTrack rejected ${item.sampleRate} Hz mono PCM16")
+            failTrack("AudioTrack rejected ${item.sampleRate} Hz mono PCM16")
             return false
         }
         out = t
@@ -451,13 +458,23 @@ class TrackWriter(
     }
 
     private fun isStale(c: OutputCommand): Boolean {
-        val (id, epoch) = when (c) {
-            is OutputCommand.Begin -> c.sessionId to c.epoch
-            is OutputCommand.Write -> c.tag.sessionId to c.tag.epoch
-            is OutputCommand.End -> c.sessionId to c.epoch
-            else -> return false
-        }
+        val (id, epoch) = ownerOf(c) ?: return false
         return epoch < (minEpoch[id] ?: 0)
+    }
+
+    /** (sessionId, epoch) of a stream item; null for a control. */
+    private fun ownerOf(c: OutputCommand): Pair<Long, Int>? = when (c) {
+        is OutputCommand.Begin -> c.sessionId to c.epoch
+        is OutputCommand.Write -> c.tag.sessionId to c.tag.epoch
+        is OutputCommand.End -> c.sessionId to c.epoch
+        else -> null
+    }
+
+    private fun ownerOf(e: OutputEvent): Pair<Long, Int> = when (e) {
+        is OutputEvent.ChunkStarted -> e.tag.sessionId to e.tag.epoch
+        is OutputEvent.ChunkFinished -> e.tag.sessionId to e.tag.epoch
+        is OutputEvent.SessionEnded -> e.sessionId to e.epoch
+        is OutputEvent.TrackFailed -> e.sessionId to e.epoch
     }
 
     /** Report every mark the head has passed (or, before a rebuild, all of them). */
