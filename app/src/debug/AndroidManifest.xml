@@ -2,7 +2,8 @@
 <!--
   Debug builds only (this source set is absent from every release variant).
   EngineBenchService: the silent on-device engine benchmark (issue #1, B1).
-  Exported so `adb shell am start-foreground-service` can reach it, but
+  OnnxBenchService: silent timing of any ONNX/ORT file (issue #12, X1).
+  Both exported so `adb shell am start-foreground-service` can reach them, but
   guarded by android.permission.DUMP — a signature|privileged permission the
   adb shell holds and no installed app can.
 -->
@@ -16,6 +17,15 @@
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Developer-only engine benchmark in debug builds; never shipped." />
+        </service>
+        <service
+            android:name="app.marmalade.tts.devbench.OnnxBenchService"
+            android:exported="true"
+            android:permission="android.permission.DUMP"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Developer-only model timing in debug builds; never shipped." />
         </service>
     </application>
 </manifest>

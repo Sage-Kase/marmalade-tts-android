@@ -1,19 +1,11 @@
 package app.marmalade.tts.devbench
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
-import android.content.IntentFilter
-import android.content.pm.ServiceInfo
-import android.os.BatteryManager
-import android.os.Build
 import android.os.Debug
 import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
-import app.marmalade.tts.R
 import app.marmalade.tts.devbench.BenchSupport.TAG
 import app.marmalade.tts.engine.EngineRegistry
 import app.marmalade.tts.engine.TtsEngine
@@ -82,7 +74,7 @@ class EngineBenchService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForegroundCompat()
+        BenchDevice.startForeground(this, NOTIFICATION_ID, "Engine benchmark running")
         if (intent == null || running) {
             Log.w(TAG, "ignored start (intent=${intent != null}, running=$running)")
             if (!running) stopSelf(startId)
@@ -223,35 +215,7 @@ class EngineBenchService : Service() {
         )
     }
 
-    /** Thermal state for the log: status (0 none … 6 shutdown), 10 s headroom, battery °C. */
-    private fun thermal(): String {
-        val pm = getSystemService(PowerManager::class.java)
-        val headroom = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) pm.getThermalHeadroom(10) else Float.NaN
-        val battery = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-        val tempC = (battery?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -10) ?: -10) / 10.0
-        return String.format(Locale.ROOT, "thermalStatus=%d headroom=%.2f batteryC=%.1f", pm.currentThermalStatus, headroom, tempC)
-    }
-
-    // Developer-only, debug-build-only notification: English on purpose (the
-    // 8-locale rule covers user-visible strings, and no user build has this).
-    private fun startForegroundCompat() {
-        val mgr = getSystemService(NotificationManager::class.java)
-        if (mgr.getNotificationChannel(CHANNEL_ID) == null) {
-            mgr.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "Engine benchmark (debug)", NotificationManager.IMPORTANCE_MIN),
-            )
-        }
-        val notification = Notification.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_stat_marmalade)
-            .setContentTitle("Engine benchmark running")
-            .setOngoing(true)
-            .build()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
-        }
-    }
+    private fun thermal(): String = BenchDevice.thermal(this)
 
     companion object {
         const val EXTRA_ENGINE = "engine"
@@ -262,7 +226,6 @@ class EngineBenchService : Service() {
         const val EXTRA_PACE = "pace"
         const val EXTRA_STOP_AFTER = "stopAfter"
 
-        private const val CHANNEL_ID = "marmalade_debug_bench"
         private const val NOTIFICATION_ID = 0xB1
         private const val WARMUP_SETTLE_MS = 3_000L
         private const val PACE_EXTRA_MS = 250L
