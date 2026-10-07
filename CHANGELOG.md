@@ -6,6 +6,9 @@ This project follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- **No pause between paragraphs**: when Marmalade reads an article or a
+  long shared text, one paragraph now runs straight into the next instead
+  of stopping briefly at every paragraph break.
 - **Kitten starts speaking sooner**: the built-in Kitten voices now
   stream each sentence in short slices (half a second, then one, two and
   four seconds) instead of rendering the whole sentence or clause before
