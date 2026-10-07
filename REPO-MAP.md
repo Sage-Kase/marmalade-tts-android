@@ -168,7 +168,19 @@ When investigating **{concern}**, start at **{files}**:
   8a flags LIGHT throttling at ~39 °C skin (`VIRTUAL-SKIN`), so the driver
   gates on that and requeues a run that ended throttled.
   `BenchDevice` holds the thermal line and foreground notice both bench
-  services share.
+  services share. **Findings to know before touching an engine's
+  session setup** (X1, Pixel 8a, measurement only; results lab
+  `tts-training-research/x1-results-lab.html`):
+  - XNNPACK keeps a separate weight copy per reuse of a shared layer:
+    ALBERT on XNNPACK is +280 MB against +35 MB on the plain CPU EP, which
+    is most of Kitten's 364 MB. XNNPACK was also slower than the CPU EP for
+    all 21 models tried.
+  - With prepacking off, the XNNPACK planner SIGSEGVs in ORT 1.26.
+  - 4 intra-op threads ran Kitten's generator 1.8× faster than the 5 that
+    `CpuClusterDetector` picks.
+  - A fresh or idle process's first ~1 s of calls costs +40–85 ms each.
+  - An arena shrink after each run halves the generator's and Kokoro's
+    peak RAM.
 - **Debug-only pickable engines (`BuildTypeEngines`, issue #9)**: the
   Kokoro stream dev engine is selectable like any other voice in the DEBUG
   build (aliases, the picker, the primary alias that system TTS uses), as
