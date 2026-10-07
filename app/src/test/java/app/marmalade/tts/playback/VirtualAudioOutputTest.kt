@@ -20,9 +20,18 @@ class VirtualAudioOutputTest {
 
     private fun pcm(ms: Int, rate: Int = 24_000) = ShortArray(rate * ms / 1000) { (it % 100).toShort() }
 
-    private class Rig(scope: TestScope, parkNext: Track? = null, bufferMs: Int = 30, startThresholdMs: Int = 0) {
+    private class Rig(
+        scope: TestScope,
+        parkNext: Track? = null,
+        bufferMs: Int = 30,
+        startThresholdMs: Int = 0,
+        pauseLatencyMs: Long = 0,
+    ) {
         val clock = { scope.testScheduler.currentTime }
-        val out = VirtualAudioOutput(scope.backgroundScope, clock, bufferMs = bufferMs, startThresholdMs = startThresholdMs)
+        val out = VirtualAudioOutput(
+            scope.backgroundScope, clock,
+            bufferMs = bufferMs, startThresholdMs = startThresholdMs, pauseLatencyMs = pauseLatencyMs,
+        )
             .also { it.parkNext = parkNext }
         val events = ArrayList<Pair<Long, OutputEvent>>()
 
@@ -284,6 +293,31 @@ class VirtualAudioOutputTest {
         assertNotNull("session 8 heard to its end", r.at { it is OutputEvent.SessionEnded && it.sessionId == 8L })
         val pad8 = r.out.paddedMs(Track.Main) - padBefore
         assertTrue("session 8 padded $pad8 ms", pad8 <= 80.0)
+    }
+
+    @Test
+    fun `a pause that lands just before the tail is heard still drops the padding behind it`() = runTest {
+        // AudioTrack pauses asynchronously: right after pause() the head can
+        // still be short of the real end, then play it out. The padding
+        // queued behind it must still go, or the next session starts late.
+        val r = Rig(this, bufferMs = 250, pauseLatencyMs = 30)
+        r.begin()
+        r.write(tag(0), pcm(100))
+        r.end()
+        r.out.submit(OutputCommand.Play(Track.Main))
+        run(70) // 20-30 ms of real audio left, padding queued behind it
+        r.out.submit(OutputCommand.Pause(Track.Main))
+        run(500)
+        assertNotNull("session 7 heard to its end during the pause latency", r.at { it is OutputEvent.SessionEnded })
+        r.begin(session = 8)
+        r.write(tag(0, session = 8), pcm(200))
+        r.end(session = 8)
+        run(100)
+        val t = testScheduler.currentTime
+        r.out.submit(OutputCommand.Play(Track.Main))
+        run(500)
+        val first = r.out.timeline.first { it.atMs >= t && it.audibleMs > 0 }
+        assertTrue("session 8 heard ${first.atMs - t} ms after Play", first.atMs - t <= 10)
     }
 
     @Test

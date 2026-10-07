@@ -26,7 +26,9 @@ import kotlinx.coroutines.launch
  *  - the head resets to 0 on flush;
  *  - optionally ([startThresholdMs]) AudioTrack's start threshold: a new or
  *    flushed track plays nothing until that much is queued (on a device it
- *    is about the whole buffer, so set [bufferMs] to match).
+ *    is about the whole buffer, so set [bufferMs] to match);
+ *  - optionally ([pauseLatencyMs]) AudioTrack's asynchronous pause: the track
+ *    is paused at once (a flush is legal) but keeps playing that long.
  *
  * Chunk identity travels as SIDE-BAND tags on every written frame run, so
  * "heard" and "stale" are measured after the chain, frame-exact. PCM values
@@ -39,6 +41,7 @@ class VirtualAudioOutput(
     private val bufferMs: Int = 30,
     stallMs: Long = TrackWriter.DEFAULT_STALL_MS,
     private val startThresholdMs: Int = 0,
+    private val pauseLatencyMs: Long = 0,
 ) : AudioOutput {
 
     /** One audible slice of one track: what the listener hears in [atMs, atMs + sliceMs). */
@@ -131,6 +134,7 @@ class VirtualAudioOutput(
         for (track in Track.entries) {
             val t = live[track] ?: continue
             if (t.playing) timeline += t.play(sliceMs)
+            t.settlePause()
         }
         stepAll()
     }
@@ -186,8 +190,13 @@ class VirtualAudioOutput(
         private val runs = ArrayDeque<Run>()
         private var queued = 0
         private var head = 0L
+        /** Producing audio (lags a pause by [pauseLatencyMs]). */
         var playing = false
             private set
+
+        /** The play state AudioTrack reports: a pause sets it at once. */
+        private var started = false
+        private var stopsAt: Long? = null
 
         /** The last real tag heard, so a silent slice still names what was on air. */
         private var audible: ChunkTag? = null
@@ -205,17 +214,31 @@ class VirtualAudioOutput(
 
         override fun play() {
             playing = true
+            started = true
+            stopsAt = null
         }
 
         override fun pause() {
-            playing = false
+            started = false
+            if (pauseLatencyMs == 0L) playing = false else if (playing) stopsAt = clock() + pauseLatencyMs
+        }
+
+        /** An asynchronous pause takes effect. */
+        fun settlePause() {
+            val at = stopsAt ?: return
+            if (clock() >= at) {
+                playing = false
+                stopsAt = null
+            }
         }
 
         override fun flush() {
-            if (playing) {
+            if (started) {
                 illegalFlushes++
                 return
             }
+            playing = false
+            stopsAt = null
             runs.clear()
             queued = 0
             head = 0
@@ -224,6 +247,8 @@ class VirtualAudioOutput(
 
         override fun release() {
             playing = false
+            started = false
+            stopsAt = null
             runs.clear()
             queued = 0
             if (live[track] === this) live.remove(track)

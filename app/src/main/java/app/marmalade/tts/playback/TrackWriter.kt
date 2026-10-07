@@ -126,6 +126,10 @@ class TrackWriter(
     private var lastProgressAt = 0L
     private var idleSince: Long? = null
 
+    /** After a Pause with the head short of the real end: re-check until then (padding drop). */
+    private var settleUntil: Long? = null
+    private var settleWritten = 0L
+
     // Boundary bookkeeping for the log: silence between one chunk and the next.
     private var emptySince: Long? = null
     private var underrunMs = 0L
@@ -146,9 +150,13 @@ class TrackWriter(
                 playing = false
                 syncPlayState()
                 // Nothing real left to hear: drop the padding now, so the next
-                // session doesn't start behind it.
-                fireMarks()
-                if (out != null && pending == null && marks.isEmpty() && head() >= realEnd && written > 0) flushTrack()
+                // session doesn't start behind it. AudioTrack pauses
+                // asynchronously (the head may still be short of the real end,
+                // then play it out): if so, look again while it settles.
+                if (!dropPaddingIfHeard() && out != null && written > realEnd) {
+                    settleUntil = clock() + PAUSE_SETTLE_MS
+                    settleWritten = written
+                }
             }
             is OutputCommand.Flush -> {
                 minEpoch[c.sessionId] = maxOf(minEpoch[c.sessionId] ?: 0, c.minEpoch)
@@ -176,7 +184,16 @@ class TrackWriter(
      * play) — so an idle or paused writer sleeps instead of polling.
      */
     fun step(): Long {
+        val wait = stepOnce()
+        return if (settleUntil != null) minOf(wait, SETTLE_POLL_MS) else wait
+    }
+
+    private fun stepOnce(): Long {
         syncPlayState()
+        settleUntil?.let { until ->
+            // Playing again, written to, or settled long enough: nothing to drop.
+            if (started || written != settleWritten || clock() > until || dropPaddingIfHeard()) settleUntil = null
+        }
         fireMarks()
         if (stalled()) {
             log("$name: playback head parked at ${head()} with ${realEnd - head()} frames unplayed")
@@ -281,6 +298,15 @@ class TrackWriter(
         pending = pcm
         pendingAt = 0
         pendingTag = tag
+    }
+
+    /** Paused with only padding left unplayed: flush it (and so reset the head). True when it did. */
+    private fun dropPaddingIfHeard(): Boolean {
+        if (out == null || pending != null || written == 0L) return false
+        fireMarks()
+        if (marks.isNotEmpty() || head() < realEnd) return false
+        flushTrack()
+        return true
     }
 
     /** The track is full: while it plays, look again shortly; paused, it can't drain. */
@@ -563,6 +589,10 @@ class TrackWriter(
 
         /** Head stuck this long while padded: the mixer wants more; double the pad. */
         private const val PAD_GROW_MS = 120L
+
+        /** How long after a Pause the head may still play out real audio (AudioTrack pauses asynchronously). */
+        private const val PAUSE_SETTLE_MS = 200L
+        private const val SETTLE_POLL_MS = 10L
 
         /** [step]'s "wait for the next command, however long". */
         const val UNTIL_COMMAND = Long.MAX_VALUE
