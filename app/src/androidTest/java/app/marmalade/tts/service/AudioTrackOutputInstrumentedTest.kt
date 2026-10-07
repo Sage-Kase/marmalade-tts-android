@@ -192,6 +192,32 @@ class AudioTrackOutputInstrumentedTest {
     }
 
     @Test
+    fun aShortFirstSession_doesNotLeaveABufferOfSilenceBehindLaterOnes() {
+        // A new track starts only near a full buffer, so a short first
+        // session needs a big pad. That pad must not stick: a session that
+        // arrives just after the next one ended must not queue behind it.
+        val out = output()
+        out.begin()
+        out.write(tag(0), pcm(100))
+        out.end()
+        out.submit(OutputCommand.Play(Track.Main))
+        waitFor(3_000, "session 7 ended") { it is OutputEvent.SessionEnded && it.sessionId == 7L }
+        out.begin(session = 8)
+        out.write(tag(0, session = 8), pcm(100))
+        out.end(session = 8)
+        waitFor(3_000, "session 8 ended") { it is OutputEvent.SessionEnded && it.sessionId == 8L }
+        Thread.sleep(30)
+        val submitted = SystemClock.elapsedRealtime()
+        out.begin(session = 9)
+        out.write(tag(0, session = 9), pcm(100))
+        out.end(session = 9)
+        val started = waitFor(3_000, "session 9 heard") { it is OutputEvent.ChunkStarted && it.tag.sessionId == 9L }
+        assertTrue("session 9 heard ${started - submitted} ms after it was written", started - submitted <= 150)
+        assertTrue(failures().isEmpty())
+        assertEquals("one track", 1, opens.size)
+    }
+
+    @Test
     fun aTrackThatNeverPlays_isReportedParked_insteadOfBlockingTheWriter() {
         val out = output { real ->
             object : PcmTrack by real {
