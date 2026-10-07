@@ -96,6 +96,22 @@ class StreamingEffectChain(
         return toPcm(signal)
     }
 
+    /**
+     * Push out what the live Tempo stage holds back (up to one frame, ~43 ms
+     * at 24 kHz) WITHOUT ending the stream: its tail runs through the effects
+     * after it with [process], so they keep their state and ring out only at
+     * [flush]. For an underrun: the next chunk starts a fresh stretch, a seam
+     * that falls in silence anyway. Empty when nothing is held (or no live
+     * Tempo stage).
+     */
+    fun drainLiveTempo(): ShortArray {
+        val t = live ?: return ShortArray(0)
+        var buf = t.flush()
+        if (buf.isEmpty()) return ShortArray(0)
+        for (p in processors) if (p !== t) buf = p.process(buf)
+        return toPcm(buf)
+    }
+
     // Hard-clip float → PCM16. No global normalize (unavailable while streaming).
     private fun toPcm(buf: FloatArray): ShortArray = ShortArray(buf.size) { i ->
         val v = buf[i]

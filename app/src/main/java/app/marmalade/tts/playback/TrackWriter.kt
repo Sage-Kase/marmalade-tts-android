@@ -324,6 +324,7 @@ class TrackWriter(
         val t = out ?: return UNTIL_COMMAND
         val h = head()
         val now = clock()
+        if (drainHeld(t, h)) return 0
         if (!started || h >= realEnd) {
             // The stuck audio got through: the next stall starts from a small
             // pad again (a grown one would queue up to a buffer of silence
@@ -369,6 +370,29 @@ class TrackWriter(
             paddedFrames += accepted
         }
         return PAD_WAIT_MS
+    }
+
+    /**
+     * About to run dry mid-session with nothing queued: the live Tempo stage
+     * still holds the end of the last chunk (up to a frame). Push it through
+     * now, so the chunk is heard whole before the underrun rather than after
+     * it; its ChunkFinished moves to the real last frame. Not earlier — a
+     * stretch restart at every streamed slice that arrives just in time
+     * would be audible for nothing.
+     */
+    private fun drainHeld(t: PcmTrack, h: Long): Boolean {
+        val c = chain ?: return false
+        if (!started || queue.isNotEmpty() || realEnd - h > framesFor(t, DRAIN_AHEAD_MS)) return false
+        val held = c.drainLiveTempo()
+        if (held.isEmpty()) return false
+        val last = marks.lastOrNull()
+        val moveFinish = last != null && last.event is OutputEvent.ChunkFinished && last.event.tag == lastTag && last.frame == written
+        setPending(held, lastTag)
+        if (moveFinish) {
+            marks.removeLast()
+            marks.addLast(Mark(written + pendingSize(), last!!.event))
+        }
+        return true
     }
 
     // -- the track ----------------------------------------------------------------------
@@ -530,6 +554,9 @@ class TrackWriter(
 
         /** Silence kept queued behind the last real frame while starved — at least one mixer period. */
         private const val PAD_AHEAD_MS = 60
+
+        /** Mid-session with nothing queued, push the Tempo stage's held frame out once this little real audio is left. */
+        private const val DRAIN_AHEAD_MS = 60
 
         /** Mid-session, the head must sit still this long short of the real end before padding starts. */
         private const val STUCK_MS = 40L

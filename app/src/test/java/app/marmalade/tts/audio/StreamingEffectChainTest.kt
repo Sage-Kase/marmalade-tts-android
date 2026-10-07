@@ -452,4 +452,23 @@ class StreamingEffectChainTest {
         val out = streamWhole(EffectChain.CAVE_BLOCKS, pcm)
         assertTrue("expected a tail beyond the input, got ${out.size} vs ${pcm.size}", out.size > pcm.size)
     }
+
+    @Test
+    fun `drainLiveTempo pushes the held frame out at 1x without ending the reverb`() {
+        val chain = StreamingEffectChain(EffectChain.CAVE_BLOCKS, sr, liveTempo = 1f)
+        val pcm = signal(4_000)
+        val shaped = chain.process(pcm)
+        assertTrue("Tempo holds the end back: ${shaped.size} < ${pcm.size}", shaped.size < pcm.size)
+        val drained = chain.drainLiveTempo()
+        assertEquals("at 1x the whole input is out", pcm.size, shaped.size + drained.size)
+        assertEquals("nothing held twice", 0, chain.drainLiveTempo().size)
+        assertTrue("the reverb still rings out at the end", chain.flush().isNotEmpty())
+    }
+
+    @Test
+    fun `drainLiveTempo is empty without a live Tempo stage`() {
+        val chain = StreamingEffectChain(EffectChain.CAVE_BLOCKS, sr)
+        chain.process(signal(4_000))
+        assertEquals(0, chain.drainLiveTempo().size)
+    }
 }

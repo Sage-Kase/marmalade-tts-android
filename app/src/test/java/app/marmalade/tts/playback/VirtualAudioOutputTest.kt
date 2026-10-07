@@ -104,9 +104,10 @@ class VirtualAudioOutputTest {
         run(2_000) // the next chunk is late: the track starves
         val finished = r.at { it is OutputEvent.ChunkFinished }
         assertNotNull(finished)
-        // Its output so far: the live Tempo stage holds its last ~20 ms until more input comes.
-        assertTrue("chunk 0 finished at $finished", finished!! in 470..560)
-        assertTrue("all of its output heard: ${r.heardMs()}", r.heardMs() in 440.0..505.0)
+        // The live Tempo stage holds back up to a frame (~43 ms) until more
+        // input comes; at a near-underrun the writer pushes it through.
+        assertTrue("chunk 0 finished at $finished", finished!! in 505..560)
+        assertEquals("all of it heard before the next chunk", 505.0, r.heardMs(), 0.5)
         assertEquals("its last frame was heard by then", 0.0, r.heardMs(Track.Main, from = finished + 10), 0.0)
         val t = testScheduler.currentTime
         r.write(tag(1), pcm(500))
