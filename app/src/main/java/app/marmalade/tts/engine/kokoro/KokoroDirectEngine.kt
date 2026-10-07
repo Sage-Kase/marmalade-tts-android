@@ -254,6 +254,9 @@ open class KokoroDirectEngine @Inject constructor(
     private val loadLock = Mutex()
     private val synthLock = Mutex()
 
+    /** Shrink the CPU arena after each generator run ([OrtRunAbort]); debug A/B knob `shrink=false`. */
+    @Volatile private var shrinkArena = true
+
     // -- live state (null while not loaded) -----------------------------------
 
     @Volatile private var env: OrtEnvironment? = null
@@ -374,6 +377,7 @@ open class KokoroDirectEngine @Inject constructor(
         val ort = OrtEnvironment.getEnvironment()
         // ORT copies the options into the native session; close them after
         // so keepalive evict/reload cycles don't leak native memory.
+        shrinkArena = EngineDevKnobs.get(ctx.filesDir, "shrink") != "false"
         acousticSession = buildSessionOptions(intraOpThreads).use {
             createSession(ort, it, acousticModelFile)
         }
@@ -650,12 +654,6 @@ open class KokoroDirectEngine @Inject constructor(
     }.flowOn(Dispatchers.Default)
 
     /**
-     * One model call's worth of text: [text], its ≤ [MAX_PHONEMES_PER_CHUNK]
-     * token ids, and its style row (see [kokoroStyleRow]).
-     */
-    private class TokenPiece(val text: String, val ids: IntArray, val styleRow: Int)
-
-    /**
      * The token ids [text] encodes to for voice [voiceKey] ([lang] overrides
      * the voice's language, as in [synthesizeStream]). For the debug bench's
      * token dump only (issue #13: phone-exact training text for the
@@ -666,6 +664,12 @@ open class KokoroDirectEngine @Inject constructor(
         val effectiveLang = lang ?: espeakVoiceFor(voiceKey)
         return synthLock.withLock { encodeTextToTokens(text, effectiveLang) }
     }
+
+    /**
+     * One model call's worth of text: [text], its ≤ [MAX_PHONEMES_PER_CHUNK]
+     * token ids, and its style row (see [kokoroStyleRow]).
+     */
+    private class TokenPiece(val text: String, val ids: IntArray, val styleRow: Int)
 
     /**
      * [text] encoded to token ids — one piece, or several when it overflows
@@ -746,7 +750,7 @@ open class KokoroDirectEngine @Inject constructor(
         try {
             // Abortable: a cancelled stream (reader tap, Stop) stops this run
             // between graph nodes instead of finishing an unwanted chunk.
-            return abortableInference(engineName, ::OrtRunAbort) { abort ->
+            return abortableInference(engineName, { OrtRunAbort(shrinkArena) }) { abort ->
                 session.run(
                     mapOf(
                         "tokens" to inputIdTensor,

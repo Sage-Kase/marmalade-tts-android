@@ -206,6 +206,9 @@ open class KittenDirectEngine @Inject constructor(
     private val loadLock = Mutex()
     private val synthLock = Mutex()
 
+    /** Shrink the CPU arena after each generator run ([OrtRunAbort]); debug A/B knob `shrink=false`. */
+    @Volatile private var shrinkArena = true
+
     // -- live state (null while not loaded) -----------------------------------
 
     @Volatile private var env: OrtEnvironment? = null
@@ -281,6 +284,7 @@ open class KittenDirectEngine @Inject constructor(
         val ort = OrtEnvironment.getEnvironment()
         // ORT copies the options into the native session; close them after
         // so keepalive evict/reload cycles don't leak native memory.
+        shrinkArena = EngineDevKnobs.get(ctx.filesDir, "shrink") != "false"
         plannerSession = buildSessionOptions(intraOpThreads).use { createSession(ort, it, plannerFile) }
         genSession = buildSessionOptions(intraOpThreads, generator = true).use { createSession(ort, it, genFile) }
         Log.i(
@@ -694,7 +698,7 @@ open class KittenDirectEngine @Inject constructor(
         val sTensor = directFloatTensor(ort, longArrayOf(1, plan.s128.size.toLong())) { it.put(plan.s128) }
         val gnTensor = directFloatTensor(ort, longArrayOf(2, plan.gn.size / 2L)) { it.put(plan.gn) }
         try {
-            return abortableInference(engineName, ::OrtRunAbort) { abort ->
+            return abortableInference(engineName, { OrtRunAbort(shrinkArena) }) { abort ->
                 session.run(
                     mapOf(GEN_X to xTensor, GEN_S to sTensor, GEN_HAR to harTensor, GEN_NORMS to gnTensor),
                     abort.options,
