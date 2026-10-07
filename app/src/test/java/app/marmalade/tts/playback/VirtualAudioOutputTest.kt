@@ -91,6 +91,33 @@ class VirtualAudioOutputTest {
     }
 
     @Test
+    fun `the writer drops a whole stale session - Begin, Write and End of an older epoch after a flush`() = runTest {
+        // A stale Begin would make its Write shapeable: only the writer's own
+        // epoch check (not the harness's bookkeeping) keeps it off the track.
+        val r = Rig(this)
+        r.begin()
+        r.write(tag(0), pcm(1_000))
+        r.out.submit(OutputCommand.Play(Track.Main))
+        run(300)
+        r.out.submit(OutputCommand.Flush(Track.Main, 7, minEpoch = 2))
+        val t = testScheduler.currentTime
+        r.begin(epoch = 1)
+        r.write(tag(1, epoch = 1), pcm(300))
+        r.end(epoch = 1)
+        r.begin(epoch = 2)
+        r.write(tag(0, epoch = 2), pcm(300))
+        r.end(epoch = 2)
+        r.out.submit(OutputCommand.Play(Track.Main))
+        run(2_000)
+        val heard = r.events.filter { it.first >= t }.mapNotNull { (it.second as? OutputEvent.ChunkStarted)?.tag }
+        assertEquals("only the new epoch", listOf(tag(0, epoch = 2)), heard)
+        assertTrue(r.out.timeline.none { it.stale })
+        assertTrue("dropped as stale, not as an orphan Write", r.out.writerLog.none { "without its session's Begin" in it })
+        assertNotNull(r.at { it is OutputEvent.SessionEnded && it.epoch == 2 })
+        assertTrue("the stale End reported nothing", r.events.none { (_, e) -> e is OutputEvent.SessionEnded && e.epoch == 1 })
+    }
+
+    @Test
     fun `the tail is heard - the mixer's last partial period is padded through, on time`() = runTest {
         val r = Rig(this)
         r.begin()
