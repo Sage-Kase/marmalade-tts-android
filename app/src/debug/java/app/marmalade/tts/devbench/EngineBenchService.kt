@@ -39,9 +39,9 @@ import kotlinx.coroutines.launch
 // `StreamPerf` lines), so a run is attributable from logs alone.
 //
 // Any registry engine, plus kokoro-7m-dev (issue #1), which is outside it. The
-// debug build's registry includes kitten-stream-dev (issue #3, Kitten planned
-// once and decoded in slices) and kokoro-stream-dev (issue #5, the same cut for
-// Kokoro-82M) through engine/BuildTypeEngines.kt (issue #9).
+// debug build's registry includes kokoro-stream-dev (issue #5, Kokoro-82M
+// planned once and decoded in slices) through engine/BuildTypeEngines.kt
+// (issue #9). KittenDirect itself streams that way since issue #10.
 //
 // Started from adb only — the debug manifest guards it with
 // android.permission.DUMP, which the shell holds and apps don't:
