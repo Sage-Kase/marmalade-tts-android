@@ -23,7 +23,10 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 - After text you share interrupts an article, the article picks up again
-  at the start of the sentence it was in, not partway through a word.
+  at the start of the sentence it was in (on-device voices), not partway
+  through a word. With a cloud voice it picks up at the start of the
+  passage it was reading (up to about 1000 characters, usually the whole
+  paragraph).
 
 ## [1.1.0] - 2026-10-03
 

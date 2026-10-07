@@ -273,9 +273,13 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   track) goes through `Session.listenerChunk()`, which steps back to the
   last chunk flagged `SynthAudio.resumePoint`. Engines that render whole
   pieces leave it true; streaming ones flag only a piece's first slice
-  (KittenDirect, the Kokoro stream dev engine) or a request's first network
-  buffer (cloud WAV), so a resume never starts mid-word. `trimHeard` never
-  drops the listener's sentence.
+  (KittenDirect, the Kokoro stream dev engine), so on-device voices resume
+  at the sentence (or clause) start, never mid-word. The cloud engine flags
+  a request's first network buffer: a cloud resume restarts the interrupted
+  REQUEST (≤ 1000 chars, usually the paragraph; the MP3 path is one buffer
+  per request anyway). `trimHeard` never drops the listener's sentence. The
+  render budget counts ahead from the heard chunk, not the resume point (a
+  whole cloud paragraph would otherwise count as "ahead").
 - `playback/SegmentRenderer.kt` — one render job: prepare, stream the
   engine at 1.0, wait for the budget permit between chunks, one TTFA sample
   and one RTF sample per job (chunks after a permit wait are skewed: the
