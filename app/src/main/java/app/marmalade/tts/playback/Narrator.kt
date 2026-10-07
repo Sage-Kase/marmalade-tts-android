@@ -858,8 +858,12 @@ class Narrator(
             if (st is Status.Paused && st.by == PausedBy.Navigation) continue
             for (i in s.cursor until s.segs.size) {
                 val seg = s.segs[i]
+                // Intact from the resume point (a rewind restarts there), but
+                // ahead only from the heard chunk: a cloud request is one
+                // resume point over a whole paragraph of buffers.
                 val from = if (i == s.cursor) s.listenerChunk() else 0
-                val own = seg.audioMsFrom(from) / s.tempo
+                val aheadFrom = if (i == s.cursor) s.heardChunk ?: 0 else 0
+                val own = seg.audioMsFrom(aheadFrom) / s.tempo
                 items += RenderPlanner.Item(
                     sessionId = s.id,
                     segment = i,

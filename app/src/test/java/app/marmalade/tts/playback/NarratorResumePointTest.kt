@@ -96,4 +96,24 @@ class NarratorResumePointTest {
         assertEquals("the slice that was playing", 0 to 6, first.tag!!.segment to first.tag!!.chunk)
         h.done()
     }
+
+    @Test
+    fun `a long cloud paragraph - one resume point, many buffers - still lets the next paragraph prefetch`() = runTest {
+        // A cloud request is the whole paragraph; only its first buffer is a
+        // resume point. The budget must count audio ahead of the listener
+        // (from the heard chunk), not everything since the resume point —
+        // else a 70 s paragraph blocks the next one and it starts with a gap.
+        val h = NarratorHarness(this)
+        h.cloudEngine.slicesPerChunk = 40
+        h.cloudEngine.tokenCap = 10_000
+        h.articleVoice = NarratorHarness.voice(engine = NarratorHarness.CLOUD_ENGINE, cloud = true)
+        val segs = listOf(paragraph(1, chars = 1_200), paragraph(1, fill = 'b'))
+        h.open(segs)
+        val id = h.narrator.articleId()!!
+        h.runUntil(what = "paragraph 1 heard") { h.firstHeard(id, 1) != null }
+        val start1 = h.firstHeard(id, 1)!!
+        assertEquals("no gap at the long paragraph's end", 0.0, h.gapsMs(Track.Main, from = start1 - 3_000, to = start1 + 500), 0.0)
+        h.runUntil(what = "finished") { h.article.status == Status.Finished }
+        h.done()
+    }
 }
