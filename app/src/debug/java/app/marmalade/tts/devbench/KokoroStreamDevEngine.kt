@@ -18,6 +18,8 @@ import app.marmalade.tts.engine.kitten.PAD_TOKEN
 import app.marmalade.tts.engine.kitten.SPACE_TOKEN
 import app.marmalade.tts.engine.kitten.encodePhonemes
 import app.marmalade.tts.engine.kokoro.KokoroDirectEngine
+import app.marmalade.tts.engine.kokoro.KokoroGenStats
+import app.marmalade.tts.engine.kokoro.KokoroStreamSlicing
 import app.marmalade.tts.perf.CpuClusterDetector
 import app.marmalade.tts.phonemizer.EnPhonemeFixups
 import app.marmalade.tts.phonemizer.EspeakPhonemizer
