@@ -310,7 +310,8 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   Logcat `D/AudioTrackOutput`: `track opened|released|rebuild`, and per block
   boundary `seg A→B session=S pad=Xms underrun=Yms` (0/0 = gapless). A refused
   format, failed write or parked track (head frozen 2.5 s while playing real
-  audio) → `OutputEvent.TrackFailed` → the session fails. A track idle 30 s is
+  audio) → `OutputEvent.TrackFailed` for EVERY session with audio on or queued
+  for that track (a short one-shot can sit on it whole, End applied) → each fails. A track idle 30 s is
   released; a paused or idle writer sleeps on its inbox.
   `service/ServiceUi.kt` is the pure state → notification/media-session table.
   `service/SpeakShim.kt` holds the `ACTION_SPEAK` shim and `PlaybackHost`
@@ -338,9 +339,12 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   `TrackWriter` over a virtual AudioTrack that plays whole mixer periods,
   ignores a flush while playing and can be parked; side-band frame tags, so
   stale audio is caught frame-exact), and the §5.2 scenarios in
-  `Narrator{Scenarios,Budget,Sessions,Output}Test` (Output = C2: no gap at a
-  paragraph, one track per session, stale epochs, flush mid-write, rate
-  change, interrupt, parked track). The reader's stories
+  `Narrator{Scenarios,Budget,Sessions,Output,ResumePoint}Test` (Output = C2:
+  no gap at a paragraph, one track per session, stale epochs, flush
+  mid-write, rate change, interrupt, parked track). The writer against a REAL
+  AudioTrack: `androidTest/.../AudioTrackOutputInstrumentedTest` — **emulator
+  only**, run with `am instrument`, never `connectedAndroidTest` (recipe in
+  its KDoc). The reader's stories
   (`ReaderPlaybackControllerTest`, `ReaderViewModelTest`), the shim
   (`SpeakShimTest`) and the shell's duties (`NarratorShellTest`) run against
   the same harness.
