@@ -9,6 +9,7 @@ import android.util.Log
 import app.marmalade.tts.audio.TextChunker
 import app.marmalade.tts.data.KittenDirectVoiceCatalog
 import app.marmalade.tts.data.SettingsRepository
+import app.marmalade.tts.engine.EngineDevKnobs
 import app.marmalade.tts.engine.EngineNotInstalledException
 import app.marmalade.tts.engine.OrtRunAbort
 import app.marmalade.tts.engine.SynthAudio
@@ -257,7 +258,8 @@ open class KittenDirectEngine @Inject constructor(
             if (env != null) return
             if (!isInstalled()) throw EngineNotInstalledException(engineName)
             val manualThreads = settings.intraOpThreads.firstOrNull()
-            val threadCount = manualThreads ?: CpuClusterDetector.detectPerfCoreCount()
+            val threadCount = EngineDevKnobs.get(ctx.filesDir, "threads")?.toIntOrNull()
+                ?: manualThreads ?: CpuClusterDetector.detectPerfCoreCount()
             val t0 = System.currentTimeMillis()
             try {
                 doLoad(threadCount)

@@ -11,6 +11,7 @@ import app.marmalade.tts.audio.TailTrim
 import app.marmalade.tts.audio.TextChunker
 import app.marmalade.tts.data.KokoroDirectVoiceCatalog
 import app.marmalade.tts.data.SettingsRepository
+import app.marmalade.tts.engine.EngineDevKnobs
 import app.marmalade.tts.engine.EngineNotInstalledException
 import app.marmalade.tts.engine.OrtRunAbort
 import app.marmalade.tts.engine.PlaybackHorizon
@@ -353,7 +354,8 @@ open class KokoroDirectEngine @Inject constructor(
             if (env != null) return
             if (!isInstalled()) throw EngineNotInstalledException(engineName)
             val manualThreads = settings.intraOpThreads.firstOrNull()
-            val threadCount = manualThreads ?: CpuClusterDetector.detectPerfCoreCount()
+            val threadCount = EngineDevKnobs.get(ctx.filesDir, "threads")?.toIntOrNull()
+                ?: manualThreads ?: CpuClusterDetector.detectPerfCoreCount()
             val t0 = System.currentTimeMillis()
             try {
                 doLoad(threadCount)
@@ -652,6 +654,18 @@ open class KokoroDirectEngine @Inject constructor(
      * token ids, and its style row (see [kokoroStyleRow]).
      */
     private class TokenPiece(val text: String, val ids: IntArray, val styleRow: Int)
+
+    /**
+     * The token ids [text] encodes to for voice [voiceKey] ([lang] overrides
+     * the voice's language, as in [synthesizeStream]). For the debug bench's
+     * token dump only (issue #13: phone-exact training text for the
+     * per-voice generator statistics).
+     */
+    internal suspend fun benchTokens(text: String, voiceKey: String, lang: String?): IntArray {
+        ensureLoadedSuspending()
+        val effectiveLang = lang ?: espeakVoiceFor(voiceKey)
+        return synthLock.withLock { encodeTextToTokens(text, effectiveLang) }
+    }
 
     /**
      * [text] encoded to token ids — one piece, or several when it overflows
