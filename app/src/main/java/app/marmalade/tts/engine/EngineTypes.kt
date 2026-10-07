@@ -7,10 +7,17 @@ package app.marmalade.tts.engine
  * Engines hand us `FloatArray` in -1..1; we clamp and convert to
  * `ShortArray` here so the system TTS callback path (which expects PCM16)
  * has no further work to do.
+ *
+ * [resumePoint]: playback may restart at this piece's first frame — it
+ * starts a sentence or clause (or at worst a word). True for every piece an
+ * engine renders whole; a streaming engine that sends one sentence as several
+ * slices (KittenDirect, a cloud WAV stream) sets it on the first slice only,
+ * so the Narrator never resumes mid-word after an interruption.
  */
-data class SynthAudio(val pcm: ShortArray, val sampleRate: Int) {
+data class SynthAudio(val pcm: ShortArray, val sampleRate: Int, val resumePoint: Boolean = true) {
 
-    // Generated equality so test fixtures can compare audio buffers directly.
+    // Generated equality so test fixtures can compare audio buffers directly
+    // (audio only: [resumePoint] is a playback hint, not part of the sound).
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is SynthAudio) return false

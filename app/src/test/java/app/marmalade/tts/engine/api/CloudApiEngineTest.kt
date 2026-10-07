@@ -222,6 +222,8 @@ class CloudApiEngineTest {
         var off = 0
         for (c in chunks) { c.pcm.copyInto(joined, off); off += c.pcm.size }
         assertTrue(joined.contentEquals(samples))
+        // Network buffers cut mid-word: only the request's first is a place to resume.
+        assertEquals(listOf(true) + List(chunks.size - 1) { false }, chunks.map { it.resumePoint })
     }
 
     @Test
@@ -276,8 +278,9 @@ class CloudApiEngineTest {
         }
         assertTrue(inputs.all { it.length <= eng.maxInputChars })
         assertEquals(text, inputs.joinToString(" "))
-        // One emission per request, in request order.
+        // One emission per request, in request order, each starting a sentence.
         assertEquals((1..http.allJson.size).toList(), chunks.map { it.pcm[0].toInt() })
+        assertTrue(chunks.all { it.resumePoint })
     }
 
     @Test

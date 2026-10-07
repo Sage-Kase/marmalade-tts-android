@@ -369,7 +369,7 @@ open class KittenDirectEngine @Inject constructor(
             val firstVoice = voiceMetas.first().displayName
             val pieces = synthLock.withLock { ipaPieces("Hi.", KITTEN_DEFAULT_ESPEAK_VOICE) }
             for (piece in pieces) {
-                renderIpa(piece.text, piece.ipa, firstVoice, speed = 1.0f, rowText = piece.text) { _, _ -> }
+                renderIpa(piece.text, piece.ipa, firstVoice, speed = 1.0f, rowText = piece.text) { _, _, _ -> }
             }
             Log.i(TAG, "warmup synth done in ${System.currentTimeMillis() - t0} ms")
         } catch (t: Throwable) {
@@ -482,14 +482,16 @@ open class KittenDirectEngine @Inject constructor(
                     0
                 }
                 // Every piece keeps the sentence's [rowText] register.
-                renderIpa(piece.text, piece.ipa, voiceName, speed, rowText = chunk.rowText) { pcm, last ->
+                renderIpa(piece.text, piece.ipa, voiceName, speed, rowText = chunk.rowText) { pcm, first, last ->
                     if (!firstSent) {
                         firstSent = true
                         val ttfaMs = (System.nanoTime() - streamStartNs) / 1_000_000
                         Log.d(PERF_TAG, "kitten TTFA=${ttfaMs}ms (loadWait=${loadWaitMs}ms)")
                     }
                     val out = if (last && gapSamples > 0) pcm.copyOf(pcm.size + gapSamples) else pcm
-                    send(SynthAudio(pcm = out, sampleRate = sampleRate))
+                    // A piece starts at a clause (or, over the cap, a word):
+                    // the Narrator may resume there, never mid-piece.
+                    send(SynthAudio(pcm = out, sampleRate = sampleRate, resumePoint = first))
                 }
             }
         }
@@ -540,7 +542,7 @@ open class KittenDirectEngine @Inject constructor(
     /**
      * Render [ipa] (≤ [MAX_PHONEMES_PER_CHUNK] characters of [text]): plan it
      * once, then generate its speech frames slice by slice, handing each
-     * slice's PCM to [emit] (`last` on the final one) as soon as it exists.
+     * slice's PCM to [emit] (flagged first / last) as soon as it exists.
      * [synthLock] is held per ORT call only, never across [emit]. Both kinds
      * of run are abortable: a cancelled stream (reader tap, Stop) stops inside
      * the planner or slice in flight instead of finishing it.
@@ -551,7 +553,7 @@ open class KittenDirectEngine @Inject constructor(
         voiceName: String,
         speed: Float,
         rowText: String,
-        emit: suspend (pcm: ShortArray, last: Boolean) -> Unit,
+        emit: suspend (pcm: ShortArray, first: Boolean, last: Boolean) -> Unit,
     ) {
         if (ipa.isEmpty()) return
         val inputIds = wrapForKitten(encodePhonemes(ipa))
@@ -568,7 +570,7 @@ open class KittenDirectEngine @Inject constructor(
             val sliceMs = (System.nanoTime() - tGen) / 1_000_000
             genMs += sliceMs
             Log.v(PERF_TAG, "kitten slice=$i/${slices.size} frames=${slice.render.count()} gen=${sliceMs}ms")
-            emit(pcm, i == slices.size - 1)
+            emit(pcm, i == 0, i == slices.size - 1)
         }
         val audioMs = plan.speech.count() * KittenTrim.FRAME_SAMPLES * 1000L / sampleRate
         val rtf = if (audioMs > 0) (planMs + genMs).toDouble() / audioMs else Double.NaN

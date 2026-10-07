@@ -18,6 +18,10 @@ This project follows [Semantic Versioning](https://semver.org/).
   and installing Kitten from the Engines screen copies it from the app
   instead of downloading it.
 
+### Fixed
+- After text you share interrupts an article, the article picks up again
+  at the start of the sentence it was in, not partway through a word.
+
 ## [1.1.0] - 2026-10-03
 
 ### Added

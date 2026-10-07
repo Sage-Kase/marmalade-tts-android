@@ -184,9 +184,8 @@ When investigating **{concern}**, start at **{files}**:
   installed old copy from the seed at start (`EngineInstaller.refreshSeed`;
   an uninstalled Kitten stays uninstalled) and `EngineInstaller.install`
   copies a baked engine from the APK (`SeedAssets`) instead of downloading
-  — the v22 download still has the old layout. Narrator rewinds (resume
-  after an interrupting share) restart from the heard chunk, which for
-  Kitten is now a slice, i.e. mid-sentence.
+  — the v22 download still has the old layout. Only a piece's first slice
+  is a `SynthAudio.resumePoint` (see the Narrator's resume points).
 - `engine/SherpaEngine.kt` — abstract base (loadLock, ensureModelLoaded,
   synthesize, release, floatToPcm16, sampleRate)
 - `engine/KittenEngine.kt`, `engine/KokoroEngine.kt` — subclasses,
@@ -257,7 +256,7 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   epochs (a jump/stop/resume bumps it and flushes the writer); child jobs
   by their own token. Encodes Max's §6 answers: a share while the article
   plays interrupts on the `Interrupt` track and the article resumes from the
-  start of the interrupted chunk; ~60 s ahead on-device, cloud this block +
+  start of the interrupted chunk's sentence; ~60 s ahead on-device, cloud this block +
   next; preparing continues while paused except after `PauseReason.Navigation`;
   every speed change (cloud too) is the writer's live Tempo, engines render
   at 1.0 (speed range: the article 0.5–3, the reader's chips; a one-shot
@@ -269,6 +268,14 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   are the reader's article-only buttons.
   A stop drops the article's audio and restarts its block on Play — a
   re-render need not cut the same chunks (Kokoro's short first piece).
+  **Resume points** (issue #11): every rewind to "the heard chunk" (resume
+  after an interrupting share, rewriting the other sessions on a flushed
+  track) goes through `Session.listenerChunk()`, which steps back to the
+  last chunk flagged `SynthAudio.resumePoint`. Engines that render whole
+  pieces leave it true; streaming ones flag only a piece's first slice
+  (KittenDirect, the Kokoro stream dev engine) or a request's first network
+  buffer (cloud WAV), so a resume never starts mid-word. `trimHeard` never
+  drops the listener's sentence.
 - `playback/SegmentRenderer.kt` — one render job: prepare, stream the
   engine at 1.0, wait for the budget permit between chunks, one TTFA sample
   and one RTF sample per job (chunks after a permit wait are skewed: the
