@@ -79,7 +79,7 @@ import kotlinx.coroutines.withContext
 //
 // Carries over the Pocket engine perf lessons (A-G atoms):
 //   - direct ByteBuffers for ONNX inputs
-//   - XNNPACK execution provider, intra-op spinning disabled
+//   - plain CPU EP for both graphs (XNNPACK cost the planner +280 MB, #13)
 //   - per-device thread autodetect via CpuClusterDetector
 //   - warmup synth after load
 //   - manual thread override from Settings
@@ -285,7 +285,7 @@ open class KittenDirectEngine @Inject constructor(
         genSession = buildSessionOptions(intraOpThreads, generator = true).use { createSession(ort, it, genFile) }
         Log.i(
             TAG,
-            "streaming render: planner (XNNPACK) + generator (CPU EP, spinning), slices ${KittenStreamSlicing.FIRST_SLICE_FRAMES}, " +
+            "streaming render: planner (CPU EP) + generator (CPU EP, spinning), threads $intraOpThreads, slices ${KittenStreamSlicing.FIRST_SLICE_FRAMES}, " +
                 "${KittenStreamSlicing.SLICE_FRAMES}, doubling to ${KittenStreamSlicing.MAX_SLICE_FRAMES} frames, " +
                 "context ${KittenStreamSlicing.CONTEXT_FRAMES}",
         )
@@ -321,17 +321,19 @@ open class KittenDirectEngine @Inject constructor(
     }
 
     /**
-     * Same options stack as [app.marmalade.tts.engine.PocketEngine.doLoad],
-     * factored here to make any future tuning land in both engines via a
-     * single edit. See PocketEngine's load() for the calibration history.
+     * Both graphs run on ORT's plain CPU EP (issue #13 "A"; the planner had
+     * XNNPACK until then). XNNPACK keeps its own packed copy of a weight for
+     * every use of a shared layer, and the planner's ALBERT text model uses
+     * one shared layer at every depth: +280 MB of resident memory against +35 MB on
+     * the CPU EP (#12 "X1", Pixel 8a), and not faster.
      *
-     * The [generator] graph differs (issue #10, Pixel 8a, Bella, B1 set):
-     * it runs ~99% on the CPU EP (Conv), so XNNPACK only adds partitioning
-     * cost, and with XNNPACK gone its intra-op threads may spin without the
-     * contention that made Pocket turn spinning off. Measured one change
-     * at a time: streamed RTF 0.49 → 0.43 (CPU EP only) → 0.35–0.36 (plus
-     * spinning); median first sound 1013 → 900 → 831–890 ms. The planner keeps XNNPACK
-     * (its text model runs on it) and no spinning.
+     * The [generator] graph also spins its intra-op threads (issue #10,
+     * Pixel 8a, Bella, B1 set): streamed RTF 0.49 → 0.43 (CPU EP only) →
+     * 0.35–0.36 (plus spinning); median first sound 1013 → 900 → 831–890 ms.
+     * The planner doesn't spin.
+     *
+     * Debug builds can put XNNPACK back on the planner for an A/B
+     * (`kitten.plannerXnnpack=true`, [EngineDevKnobs]).
      */
     private fun buildSessionOptions(intraOpThreads: Int, generator: Boolean = false): OrtSession.SessionOptions {
         return OrtSession.SessionOptions().apply {
@@ -342,20 +344,14 @@ open class KittenDirectEngine @Inject constructor(
                 addConfigEntry("session.intra_op.allow_spinning", "1")
                 return@apply
             }
-            // x86_64 only exists in debug builds, for the emulator (release
-            // ships ARM only). ORT's x86_64 XNNPACK EP segfaults in
-            // createSession there, crashing the first-launch benchmark, so
-            // emulator builds run the plain CPU EP.
-            if (Build.SUPPORTED_ABIS.firstOrNull() == "x86_64") {
-                Log.i(TAG, "x86_64 (emulator build): XNNPACK EP skipped")
-                return@apply
-            }
-            try {
+            addConfigEntry("session.intra_op.allow_spinning", "0")
+            // x86_64 only exists in debug builds, for the emulator, whose
+            // XNNPACK EP segfaults in createSession: never there.
+            if (EngineDevKnobs.get(ctx.filesDir, "kitten.plannerXnnpack") == "true" &&
+                Build.SUPPORTED_ABIS.firstOrNull() != "x86_64"
+            ) {
                 addXnnpack(mapOf("intra_op_num_threads" to intraOpThreads.toString()))
-                addConfigEntry("session.intra_op.allow_spinning", "0")
-                Log.i(TAG, "XNNPACK EP enabled (intraOpThreads=$intraOpThreads)")
-            } catch (t: Throwable) {
-                Log.w(TAG, "XNNPACK EP unavailable; CPU EP only", t)
+                Log.i(TAG, "planner: XNNPACK EP (dev knob)")
             }
         }
     }
