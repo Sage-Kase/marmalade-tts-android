@@ -129,16 +129,10 @@ When investigating **{concern}**, start at **{files}**:
   tied espeak → `EspeakToMisaki`, a port of misaki's own EspeakFallback.
   **A small student is only as good as the front end it was distilled on**:
   check that before blaming the model.
-  `KittenStreamDevEngine` (issue #3 "D1a", same rules) is Kitten nano cut
-  into a planner graph (text model, durations, pitch, decoder front,
-  harmonic source; run ONCE per chunk with one style row) and a generator
-  graph rendered in 0.5 s / 1 s frame slices with 4 frames of context.
-  The generator's InstanceNorms are replaced by fixed per-voice statistics
-  (`genstats/<voice>.bin`), which is what makes slices join exactly; the
-  whole-utterance norm statistics are the one thing Kitten can't stream.
-  Bundle sideloaded into `filesDir/engines/kitten-stream-dev/`; voice
-  tables come from the installed KittenDirect bundle. Graph surgery
-  scripts and the phone protocol: `~/coding/scratch/kitten-stream-d1a/`.
+  Issue #3 "D1a" prototyped streaming Kitten as a dev engine here; since
+  issue #10 that is how **KittenDirect itself renders** (see "Kitten
+  streams" below) and the dev engine is gone. Phone protocol and the
+  original sweeps: `~/coding/scratch/kitten-stream-d1a/`.
   `KokoroStreamDevEngine` (issue #5 "D1c", same rules) is the same cut of the
   shipped int8 Kokoro v23 model. Its 48 generator norms can't use one fixed
   table per voice (~2.9 dB off); `genstats/<voice>.bin` is a small per-voice
@@ -149,18 +143,18 @@ When investigating **{concern}**, start at **{files}**:
   the trailing pause, so KokoroDirect's tail trim applies to the last slice
   alone. QDQ graph → CPU EP only, like KokoroDirect. Bundle sideloaded into
   `filesDir/engines/kokoro-stream-dev/`; voices.bin comes from the installed
-  KokoroDirect bundle. Scripts: `~/coding/scratch/kokoro-stream-d1c/`. Both
-  stream dev engines read `dev.properties` knobs (`first`/`slice`/`context`
+  KokoroDirect bundle. Scripts: `~/coding/scratch/kokoro-stream-d1c/`. It
+  reads `dev.properties` knobs (`first`/`slice`/`context`
   frames, `whole`, `profile`, `spin`, `mempattern`). On the phone each
   generator call carries ~120 ms of fixed overhead, so small slices cost real
   CPU (issue #5). Since issue #9 the slices are 0.5 s, 1 s, then doubling to
   4 s (`max` knob; `max=40` restores the fixed 1 s schedule the #3/#5 tables
   were measured with).
-- **Debug-only pickable engines (`BuildTypeEngines`, issue #9)**: the two
-  stream dev engines are selectable like any other voice in the DEBUG build
-  (aliases, the picker, the primary alias that system TTS uses), as "Kitten
-  Nano (streaming)" (8 voices) and "Kokoro (streaming)" (Heart, Michael: the
-  voices with a genstats model). The seam is
+- **Debug-only pickable engines (`BuildTypeEngines`, issue #9)**: the
+  Kokoro stream dev engine is selectable like any other voice in the DEBUG
+  build (aliases, the picker, the primary alias that system TTS uses), as
+  "Kokoro (streaming)" (Heart, Michael: the voices with a genstats model;
+  "Kitten Nano (streaming)" was retired in #10). The seam is
   `engine/BuildTypeEngines.kt`, one file per build type: `src/debug/` lists
   the engines, their voice rows, labels and an on-disk check, and binds the
   instances into `EngineRegistry`'s `Set<TtsEngine>` (Hilt `@ElementsIntoSet`);
@@ -172,6 +166,27 @@ When investigating **{concern}**, start at **{files}**:
   (sideloaded = installed), `VoicePath` and the alias editor's engine list.
   The bundles stay sideloaded (no catalog entry); a debug-only engine like
   this goes through the seam, never into `EngineCatalog`.
+- **Kitten streams** (issue #10, `engine/kitten/KittenDirectEngine.kt`):
+  the baked bundle is `planner.onnx` + `gen.onnx` + `genstats/<voice>.bin`
+  + `voices/<voice>.bin`, cut from upstream's `kitten.onnx` by
+  `scripts/kitten-stream/split.py` (weights unchanged; `SHA256SUMS` there,
+  `verify.py` checks the split is exact, slices join at >120 dB SNR and the
+  fixed norm statistics sit at Kitten's own run-to-run noise, ~0.6 dB mel).
+  Each clause chunk is planned ONCE (style row, durations, pitch, decoder
+  front, harmonic source), then the generator renders its speech frames in
+  slices of 0.5 s, 1 s, doubling to 4 s with 4 frames of context
+  (`KittenStreamSlicing`), each sent as its own `SynthAudio`. Every planner
+  and slice run goes through `AbortableInference`; `synthLock` is held per
+  ORT call, never across a send. No non-streaming mode (one slice costs what
+  the unsplit model did; each extra slice ~120 ms on an 8a). Clause chunking
+  (F rules) stays: it is prosody, not latency. The layout check rejects the
+  pre-1.2 `kitten.onnx` layout, so `MarmaladeTtsApplication` replaces an
+  installed old copy from the seed at start (`EngineInstaller.refreshSeed`;
+  an uninstalled Kitten stays uninstalled) and `EngineInstaller.install`
+  copies a baked engine from the APK (`SeedAssets`) instead of downloading
+  — the v22 download still has the old layout. Narrator rewinds (resume
+  after an interrupting share) restart from the heard chunk, which for
+  Kitten is now a slice, i.e. mid-sentence.
 - `engine/SherpaEngine.kt` — abstract base (loadLock, ensureModelLoaded,
   synthesize, release, floatToPcm16, sampleRate)
 - `engine/KittenEngine.kt`, `engine/KokoroEngine.kt` — subclasses,
@@ -712,7 +727,7 @@ write Marmalade code.
   **Not shipped (Max, blind listen 2026-10-06):** he could not hear the
   patched 82M from today's on any clip, so the v23 bundle stays as is.
 - **Kitten nano 0.8 is trainable** (issue #7 "K0", 2026-10-06). Its baked
-  `kitten.onnx` is an fp32 Kokoro `KModel` (hidden 128, 2 layers, a 256-wide
+  `kitten.onnx` (since #10 shipped cut in two, see "Kitten streams") is an fp32 Kokoro `KModel` (hidden 128, 2 layers, a 256-wide
   decoder, the same ALBERT and 178-symbol vocab) and was trained through this
   same `CustomSTFT`. A PyTorch rebuild loading the ONNX weights matches it to
   fp32 rounding (identical durations), and fine-tunes on chocolate. Rebuild,

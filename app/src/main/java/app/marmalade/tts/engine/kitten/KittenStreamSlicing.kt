@@ -1,13 +1,11 @@
-package app.marmalade.tts.devbench
-
-import app.marmalade.tts.engine.kitten.KittenTrim
-import app.marmalade.tts.engine.kitten.SPACE_TOKEN
+package app.marmalade.tts.engine.kitten
 
 /**
- * Frame arithmetic for [KittenStreamDevEngine], kept free of Android and ORT so
- * the JVM tests pin it. One frame = [KittenTrim.FRAME_SAMPLES] samples (25 ms
- * at 24 kHz); the generator's inputs run at 2 values per frame (`x`) and
- * 600 per frame (`har`).
+ * Frame arithmetic for [KittenDirectEngine]'s streaming render (issues #3, #9,
+ * #10), kept free of Android and ORT so the JVM tests pin it; the debug
+ * build's Kokoro stream engine reuses it. One frame =
+ * [KittenTrim.FRAME_SAMPLES] samples (25 ms at 24 kHz); the generator's
+ * inputs run at 2 values per frame (`x`) and 600 per frame (`har`).
  */
 internal object KittenStreamSlicing {
 

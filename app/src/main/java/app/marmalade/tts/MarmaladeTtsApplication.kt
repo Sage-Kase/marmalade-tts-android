@@ -152,12 +152,18 @@ class MarmaladeTtsApplication : Application() {
         // user who later uninstalls Kitten to reclaim space must stay
         // uninstalled, so we seed exactly once ever. The flag is only set on
         // a successful seed, so a transient failure retries next launch.
+        // After that, an installed Kitten whose layout an app update changed
+        // (1.2: kitten.onnx → the streaming planner.onnx + gen.onnx) is
+        // replaced from the same seed; refreshSeed leaves an uninstalled or
+        // up-to-date one alone.
         applicationScope.launch {
             val prefs = settings.get()
+            val installer = engineInstaller.get()
             if (!prefs.bakedDefaultSeeded.first()) {
-                val seeded = engineInstaller.get()
-                    .seedFromAssets(assets, KittenDirectVoiceCatalog.ENGINE)
+                val seeded = installer.seedFromAssets(assets, KittenDirectVoiceCatalog.ENGINE)
                 if (seeded.isSuccess) prefs.setBakedDefaultSeeded(true)
+            } else {
+                installer.refreshSeed(assets, KittenDirectVoiceCatalog.ENGINE)
             }
         }
         applicationScope.launch {

@@ -370,6 +370,10 @@ object LicenseCatalog {
             shipsIn = "APK (baked-in) and engine bundle",
             licenseId = "Apache-2.0",
             copyright = listOf("Copyright (c) KittenML contributors"),
+            note = "Modified: the APK's copy is the model cut into two graphs " +
+                "so it can stream (weights unchanged, nothing retrained), with " +
+                "the vocoder's normalization layers replaced by fixed per-voice " +
+                "values computed from the model itself.",
         ),
         Component(
             key = "vits-jenny-dioco",

@@ -1,6 +1,5 @@
-package app.marmalade.tts.devbench
+package app.marmalade.tts.engine.kitten
 
-import app.marmalade.tts.engine.kitten.KittenTrim
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue

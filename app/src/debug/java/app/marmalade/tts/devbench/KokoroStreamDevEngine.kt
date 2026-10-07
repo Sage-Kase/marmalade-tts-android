@@ -1,5 +1,6 @@
 package app.marmalade.tts.devbench
 
+import app.marmalade.tts.engine.kitten.KittenStreamSlicing
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
@@ -46,8 +47,8 @@ import kotlinx.coroutines.withContext
 // KokoroStreamDevEngine — Kokoro-82M, plan once / decode in slices, DEBUG ONLY
 // -----------------------------------------------------------------------------
 //
-// Issue #5 ("D1c"): the D1a cut ([KittenStreamDevEngine]) applied to the int8
-// Kokoro v23 model we ship. Cut on the desktop into two graphs (scripts in
+// Issue #5 ("D1c"): the D1a cut (since issue #10 KittenDirectEngine's own
+// render) applied to the int8 Kokoro v23 model we ship. Cut on the desktop into two graphs (scripts in
 // ~/coding/scratch/kokoro-stream-d1c/):
 //
 //   planner.onnx  tokens, style, speed → x, s, har, duration

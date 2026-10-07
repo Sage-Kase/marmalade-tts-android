@@ -72,7 +72,7 @@ class EngineInstallerTest {
         val engineDir = File(filesDir, "engines/${descriptor.name}")
         assertTrue("engine dir should exist after install", engineDir.isDirectory)
         // Spot-check a few extracted files.
-        assertTrue(File(engineDir, "kitten.onnx").length() >= 1L * 1024L * 1024L)
+        assertTrue(File(engineDir, "planner.onnx").length() >= 1L * 1024L * 1024L)
         assertEquals("voice-bella", File(engineDir, "voices/bella.bin").readText())
         assertTrue(File(engineDir, "phonemizer/arm64-v8a/libttsespeak.so").isFile)
         assertTrue(File(engineDir, "phonemizer/espeak-ng-data").isDirectory)
@@ -204,9 +204,9 @@ class EngineInstallerTest {
     @Test
     fun verifyDistinguishesInstalledFromCorruptFromNotInstalled() = runTest {
         // verifyLayout dispatches on the engine name; kitten-direct-v0_8 routes
-        // to verifyKittenDirectLayout (kitten.onnx + phonemizer/<abi>/libttsespeak.so
-        // + phonemizer/espeak-ng-data/ with > 100 entries + voices/<name>.bin for the
-        // 8 voices), so this test uses that name + manually stages the layout.
+        // to verifyKittenDirectLayout (planner.onnx + gen.onnx + voices/ and
+        // genstats/<name>.bin for the 8 voices), so this test uses that name +
+        // manually stages the layout.
         val descriptor = engineDescriptor(
             name = "kitten-direct-v0_8",
             url = "https://test/kitten-direct.tar.bz2",
@@ -225,11 +225,33 @@ class EngineInstallerTest {
             installer.verifyAgainst(descriptor),
         )
 
-        // Build the full expected KittenDirect layout: oversize model, the
-        // phonemizer lib + espeak-ng-data/ dir with > 100 entries, and the 8
-        // per-voice bins.
+        // Build the full expected KittenDirect layout: both oversize graphs
+        // and the 8 voices' style and norm tables.
         stageKittenDirectLayout(dir)
         assertEquals(InstallState.Installed, installer.verifyAgainst(descriptor))
+    }
+
+    @Test
+    fun verifyCallsThePreStreamingKittenLayoutCorrupt() = runTest {
+        // Up to 1.1 (and the v22 download) Kitten was one kitten.onnx. The
+        // streaming engine can't read it, so it must not pass as installed —
+        // that's what makes refreshSeed replace it from the APK.
+        val descriptor = engineDescriptor(
+            name = "kitten-direct-v0_8",
+            url = "https://test/kitten-direct.tar.bz2",
+            archiveBytes = ByteArray(0),
+        )
+        val dir = File(filesDir, "engines/${descriptor.name}").apply { mkdirs() }
+        File(dir, "kitten.onnx").writeBytes(ByteArray(2 * 1024 * 1024) { 0x42 })
+        for (name in KITTEN_DIRECT_VOICES) {
+            File(dir, "voices").mkdirs()
+            File(dir, "voices/$name.bin").writeText("voice-$name")
+        }
+        assertEquals(InstallState.Corrupt, installer.verifyAgainst(descriptor))
+
+        stageKittenDirectLayout(dir)
+        File(dir, "genstats/leo.bin").delete()
+        assertEquals("a missing norm table is Corrupt", InstallState.Corrupt, installer.verifyAgainst(descriptor))
     }
 
     @Test
@@ -242,15 +264,18 @@ class EngineInstallerTest {
 
         val dir = File(filesDir, "engines/${descriptor.name}").apply { mkdirs() }
         stageKittenDirectLayout(dir)
-        // Overwrite the model with a sub-1-MB file — should flip to Corrupt.
-        File(dir, "kitten.onnx").writeText("too small") // < 1 MB
+        // Overwrite a graph with a sub-1-MB file — should flip to Corrupt.
+        File(dir, "gen.onnx").writeText("too small") // < 1 MB
 
         assertEquals(InstallState.Corrupt, installer.verifyAgainst(descriptor))
     }
 
     /** Write a complete KittenDirect on-disk layout into [dir]. */
     private fun stageKittenDirectLayout(dir: File) {
-        File(dir, "kitten.onnx").writeBytes(ByteArray(2 * 1024 * 1024) { 0x42 })
+        File(dir, "planner.onnx").writeBytes(ByteArray(2 * 1024 * 1024) { 0x42 })
+        File(dir, "gen.onnx").writeBytes(ByteArray(2 * 1024 * 1024) { 0x43 })
+        File(dir, "genstats").mkdirs()
+        for (name in KITTEN_DIRECT_VOICES) File(dir, "genstats/$name.bin").writeText("norms-$name")
         File(dir, "phonemizer/arm64-v8a").mkdirs()
         File(dir, "phonemizer/arm64-v8a/libttsespeak.so").writeText("elf")
         val dataDir = File(dir, "phonemizer/espeak-ng-data").apply { mkdirs() }
@@ -338,7 +363,7 @@ class EngineInstallerTest {
         val result = installer.install(descriptor) {}
 
         assertTrue("install from leftover archive should succeed, got $result", result.isSuccess)
-        assertTrue(File(filesDir, "engines/${descriptor.name}/kitten.onnx").isFile)
+        assertTrue(File(filesDir, "engines/${descriptor.name}/planner.onnx").isFile)
         assertFalse("archive scratch should be consumed", archiveTmp.exists())
     }
 
@@ -612,7 +637,7 @@ class EngineInstallerTest {
     fun constructionSweepsStaleLeftoversButNotInstalls() {
         val engines = File(filesDir, "engines")
         val installed = File(engines, "kitten-direct-v0_8").apply { mkdirs() }
-        File(installed, "kitten.onnx").writeText("model")
+        File(installed, "planner.onnx").writeText("model")
         val strayArchive = File(engines, "pocket-tts-en-v2026_04.archive.tmp").apply { writeText("partial") }
         val strayScratch = File(engines, "pocket-tts-en-v2026_04.tmp").apply { mkdirs() }
         File(strayScratch, "half.onnx").writeText("half")
@@ -625,7 +650,7 @@ class EngineInstallerTest {
         assertFalse(strayArchive.exists())
         assertFalse(strayScratch.exists())
         assertFalse(strayPackArchive.exists())
-        assertTrue(File(installed, "kitten.onnx").isFile)
+        assertTrue(File(installed, "planner.onnx").isFile)
         assertTrue(installedPack.isDirectory)
     }
 
@@ -735,14 +760,16 @@ class EngineInstallerTest {
 
         /**
          * Synthetic KittenDirect payload large enough to pass the post-install
-         * verification: kitten.onnx > 1 MB, an espeak phonemizer lib under a
-         * per-ABI dir, > 100 espeak-ng-data entries, and the 8 per-voice bins.
+         * verification: planner.onnx and gen.onnx > 1 MB and the 8 voices'
+         * style and norm tables, plus the legacy phonemizer tree real bundles
+         * still carry (ignored by the check).
          */
         private val KITTEN_LAYOUT: Map<String, ByteArray> = buildMap {
-            // 1.5 MB so it clears the 1 MB MIN_MODEL_BYTES floor with room
-            // to spare. Bytes don't matter — the installer only checks the
-            // archive's sha, not the model's contents.
-            put("kitten.onnx", ByteArray(1_500_000) { (it and 0xFF).toByte() })
+            // 1.1 MB each so they clear the 1 MB MIN_MODEL_BYTES floor. Bytes
+            // don't matter — the installer only checks the archive's sha, not
+            // the graphs' contents.
+            put("planner.onnx", ByteArray(1_100_000) { (it and 0xFF).toByte() })
+            put("gen.onnx", ByteArray(1_100_000) { (it * 7 and 0xFF).toByte() })
             put("phonemizer/arm64-v8a/libttsespeak.so", "elf".toByteArray())
             // The core espeak files English phonemization needs — checked
             // specifically by verifyKittenDirectLayout (so the baked English-
@@ -754,6 +781,7 @@ class EngineInstallerTest {
             put("phonemizer/espeak-ng-data/voices/f1", "f1".toByteArray())
             for (name in KITTEN_DIRECT_VOICES) {
                 put("voices/$name.bin", "voice-$name".toByteArray())
+                put("genstats/$name.bin", "norms-$name".toByteArray())
             }
         }
     }

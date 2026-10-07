@@ -25,6 +25,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -39,9 +41,9 @@ import kotlinx.coroutines.launch
 // `StreamPerf` lines), so a run is attributable from logs alone.
 //
 // Any registry engine, plus kokoro-7m-dev (issue #1), which is outside it. The
-// debug build's registry includes kitten-stream-dev (issue #3, Kitten planned
-// once and decoded in slices) and kokoro-stream-dev (issue #5, the same cut for
-// Kokoro-82M) through engine/BuildTypeEngines.kt (issue #9).
+// debug build's registry includes kokoro-stream-dev (issue #5, Kokoro-82M
+// planned once and decoded in slices) through engine/BuildTypeEngines.kt
+// (issue #9). KittenDirect itself streams that way since issue #10.
 //
 // Started from adb only — the debug manifest guards it with
 // android.permission.DUMP, which the shell holds and apps don't:
@@ -60,6 +62,12 @@ import kotlinx.coroutines.launch
 // on) so each sentence starts like a fresh Speak: the Kokoro engines size
 // their short first piece from the audio they think is still playing
 // (PlaybackHorizon), and back-to-back requests would skew TTFA.
+//
+// `--ei stopAfter <ms>` measures stopping instead (issue #10): each sentence's
+// stream is cancelled that long after it starts, and a `stop` line logs how
+// long the cancel took to land — until the engine's render in flight has
+// actually ended and released its lock, which is what a reader tap waits for.
+// No WAVs are written in this mode.
 // -----------------------------------------------------------------------------
 
 @AndroidEntryPoint
@@ -96,6 +104,7 @@ class EngineBenchService : Service() {
             sentences = BenchSupport.parseSentences(sentencesFile.readText()),
             passes = intent.getIntExtra(EXTRA_PASSES, 1).coerceAtLeast(1),
             pace = intent.getBooleanExtra(EXTRA_PACE, true),
+            stopAfterMs = intent.getIntExtra(EXTRA_STOP_AFTER, 0).toLong(),
         )
         running = true
         scope.launch {
@@ -127,6 +136,7 @@ class EngineBenchService : Service() {
         val sentences: List<String>,
         val passes: Int,
         val pace: Boolean,
+        val stopAfterMs: Long,
     )
 
     private fun engineFor(name: String): TtsEngine? = when (name) {
@@ -138,7 +148,7 @@ class EngineBenchService : Service() {
 
     private suspend fun runBench(c: RunConfig) {
         val name = c.engine.engineName
-        Log.i(TAG, "start run=${c.run} engine=$name voice=${c.voice} sentences=${c.sentences.size} passes=${c.passes} pace=${c.pace} ${thermal()}")
+        Log.i(TAG, "start run=${c.run} engine=$name voice=${c.voice} sentences=${c.sentences.size} passes=${c.passes} pace=${c.pace} stopAfter=${c.stopAfterMs} ${thermal()}")
 
         // Clean baseline: no engine resident, then load only the target.
         (registry.onDevice + kokoro7m).forEach { it.release() }
@@ -156,6 +166,11 @@ class EngineBenchService : Service() {
         for (pass in 1..c.passes) {
             val results = ArrayList<BenchSupport.SentenceResult>()
             for ((idx, text) in c.sentences.withIndex()) {
+                if (c.stopAfterMs > 0) {
+                    measureStop(c, pass, idx, text)
+                    delay(PACE_EXTRA_MS)
+                    continue
+                }
                 val pcm = ArrayList<ShortArray>()
                 val start = System.nanoTime()
                 var firstNs = 0L
@@ -187,6 +202,25 @@ class EngineBenchService : Service() {
             Log.i(TAG, BenchSupport.passSummaryLine(c.run, name, pass, results) + " ${thermal()}")
         }
         Log.i(TAG, "done run=${c.run} engine=$name pssKb=${Debug.getPss()} ${thermal()}")
+    }
+
+    /** Start [text], cancel it [RunConfig.stopAfterMs] in, and log how long the cancel takes to land. */
+    private suspend fun measureStop(c: RunConfig, pass: Int, idx: Int, text: String) = coroutineScope {
+        var samples = 0L
+        val job = launch {
+            c.engine.synthesizeStream(text, c.voice, 1f, null, 1f).collect { samples += it.pcm.size }
+        }
+        delay(c.stopAfterMs)
+        val finishedFirst = job.isCompleted
+        val t0 = System.nanoTime()
+        job.cancelAndJoin()
+        val stopMs = (System.nanoTime() - t0) / 1_000_000
+        Log.i(
+            TAG,
+            "stop run=${c.run} engine=${c.engine.engineName} pass=$pass idx=$idx chars=${text.length} " +
+                "stopAfterMs=${c.stopAfterMs} stopMs=$stopMs audioBeforeStopMs=${samples * 1000 / c.engine.sampleRate} " +
+                "finishedFirst=$finishedFirst",
+        )
     }
 
     /** Thermal state for the log: status (0 none … 6 shutdown), 10 s headroom, battery °C. */
@@ -226,6 +260,7 @@ class EngineBenchService : Service() {
         const val EXTRA_RUN = "run"
         const val EXTRA_PASSES = "passes"
         const val EXTRA_PACE = "pace"
+        const val EXTRA_STOP_AFTER = "stopAfter"
 
         private const val CHANNEL_ID = "marmalade_debug_bench"
         private const val NOTIFICATION_ID = 0xB1

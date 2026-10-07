@@ -76,8 +76,10 @@ under `assets/licenses/`.
 ## Baked-in engine and on-demand engine bundles
 
 The APK ships one engine out of the box: **Kitten Nano** (Apache-2.0
-model weights + 8 voices, baked in as `assets/engines-seed/`), so the
-app speaks offline from first launch. It also ships **one full
+model weights + 8 voices, baked in as `assets/engines-seed/`; the model
+is cut into two graphs so it can stream, weights unchanged — see
+[`LICENSES/kitten-direct.md`](LICENSES/kitten-direct.md)), so the app
+speaks offline from first launch. It also ships **one full
 `espeak-ng-data` set** (GPL-3.0-or-later), generated at build time from
 the pinned `third_party/espeak-ng` submodule and shared by all
 espeak-phonemized engines. All other engines download on opt-in from
@@ -108,7 +110,7 @@ folder.
 | misaki (German G2P port) | German text normalizer + pronunciation-override lexicon (clean-room Kotlin port) | APK (source) | Apache-2.0 (see [`LICENSES/kokoro-de.md`](LICENSES/kokoro-de.md)) |
 | Kokoro-82M | Neural voice model | Engine bundle | Apache-2.0 (see [`LICENSES/kokoro-direct.md`](LICENSES/kokoro-direct.md)) |
 | Thorsten-Voice/Kokoro (German fine-tune) | Neural voice model (German) | Engine bundle | Apache-2.0 (see [`LICENSES/kokoro-de.md`](LICENSES/kokoro-de.md)) |
-| KittenTTS (nano) | Neural voice model | APK (baked-in) and engine bundle | Apache-2.0 |
+| KittenTTS (nano) | Neural voice model (in the APK as two graphs cut from it, weights unchanged) | APK (baked-in) and engine bundle | Apache-2.0 (see [`LICENSES/kitten-direct.md`](LICENSES/kitten-direct.md)) |
 | Jenny (Dioco) | English VITS voice pack | Voice pack (downloaded) | Custom attribution licenses for the weights (Bryce Beattie) and the training data (Jenny, dioco-group); the voice must be credited "Jenny (Dioco)" (see [`LICENSES/vits-marmalade.md`](LICENSES/vits-marmalade.md)) |
 | Other VITS voice packs (developer mode only) | Ukrainian, Icelandic, Swedish, Kazakh and Norwegian voices | Voice pack (downloaded) | MIT weights; training data license per pack (see [`LICENSES/vits-marmalade.md`](LICENSES/vits-marmalade.md)) |
 | Pocket TTS (Kyutai) — model code | Neural voice model (English) | Engine bundle | **MIT** |
