@@ -20,6 +20,7 @@ import app.marmalade.tts.data.db.AppAliasMappingDao
 import app.marmalade.tts.data.db.VoiceAliasDao
 import app.marmalade.tts.data.db.VoiceMeta
 import app.marmalade.tts.data.db.VoiceMetaDao
+import app.marmalade.tts.engine.BuildTypeEngines
 import app.marmalade.tts.install.EngineCatalog
 import app.marmalade.tts.install.EngineInstaller
 import app.marmalade.tts.lang.LangDetector
@@ -252,7 +253,10 @@ class AliasViewModel @Inject constructor(
     ) { showDeveloper, installed ->
         val options = EngineCatalog.visibleTo(showDeveloper)
             .filter { it.name in installed }
-            .map { EngineOption(it.name, it.displayName) }
+            .map { EngineOption(it.name, it.displayName) } +
+            BuildTypeEngines.names
+                .filter { it in installed }
+                .map { EngineOption(it, BuildTypeEngines.displayName(it) ?: it) }
         // Cloud API engine lives outside EngineCatalog (no bundle);
         // offer it when its key is configured, after the local engines.
         if (CloudApiVoiceCatalog.ENGINE in installed) {

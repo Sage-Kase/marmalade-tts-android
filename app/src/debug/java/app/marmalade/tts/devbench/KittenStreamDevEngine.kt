@@ -75,9 +75,9 @@ import kotlinx.coroutines.withContext
 // overhead experiments). Voice style
 // tables are read from the installed KittenDirect bundle. Chunking, the
 // over-long re-split, style row, speed priors and inter-chunk gaps mirror
-// [KittenDirectEngine]. Not in
-// EngineRegistry or any catalog: only [EngineBenchService] calls it, and the
-// debug source set keeps it out of every release build.
+// [KittenDirectEngine]. The debug build registers it as a pickable engine
+// (`engine/BuildTypeEngines.kt`, issue #9); [EngineBenchService] drives it
+// silently. The debug source set keeps it out of every release build.
 // -----------------------------------------------------------------------------
 
 @Singleton
@@ -105,9 +105,7 @@ class KittenStreamDevEngine @Inject constructor(
     private val styleTables = HashMap<String, FloatArray>()
     private val normTables = HashMap<String, FloatArray>()
 
-    override fun isInstalled(): Boolean =
-        File(dir, PLANNER).isFile && File(dir, GEN).isFile && File(dir, "genstats").isDirectory &&
-            kittenVoices.isDirectory
+    override fun isInstalled(): Boolean = isInstalledIn(ctx.filesDir)
 
     override fun isLoaded(): Boolean = env != null
 
@@ -411,5 +409,12 @@ class KittenStreamDevEngine @Inject constructor(
         // Same boundary gaps as KittenDirectEngine (Max's 2026-08-07 ear-lab).
         private const val CLAUSE_GAP_MS = 80
         private const val SENTENCE_GAP_MS = 260
+
+        /** The sideloaded bundle plus the KittenDirect voice tables it borrows, under [filesDir]. */
+        fun isInstalledIn(filesDir: File): Boolean {
+            val dir = File(filesDir, "engines/$ENGINE")
+            return File(dir, PLANNER).isFile && File(dir, GEN).isFile && File(dir, "genstats").isDirectory &&
+                File(filesDir, "engines/${KittenDirectEngine.ENGINE_NAME}/voices").isDirectory
+        }
     }
 }

@@ -2,6 +2,7 @@ package app.marmalade.tts.install
 
 import android.content.res.AssetManager
 import android.util.Log
+import app.marmalade.tts.engine.BuildTypeEngines
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.IOException
@@ -1058,7 +1059,11 @@ open class EngineInstaller @Inject constructor(
      */
     open suspend fun verify(engineName: String): InstallState {
         val descriptor = EngineCatalog.byName(engineName)
-            ?: return InstallState.NotInstalled
+            ?: return if (BuildTypeEngines.isInstalled(engineName, filesDir.get())) {
+                InstallState.Installed // a sideloaded debug-only engine (issue #9)
+            } else {
+                InstallState.NotInstalled
+            }
         return verifyDescriptor(descriptor)
     }
 

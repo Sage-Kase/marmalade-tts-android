@@ -4,6 +4,7 @@ import android.app.Application
 import android.util.Log
 import app.marmalade.tts.data.cloud.CloudProviderStore
 import app.marmalade.tts.data.PocketDevVoiceCatalog
+import app.marmalade.tts.engine.BuildTypeEngines
 import app.marmalade.tts.data.VitsVoiceCatalog
 import app.marmalade.tts.data.PocketVoiceCatalog
 import app.marmalade.tts.data.KittenDirectVoiceCatalog
@@ -185,6 +186,9 @@ class MarmaladeTtsApplication : Application() {
                 retireKittenMini(dao, aliasDao.get(), prefs)
                 prefs.setCatalogVersion(CATALOG_VERSION)
             }
+            // Debug-only engines (issue #9) sit outside CATALOG_VERSION: a
+            // debug install over an up-to-date catalog still gets their rows.
+            if (BuildTypeEngines.voices.isNotEmpty()) dao.upsertAll(BuildTypeEngines.voices)
             // Cloud API voices are not seeded from a static catalog — the
             // provider store owns those rows (descriptors + live discovery)
             // and rebuilds them from its local caches on every start. This

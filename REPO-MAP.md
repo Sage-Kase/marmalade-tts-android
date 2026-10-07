@@ -153,7 +153,25 @@ When investigating **{concern}**, start at **{files}**:
   stream dev engines read `dev.properties` knobs (`first`/`slice`/`context`
   frames, `whole`, `profile`, `spin`, `mempattern`). On the phone each
   generator call carries ~120 ms of fixed overhead, so small slices cost real
-  CPU (issue #5).
+  CPU (issue #5). Since issue #9 the slices are 0.5 s, 1 s, then doubling to
+  4 s (`max` knob; `max=40` restores the fixed 1 s schedule the #3/#5 tables
+  were measured with).
+- **Debug-only pickable engines (`BuildTypeEngines`, issue #9)**: the two
+  stream dev engines are selectable like any other voice in the DEBUG build
+  (aliases, the picker, the primary alias that system TTS uses), as "Kitten
+  Nano (streaming)" (8 voices) and "Kokoro (streaming)" (Heart, Michael: the
+  voices with a genstats model). The seam is
+  `engine/BuildTypeEngines.kt`, one file per build type: `src/debug/` lists
+  the engines, their voice rows, labels and an on-disk check, and binds the
+  instances into `EngineRegistry`'s `Set<TtsEngine>` (Hilt `@ElementsIntoSet`);
+  `src/release/` is an empty twin with the same signatures, so release builds
+  list, route to and load nothing extra. Main code consults it in
+  `EngineRegistry` (`ENGINE_NAMES`, never `warmable`, `displayName`),
+  `MarmaladeTtsApplication` (rows upserted on every start, outside
+  CATALOG_VERSION), `EngineInstaller.verify` + `probeInstalledVoiceAssets`
+  (sideloaded = installed), `VoicePath` and the alias editor's engine list.
+  The bundles stay sideloaded (no catalog entry); a debug-only engine like
+  this goes through the seam, never into `EngineCatalog`.
 - `engine/SherpaEngine.kt` — abstract base (loadLock, ensureModelLoaded,
   synthesize, release, floatToPcm16, sampleRate)
 - `engine/KittenEngine.kt`, `engine/KokoroEngine.kt` — subclasses,

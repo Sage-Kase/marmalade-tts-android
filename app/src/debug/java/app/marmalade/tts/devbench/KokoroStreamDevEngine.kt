@@ -77,9 +77,10 @@ import kotlinx.coroutines.withContext
 // installed, unsplit model.onnx through the same chunking and session setup
 // (`whole=true`): the control that attributes the split's cost. `spin=true`
 // and `mempattern=false` flip those two ORT session options (per-call
-// overhead experiments). Not in
-// EngineRegistry or any catalog: only [EngineBenchService] calls it, and the
-// debug source set keeps it out of every release build.
+// overhead experiments). Voices: those with a genstats model (af_heart and
+// am_michael). The debug build registers it as a pickable engine
+// (`engine/BuildTypeEngines.kt`, issue #9); [EngineBenchService] drives it
+// silently. The debug source set keeps it out of every release build.
 // -----------------------------------------------------------------------------
 
 @Singleton
@@ -107,9 +108,7 @@ class KokoroStreamDevEngine @Inject constructor(
     private var dev = DevConfig()
     private val statsModels = HashMap<String, FloatArray>()
 
-    override fun isInstalled(): Boolean =
-        File(dir, PLANNER).isFile && File(dir, GEN).isFile && File(dir, "genstats").isDirectory &&
-            File(kokoroDir, "voices.bin").isFile
+    override fun isInstalled(): Boolean = isInstalledIn(ctx.filesDir)
 
     override fun isLoaded(): Boolean = env != null
 
@@ -406,5 +405,12 @@ class KokoroStreamDevEngine @Inject constructor(
          * independent of the chunk's length, so nothing is cut for speed.
          */
         private val TOKEN_BUDGET = TextChunker.TokenBudget(mergeFloor = 90, target = 360, firstPiece = 40, growth = 1.5)
+
+        /** The sideloaded bundle plus the KokoroDirect voices.bin it borrows, under [filesDir]. */
+        fun isInstalledIn(filesDir: File): Boolean {
+            val dir = File(filesDir, "engines/$ENGINE")
+            return File(dir, PLANNER).isFile && File(dir, GEN).isFile && File(dir, "genstats").isDirectory &&
+                File(filesDir, "engines/${KokoroDirectEngine.ENGINE_NAME}/voices.bin").isFile
+        }
     }
 }
