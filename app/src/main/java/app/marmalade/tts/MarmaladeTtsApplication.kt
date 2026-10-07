@@ -12,6 +12,7 @@ import app.marmalade.tts.data.KokoroDirectVoiceCatalog
 import app.marmalade.tts.data.KokoroGermanVoiceCatalog
 import app.marmalade.tts.data.BuiltinEffects
 import app.marmalade.tts.data.SettingsRepository
+import app.marmalade.tts.data.migrateRetiredEngines
 import app.marmalade.tts.data.db.EffectDao
 import app.marmalade.tts.data.db.VoiceAliasDao
 import app.marmalade.tts.data.db.VoiceMetaDao
@@ -193,7 +194,10 @@ class MarmaladeTtsApplication : Application() {
                 prefs.setCatalogVersion(CATALOG_VERSION)
             }
             // Debug-only engines (issue #9) sit outside CATALOG_VERSION: a
-            // debug install over an up-to-date catalog still gets their rows.
+            // debug install over an up-to-date catalog still gets their rows,
+            // and whatever pointed at a retired one moves to its replacement
+            // (every start, idempotent; nothing to do in release).
+            migrateRetiredEngines(BuildTypeEngines.retiredEngines, aliasDao.get(), dao, prefs)
             if (BuildTypeEngines.voices.isNotEmpty()) dao.upsertAll(BuildTypeEngines.voices)
             // Cloud API voices are not seeded from a static catalog — the
             // provider store owns those rows (descriptors + live discovery)

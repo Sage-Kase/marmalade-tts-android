@@ -9,7 +9,7 @@ import org.junit.Test
 
 /**
  * Resume points (issue #11): a streaming engine sends one chunk per SLICE of
- * a sentence (KittenDirect, the Kokoro stream dev engine), so "restart the
+ * a sentence (KittenDirect, KokoroDirect streaming), so "restart the
  * interrupted chunk" alone would restart mid-sentence or mid-word. Only a
  * chunk flagged [app.marmalade.tts.engine.SynthAudio.resumePoint] is a place
  * to restart from; the Narrator rewinds to the last one at or before the

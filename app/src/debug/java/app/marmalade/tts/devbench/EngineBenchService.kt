@@ -36,10 +36,11 @@ import kotlinx.coroutines.launch
 // Timing lands in logcat (`B1Bench` lines here, plus each engine's own
 // `StreamPerf` lines), so a run is attributable from logs alone.
 //
-// Any registry engine, plus kokoro-7m-dev (issue #1), which is outside it. The
-// debug build's registry includes kokoro-stream-dev (issue #5, Kokoro-82M
-// planned once and decoded in slices) through engine/BuildTypeEngines.kt
-// (issue #9). KittenDirect itself streams that way since issue #10.
+// Any registry engine, plus kokoro-7m-dev (issue #1), which is outside it.
+// KittenDirect (issue #10) and KokoroDirect (#13 "E", with the streaming
+// bundle) render planned-once, decoded-in-slices themselves; for an A/B
+// against Kokoro's unsplit model set the `kokoro.stream=false` engine knob
+// (EngineDevKnobs).
 //
 // Started from adb only — the debug manifest guards it with
 // android.permission.DUMP, which the shell holds and apps don't:

@@ -66,7 +66,7 @@ class FakeEngine(
 
     /**
      * Emit each sentence chunk as this many slices, like the streaming
-     * engines (KittenDirect, the Kokoro stream dev engine): only the first
+     * engines (KittenDirect, KokoroDirect streaming): only the first
      * slice of a chunk is a [SynthAudio.resumePoint]. Render time is spread
      * evenly over the slices.
      */
