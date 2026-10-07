@@ -143,4 +143,49 @@ class PrerollGateTest {
         gate.onChunkRendered(0, 100L, 0L)
         assertEquals(1, gate.prerollChunks)
     }
+
+    // -- prerollChunksFor: K decided up front (KokoroDirect streams, #13 E) --
+
+    @Test
+    fun `the up-front K uses the gate's formula`() {
+        fun k(rate: Float, chunks: Int, rtf: Double) = PrerollGate.prerollChunksFor(rate, chunks, rtf)
+        assertEquals(1, k(1.0f, 4, 0.55))       // the 8a warm case at 1×
+        assertEquals(1, k(1.5f, 3, 0.55))       // played 0.825, under the margin
+        assertEquals(1, k(2.0f, 3, 0.56))       // shortfall 0.44
+        assertEquals(2, k(2.0f, 4, 0.56))       // shortfall 0.66
+        assertEquals(1, k(1.0f, 2, 1.35))       // shortfall 0.45
+        assertEquals(2, k(1.0f, 2, 1.45))       // shortfall 0.55
+        assertEquals(PrerollGate.MAX_PREROLL_CHUNKS, k(2.0f, 10, 2.0))
+        assertEquals(3, PrerollGate.prerollChunksFor(2.0f, 5, 0.7, maxPreroll = 3))
+    }
+
+    @Test
+    fun `the streaming default RTF needs no pre-roll at 1x but banks a chunk at 2x`() {
+        assertEquals(1, PrerollGate.prerollChunksFor(1.0f, 20, 0.85))
+        assertEquals(2, PrerollGate.prerollChunksFor(2.0f, 5, 0.85))
+    }
+
+    @Test
+    fun `a single chunk, an unknown RTF or no playback rate never waits`() {
+        assertEquals(1, PrerollGate.prerollChunksFor(2.0f, 1, 4.0))
+        assertEquals(1, PrerollGate.prerollChunksFor(2.0f, 5, Double.NaN))
+        assertEquals(1, PrerollGate.prerollChunksFor(0f, 5, 4.0))
+    }
+
+    @Test
+    fun `the gate decides the same K from chunk 0 as the function from its RTF`() {
+        for (rate in listOf(0.5f, 1.0f, 1.25f, 1.5f, 2.0f, 3.0f)) {
+            for (chunks in 1..8) {
+                for (renderMs in listOf(200L, 450L, 550L, 700L, 900L, 1120L, 1450L, 4000L)) {
+                    val gate = PrerollGate<Int>(rate, chunks)
+                    gate.onChunkRendered(0, renderMs, 1000L)
+                    assertEquals(
+                        "rate=$rate chunks=$chunks render=$renderMs",
+                        PrerollGate.prerollChunksFor(rate, chunks, renderMs / 1000.0),
+                        gate.prerollChunks,
+                    )
+                }
+            }
+        }
+    }
 }
