@@ -1160,12 +1160,15 @@ class Narrator(
 
     /**
      * Flush [s]'s track. Everything queued on it goes, so every other session
-     * on that track is rewritten from its listener position too.
+     * on that track is rewritten from its listener position too — under a new
+     * epoch, so a report the writer sent before the Flush applied (say its
+     * SessionEnded) can't act on the rewritten audio.
      */
     private fun flushTrack(s: Session) {
         output.submit(OutputCommand.Flush(s.track, s.id, s.epoch + 1))
         for (o in program(s.track)) {
             if (o === s) continue
+            o.epoch++
             o.begun = false
             o.ended = false
             o.writeSeg = o.cursor

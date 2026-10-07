@@ -403,6 +403,33 @@ class NarratorSessionsTest {
         h.done()
     }
 
+    @Test
+    fun `16d - a flush that rewrites another session on the track - its stale end report is ignored`() = runTest {
+        // A one-shot plays on Main with the article queued behind it. The
+        // article jumps: the track is flushed and the one-shot rewritten from
+        // its heard chunk. A SessionEnded the writer sent just before the
+        // Flush applied must not end the rewritten one-shot early.
+        val h = harness()
+        h.open(article(3), autoplay = false)
+        val shot = h.narrator.speakOneShot(share(origin = Origin.External))
+        h.runUntil { h.state.oneShot?.status == Status.Playing }
+        h.narrator.playArticle()
+        val id = h.narrator.articleId()!!
+        h.runUntil(what = "the article written behind the one-shot") {
+            h.output.commands.any { (_, c) -> c is OutputCommand.Begin && c.sessionId == id }
+        }
+        assertTrue("the one-shot still on air", !shot.outcome.isCompleted)
+        h.narrator.next()
+        h.settle()
+        assertTrue("the track was flushed", h.output.commands.any { (_, c) -> c is OutputCommand.Flush && c.sessionId == id })
+        h.output.inject(OutputEvent.SessionEnded(Track.Main, shot.id, 1))
+        h.settle()
+        assertFalse("ended by a report from before the flush", shot.outcome.isCompleted)
+        h.runUntil { shot.outcome.isCompleted }
+        assertEquals(Outcome.Played, shot.outcome.getCompleted())
+        h.done()
+    }
+
     // -- 21: the host --------------------------------------------------------------------------
 
     @Test
