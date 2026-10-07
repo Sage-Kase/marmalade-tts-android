@@ -19,12 +19,14 @@ import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 // -----------------------------------------------------------------------------
 // EngineBenchService — silent on-device engine benchmark, DEBUG BUILDS ONLY
@@ -143,7 +145,8 @@ class EngineBenchService : Service() {
                 running = false
                 stopSelf(startId)
                 if (config.exit) {
-                    delay(1_000) // let logcat drain the done line
+                    // stopSelf cancels this scope in onDestroy: the wait must not be cancellable.
+                    withContext(NonCancellable) { delay(1_000) } // let logcat drain the done line
                     Process.killProcess(Process.myPid())
                 }
             }
