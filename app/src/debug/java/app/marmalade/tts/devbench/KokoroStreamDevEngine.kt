@@ -140,7 +140,7 @@ class KokoroStreamDevEngine @Inject constructor(
                 env = ort
                 Log.i(TAG, "loaded threads=$threads $dev")
                 // Warm the graphs (first-call kernel setup) before anyone times a synth.
-                renderChunk(encode("Hi.", "en-us"), null, WARMUP_VOICE) { _, _ -> }
+                renderChunk(encode("Hi.", "en-us"), null, WARMUP_VOICE) { _, _, _ -> }
             }
         }
     }
@@ -192,12 +192,13 @@ class KokoroStreamDevEngine @Inject constructor(
                 val ids = encoded[chunk.text] ?: encode(chunk.text, lang)
                 Log.d(PERF_TAG, "kkstream chunk=$idx/${chunks.size} tokens=${ids.size} row=${chunk.rowTokens ?: ids.size}")
                 // Each slice goes out the moment it is rendered.
-                renderChunk(ids, chunk.rowTokens, voice) { pcm, _ ->
+                renderChunk(ids, chunk.rowTokens, voice) { pcm, firstSlice, _ ->
                     if (first) {
                         Log.d(PERF_TAG, "kkstream TTFA=${(System.nanoTime() - t0) / 1_000_000}ms")
                         first = false
                     }
-                    send(SynthAudio(pcm, sampleRate))
+                    // Only a chunk's first slice is a place to resume (#11).
+                    send(SynthAudio(pcm, sampleRate, resumePoint = firstSlice))
                 }
             }
         }
@@ -217,14 +218,14 @@ class KokoroStreamDevEngine @Inject constructor(
 
     /**
      * Plan [rawIds] once, then render its frames slice by slice, handing each
-     * slice's PCM to [emit] (with `true` on the last) as soon as it exists.
+     * slice's PCM to [emit] (flagged first / last) as soon as it exists.
      * Caller holds [lock].
      */
     private suspend fun renderChunk(
         rawIds: IntArray,
         rowTokens: Int?,
         voice: String,
-        emit: suspend (ShortArray, Boolean) -> Unit,
+        emit: suspend (pcm: ShortArray, first: Boolean, last: Boolean) -> Unit,
     ) {
         if (rawIds.isEmpty()) return
         val ort = env ?: error("not loaded")
@@ -246,7 +247,7 @@ class KokoroStreamDevEngine @Inject constructor(
                 val tWhole = System.nanoTime()
                 val wav = model.run(inputs).use { r -> r[0].value as FloatArray }
                 Log.d(PERF_TAG, "kkstream whole=${(System.nanoTime() - tWhole) / 1_000_000}ms tokens=${ids.size} samples=${wav.size}")
-                emit(tailTrimmed(wav, 0, wav.size), true)
+                emit(tailTrimmed(wav, 0, wav.size), true, true)
                 return
             }
 
@@ -302,7 +303,7 @@ class KokoroStreamDevEngine @Inject constructor(
                     }
                     Log.d(PERF_TAG, "kkstream slice=$si/${slices.size} gen=${(System.nanoTime() - tGen) / 1_000_000}ms " +
                         "keep=${slice.keep.first}..${slice.keep.last} render=${slice.render.first}..${slice.render.last}")
-                    emit(pcm, last)
+                    emit(pcm, si == 0, last)
                 }
             } finally {
                 gnT.close(); sT.close()

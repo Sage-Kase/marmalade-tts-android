@@ -223,6 +223,7 @@ class CloudApiEngine @Inject constructor(
         }
         val buf = ByteArray(CHUNK_BYTES)
         var carry: Byte? = null
+        var first = true
         while (true) {
             var filled = 0
             if (carry != null) {
@@ -240,7 +241,12 @@ class CloudApiEngine @Inject constructor(
                 carry = buf[filled - 1]
                 filled -= 1
             }
-            if (filled > 0) emit(SynthAudio(pcm16ToShorts(buf, filled), header.sampleRate))
+            // A request is whole sentences: only its first buffer starts one,
+            // so only there may the Narrator resume (#11).
+            if (filled > 0) {
+                emit(SynthAudio(pcm16ToShorts(buf, filled), header.sampleRate, resumePoint = first))
+                first = false
+            }
             if (filled < buf.size) break // EOF reached mid-buffer
         }
     }

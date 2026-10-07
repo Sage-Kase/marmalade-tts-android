@@ -274,4 +274,28 @@ class NarratorBudgetTest {
         for ((_, rtf) in h.rtfs) assertEquals(0.436, rtf, 0.02)
         h.done()
     }
+
+    @Test
+    fun `trimming at a paragraph start keeps the new paragraph's unheard audio`() = runTest {
+        // Whole-sentence chunks; ~2 s of heard audio kept. When paragraph 1
+        // starts, the old paragraph's heard index (3) must not mark its
+        // unheard chunks 0-2 as heard and trim them.
+        val h = NarratorHarness(this, NarratorConfig(retainHeardMs = 2_000.0))
+        val segs = List(2) { paragraph(4, fill = 'a' + it) }
+        h.open(segs)
+        val id = h.narrator.articleId()!!
+        h.runUntil(what = "paragraph 1, chunk 1") { h.heardStarts().any { it.second.sessionId == id && it.second.segment == 1 && it.second.chunk == 1 } }
+        h.run(300)
+        val shot = h.narrator.speakOneShot(
+            OneShotRequest(paragraph(1, fill = 'q'), OneShotVoice.LanguageAware(), Origin.External),
+        )
+        h.settle()
+        h.runUntil { shot.outcome.isCompleted }
+        val done = h.now()
+        h.runUntil { h.heardStarts().any { it.first >= done && it.second.sessionId == id } }
+        val resumed = h.heardStarts().first { it.first >= done && it.second.sessionId == id }.second
+        assertEquals(1 to 1, resumed.segment to resumed.chunk)
+        assertEquals("paragraph 1 rendered once", 4, h.kokoro.rendersOf(segs[1]).size)
+        h.done()
+    }
 }

@@ -4,9 +4,9 @@ import app.marmalade.tts.audio.EffectBlock
 
 /**
  * The Narrator's audio sink. The implementation's writer thread is the ONLY
- * caller of its AudioTracks (C2: `AudioTrackOutput`; tests: the virtual
- * output). [submit] never blocks: the writer applies commands between short
- * slices, in submission order.
+ * caller of its AudioTracks (`service/AudioTrackOutput` on the device, the
+ * virtual output in tests; both run [TrackWriter]). [submit] never blocks:
+ * the writer applies commands between short slices, in submission order.
  *
  * Two kinds of command:
  *  - **stream items** ([OutputCommand.Begin], [OutputCommand.Write],

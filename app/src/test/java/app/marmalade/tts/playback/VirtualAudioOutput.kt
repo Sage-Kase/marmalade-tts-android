@@ -1,27 +1,47 @@
 package app.marmalade.tts.playback
 
-import app.marmalade.tts.audio.StreamingEffectChain
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * The harness's writer (§5.1): the real [StreamingEffectChain] (live Tempo
- * included) per session, consumed at the output rate in [sliceMs] ticks on
- * the test scheduler's virtual clock.
+ * The harness's writer (§5.1): the device's own [TrackWriter] — one per
+ * [Track], the real [app.marmalade.tts.audio.StreamingEffectChain] inside —
+ * over [VirtualTrack]s played on the test scheduler's virtual clock in
+ * [sliceMs] ticks. Only the AudioTrack is virtual.
  *
- * Commands queue in submission order and are applied at the next tick, like
- * the C2 writer thread between slices: stream items join the track's queue,
- * controls act at once. Chunk identity travels as SIDE-BAND frame marks
- * through the chain — a mark sits at the post-chain frame where that chunk's
- * output starts (or ends), so ChunkStarted is measured after Tempo, within
- * one input slice. PCM values are never used as tags (Tempo would mangle them).
+ * Each tick: queued commands apply (between slices, like the device's writer
+ * thread), the writers step until they wait, every playing track plays one
+ * tick of audio, and the writers step again (marks fire, buffers refill).
+ *
+ * The virtual track models what the writer must cope with on a device:
+ *  - a small buffer ([bufferMs]) that refuses writes when full;
+ *  - a mixer that plays whole periods only — a track holding less than one
+ *    tick of audio stays silent until more arrives (the writer must pad the
+ *    tail through);
+ *  - `flush()` ignored while playing, as AudioTrack does — so a writer that
+ *    forgot to pause first would leave stale audio audible, and the harness
+ *    would see it;
+ *  - the head resets to 0 on flush;
+ *  - optionally ([startThresholdMs]) AudioTrack's start threshold: a new or
+ *    flushed track plays nothing until that much is queued (on a device it
+ *    is about the whole buffer, so set [bufferMs] to match);
+ *  - optionally ([pauseLatencyMs]) AudioTrack's asynchronous pause: the track
+ *    is paused at once (a flush is legal) but keeps playing that long.
+ *
+ * Chunk identity travels as SIDE-BAND tags on every written frame run, so
+ * "heard" and "stale" are measured after the chain, frame-exact. PCM values
+ * are never used as tags (Tempo would mangle them).
  */
 class VirtualAudioOutput(
     scope: CoroutineScope,
     private val clock: () -> Long,
     private val sliceMs: Long = 10,
+    private val bufferMs: Int = 30,
+    stallMs: Long = TrackWriter.DEFAULT_STALL_MS,
+    private val startThresholdMs: Int = 0,
+    private val pauseLatencyMs: Long = 0,
 ) : AudioOutput {
 
     /** One audible slice of one track: what the listener hears in [atMs, atMs + sliceMs). */
@@ -31,7 +51,7 @@ class VirtualAudioOutput(
         val tag: ChunkTag?,
         val audibleMs: Double,
         val silentMs: Double,
-        /** The heard tag's epoch is below its session's flushed minimum: must never happen. */
+        /** A heard frame's epoch is below its session's flushed minimum: must never happen. */
         val stale: Boolean,
     )
 
@@ -39,50 +59,50 @@ class VirtualAudioOutput(
     val events = ArrayList<Pair<Long, OutputEvent>>()
     val commands = ArrayList<Pair<Long, OutputCommand>>()
 
-    /** Track rebuilds on a sample-rate change, with the time they happened. */
+    /** Every track built, with the time and rate. */
+    val opens = ArrayList<Triple<Long, Track, Int>>()
+
+    /** Track rebuilds on a sample-rate change (a build at another rate than the track's last), with the time. */
     val rebuilds = ArrayList<Pair<Long, Int>>()
 
-    /** Items dropped because their epoch was below the flushed minimum. */
+    /** Stream items the writer drops because their epoch was below the flushed minimum. */
     var staleDropped = 0
         private set
 
+    /** `flush()` calls on a playing track — AudioTrack ignores them. */
+    var illegalFlushes = 0
+        private set
+
+    /** The writer's own log lines. */
+    val writerLog = ArrayList<String>()
+
+    private val padded = HashMap<Track, Double>()
+
+    /** Silence the writer padded with on [track], in ms, over the run. */
+    fun paddedMs(track: Track): Double = padded[track] ?: 0.0
+
     private var sink: (OutputEvent) -> Unit = {}
     private val pending = ArrayDeque<OutputCommand>()
-    private val tracks = HashMap<Track, TrackState>()
+    private val minEpoch = HashMap<Track, HashMap<Long, Int>>()
+    private val live = HashMap<Track, VirtualTrack>()
+    private val lastRate = HashMap<Track, Int>()
 
-    private class Mark(val frame: Long, val event: OutputEvent)
+    /** Set to make the next track built on [Track] park (never play) — a track the OS muted. */
+    var parkNext: Track? = null
 
-    private class TrackState {
-        var playing = false
-        val queue = ArrayDeque<OutputCommand>()
-        val minEpoch = HashMap<Long, Int>()
-        val tempos = HashMap<Long, Float>()
-        var rate = 0
-        var chain: StreamingEffectChain? = null
-        var chainSession = -1L
-        var writeOffset = 0
-
-        /** Post-chain FIFO: produced frames not yet heard. */
-        val fifo = ArrayDeque<ShortArray>()
-        var fifoHead = 0
-        var produced = 0L
-        var consumed = 0L
-        val marks = ArrayList<Mark>()
-        var audible: ChunkTag? = null
-
-        fun available(): Long = produced - consumed
-
-        fun clear() {
-            queue.clear()
-            chain = null
-            chainSession = -1
-            writeOffset = 0
-            fifo.clear()
-            fifoHead = 0
-            consumed = produced
-            marks.clear()
-            audible = null
-        }
+    private val writers: Map<Track, TrackWriter> = Track.entries.associateWith { track ->
+        TrackWriter(
+            track = track,
+            factory = { rate -> open(track, rate) },
+            clock = clock,
+            emit = { e ->
+                events += clock() to e
+                sink(e)
+            },
+            sliceMs = sliceMs.toInt(),
+            stallMs = stallMs,
+            log = { writerLog += "${clock()} $it" },
+        )
     }
 
     init {
@@ -106,137 +126,159 @@ class VirtualAudioOutput(
     /** Deliver an event as if the writer had reported it (stale-event scenarios). */
     fun inject(event: OutputEvent) = sink(event)
 
-    fun isPlaying(track: Track): Boolean = tracks[track]?.playing == true
-
-    /** Output frames queued (pre- and post-chain) — nothing should linger after a stop. */
-    fun queuedItems(track: Track): Int = tracks[track]?.let { it.queue.size + it.fifo.size } ?: 0
+    fun trackOpen(track: Track): Boolean = writers.getValue(track).trackOpen
 
     private fun tick() {
         while (pending.isNotEmpty()) apply(pending.removeFirst())
-        for ((track, t) in tracks.entries.sortedBy { it.key.ordinal }) {
-            if (!t.playing) continue
-            val rate = if (t.rate > 0) t.rate else 24_000
-            val need = (rate * sliceMs / 1000).toLong()
-            while (t.available() < need && t.queue.isNotEmpty()) feed(track, t)
-            val take = minOf(need, t.available())
-            val startTag = t.audible
-            consume(track, t, take)
-            val audibleMs = take * 1000.0 / rate
-            val tag = t.audible ?: startTag
-            val stale = take > 0 && tag != null && tag.epoch < (t.minEpoch[tag.sessionId] ?: 0)
-            timeline += Heard(clock(), track, tag, audibleMs, sliceMs - audibleMs, stale)
+        stepAll()
+        for (track in Track.entries) {
+            val t = live[track] ?: continue
+            if (t.playing) timeline += t.play(sliceMs)
+            t.settlePause()
         }
+        stepAll()
     }
 
     private fun apply(c: OutputCommand) {
-        val t = tracks.getOrPut(c.track) { TrackState() }
+        val epochs = minEpoch.getOrPut(c.track) { HashMap() }
         when (c) {
+            is OutputCommand.Flush -> epochs[c.sessionId] = maxOf(epochs[c.sessionId] ?: 0, c.minEpoch)
             is OutputCommand.Begin, is OutputCommand.Write, is OutputCommand.End -> {
-                if (isStale(t, c)) {
-                    staleDropped++
-                } else {
-                    // A Begin states the session's speed as of its submission;
-                    // SetTempos submitted after it win (applied on arrival).
-                    if (c is OutputCommand.Begin) t.tempos[c.sessionId] = c.tempo
-                    t.queue.addLast(c)
+                val (id, epoch) = when (c) {
+                    is OutputCommand.Begin -> c.sessionId to c.epoch
+                    is OutputCommand.Write -> c.tag.sessionId to c.tag.epoch
+                    is OutputCommand.End -> c.sessionId to c.epoch
+                    else -> error("unreachable")
                 }
+                if (epoch < (epochs[id] ?: 0)) staleDropped++
             }
-            is OutputCommand.Play -> t.playing = true
-            is OutputCommand.Pause -> t.playing = false
-            is OutputCommand.Flush -> {
-                t.minEpoch[c.sessionId] = maxOf(t.minEpoch[c.sessionId] ?: 0, c.minEpoch)
-                t.clear()
-            }
-            is OutputCommand.SetTempo -> {
-                t.tempos[c.sessionId] = c.tempo
-                if (t.chainSession == c.sessionId) t.chain?.setLiveTempo(c.tempo)
-            }
-            is OutputCommand.Release -> {
-                t.clear()
-                tracks.remove(c.track)
-            }
+            else -> Unit
+        }
+        writers.getValue(c.track).apply(c)
+    }
+
+    private fun stepAll() {
+        for (w in writers.values) {
+            var n = 0
+            while (w.step() == 0L) check(++n < 100_000) { "writer never waits" }
         }
     }
 
-    private fun isStale(t: TrackState, c: OutputCommand): Boolean {
-        val (session, epoch) = when (c) {
-            is OutputCommand.Begin -> c.sessionId to c.epoch
-            is OutputCommand.Write -> c.tag.sessionId to c.tag.epoch
-            is OutputCommand.End -> c.sessionId to c.epoch
-            else -> return false
-        }
-        return epoch < (t.minEpoch[session] ?: 0)
+    private fun open(track: Track, rate: Int): PcmTrack {
+        val prev = lastRate[track]
+        if (prev != null && prev != rate) rebuilds += clock() to rate
+        lastRate[track] = rate
+        opens += Triple(clock(), track, rate)
+        val parked = parkNext == track
+        if (parked) parkNext = null
+        return VirtualTrack(track, rate, parked).also { live[track] = it }
     }
 
-    /** Run one input slice (or one stream item) through the chain into the FIFO. */
-    private fun feed(track: Track, t: TrackState) {
-        when (val item = t.queue.first()) {
-            is OutputCommand.Begin -> {
-                t.queue.removeFirst()
-                if (t.rate != 0 && t.rate != item.sampleRate) rebuilds += clock() to item.sampleRate
-                t.rate = item.sampleRate
-                val tempo = t.tempos[item.sessionId] ?: item.tempo
-                t.chain = StreamingEffectChain(item.effectBlocks, item.sampleRate, liveTempo = tempo)
-                t.chainSession = item.sessionId
+    /** One virtual AudioTrack. Frames are kept as runs, each with the tag the writer gave it. */
+    inner class VirtualTrack(
+        private val track: Track,
+        override val sampleRate: Int,
+        private val parked: Boolean,
+    ) : PcmTrack {
+        private inner class Run(var frames: Int, val tag: ChunkTag?)
+
+        override val capacityFrames: Int = sampleRate * bufferMs / 1000
+        private val thresholdFrames = sampleRate * startThresholdMs / 1000
+
+        /** Waiting for [thresholdFrames] before the first frame plays (new or flushed track). */
+        private var filling = thresholdFrames > 0
+        private val runs = ArrayDeque<Run>()
+        private var queued = 0
+        private var head = 0L
+        /** Producing audio (lags a pause by [pauseLatencyMs]). */
+        var playing = false
+            private set
+
+        /** The play state AudioTrack reports: a pause sets it at once. */
+        private var started = false
+        private var stopsAt: Long? = null
+
+        /** The last real tag heard, so a silent slice still names what was on air. */
+        private var audible: ChunkTag? = null
+
+        override fun write(pcm: ShortArray, offset: Int, size: Int, tag: ChunkTag?): Int {
+            val n = minOf(size, capacityFrames - queued)
+            if (n <= 0) return 0
+            runs.addLast(Run(n, tag))
+            queued += n
+            if (tag == null) padded[track] = paddedMs(track) + n * 1000.0 / sampleRate
+            return n
+        }
+
+        override fun head(): Long = head
+
+        override fun play() {
+            playing = true
+            started = true
+            stopsAt = null
+        }
+
+        override fun pause() {
+            started = false
+            if (pauseLatencyMs == 0L) playing = false else if (playing) stopsAt = clock() + pauseLatencyMs
+        }
+
+        /** An asynchronous pause takes effect. */
+        fun settlePause() {
+            val at = stopsAt ?: return
+            if (clock() >= at) {
+                playing = false
+                stopsAt = null
             }
-            is OutputCommand.Write -> {
-                val chain = t.chain ?: StreamingEffectChain(emptyList(), t.rate, liveTempo = 1f).also { t.chain = it }
-                val slice = (t.rate * sliceMs / 1000).toInt().coerceAtLeast(1)
-                val from = t.writeOffset
-                val to = minOf(item.pcm.size, from + slice)
-                if (from == 0) t.marks += Mark(t.produced, OutputEvent.ChunkStarted(track, item.tag))
-                append(t, chain.process(item.pcm.copyOfRange(from, to)))
-                t.writeOffset = to
-                if (to >= item.pcm.size) {
-                    t.marks += Mark(t.produced, OutputEvent.ChunkFinished(track, item.tag))
-                    t.queue.removeFirst()
-                    t.writeOffset = 0
+        }
+
+        override fun flush() {
+            if (started) {
+                illegalFlushes++
+                return
+            }
+            playing = false
+            stopsAt = null
+            runs.clear()
+            queued = 0
+            head = 0
+            filling = thresholdFrames > 0
+        }
+
+        override fun release() {
+            playing = false
+            started = false
+            stopsAt = null
+            runs.clear()
+            queued = 0
+            if (live[track] === this) live.remove(track)
+        }
+
+        /** Play [ms] of audio: whole periods only, nothing at all when parked. */
+        fun play(ms: Long): Heard {
+            val period = (sampleRate * ms / 1000).toInt()
+            if (filling && queued >= thresholdFrames) filling = false
+            val take = if (parked || filling || queued < period) 0 else period
+            var left = take
+            var real = 0
+            var stale = false
+            val epochs = minEpoch[track].orEmpty()
+            while (left > 0) {
+                val r = runs.first()
+                val n = minOf(left, r.frames)
+                r.tag?.let { tag ->
+                    real += n
+                    audible = tag
+                    if (tag.epoch < (epochs[tag.sessionId] ?: 0)) stale = true
                 }
+                r.frames -= n
+                left -= n
+                if (r.frames == 0) runs.removeFirst()
             }
-            is OutputCommand.End -> {
-                t.queue.removeFirst()
-                t.chain?.let { append(t, it.flush()) }
-                t.chain = null
-                t.chainSession = -1
-                t.marks += Mark(t.produced, OutputEvent.SessionEnded(track, item.sessionId, item.epoch))
-            }
-            else -> t.queue.removeFirst()
-        }
-    }
-
-    private fun append(t: TrackState, pcm: ShortArray) {
-        if (pcm.isEmpty()) return
-        t.fifo.addLast(pcm)
-        t.produced += pcm.size
-    }
-
-    private fun consume(track: Track, t: TrackState, frames: Long) {
-        var left = frames
-        while (left > 0 && t.fifo.isNotEmpty()) {
-            val head = t.fifo.first()
-            val n = minOf(left, (head.size - t.fifoHead).toLong()).toInt()
-            t.fifoHead += n
-            left -= n
-            if (t.fifoHead >= head.size) {
-                t.fifo.removeFirst()
-                t.fifoHead = 0
-            }
-        }
-        t.consumed += frames - left
-        // A start mark fires once a frame at or after it is heard; an end mark
-        // once every frame before it is.
-        val due = t.marks.filter {
-            when (it.event) {
-                is OutputEvent.ChunkStarted -> it.frame < t.consumed
-                else -> it.frame <= t.consumed
-            }
-        }
-        if (due.isEmpty()) return
-        t.marks.removeAll(due.toSet())
-        for (m in due) {
-            if (m.event is OutputEvent.ChunkStarted) t.audible = (m.event as OutputEvent.ChunkStarted).tag
-            events += clock() to m.event
-            sink(m.event)
+            queued -= take
+            head += take
+            val audibleMs = real * 1000.0 / sampleRate
+            return Heard(clock(), track, audible, audibleMs, ms - audibleMs, stale)
         }
     }
 }

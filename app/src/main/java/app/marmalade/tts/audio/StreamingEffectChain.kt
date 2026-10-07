@@ -33,14 +33,15 @@ import kotlin.math.sqrt
 // -----------------------------------------------------------------------------
 
 /**
- * Stateful, chunk-by-chunk effect chain. Construct once per utterance, feed
- * engine chunks through [process], then call [flush] after the last chunk to
- * drain any reverb/echo tail.
+ * Stateful, chunk-by-chunk effect chain. Construct once per utterance (the
+ * Narrator's writer: once per session, across all its blocks), feed engine
+ * chunks through [process], then call [flush] after the last chunk to drain
+ * any reverb/echo tail.
  *
  * [liveTempo], when non-null, puts a Tempo stage at that factor in FRONT of
  * [blocks] whose factor can be changed mid-stream with [setLiveTempo] — the
- * reader's speed control, which must not restart synthesis (see
- * MarmaladeSynthService.playFromChannel). It sits first for the same reason
+ * Narrator's speed control, which must not restart synthesis (see
+ * playback/TrackWriter). It sits first for the same reason
  * SpeedFallback prepends its Tempo: the rest of the chain shapes the
  * already-retimed signal.
  */
@@ -93,6 +94,22 @@ class StreamingEffectChain(
             signal = if (tail.isEmpty()) processed else processed + tail
         }
         return toPcm(signal)
+    }
+
+    /**
+     * Push out what the live Tempo stage holds back (up to one frame, ~43 ms
+     * at 24 kHz) WITHOUT ending the stream: its tail runs through the effects
+     * after it with [process], so they keep their state and ring out only at
+     * [flush]. For an underrun: the next chunk starts a fresh stretch, a seam
+     * that falls in silence anyway. Empty when nothing is held (or no live
+     * Tempo stage).
+     */
+    fun drainLiveTempo(): ShortArray {
+        val t = live ?: return ShortArray(0)
+        var buf = t.flush()
+        if (buf.isEmpty()) return ShortArray(0)
+        for (p in processors) if (p !== t) buf = p.process(buf)
+        return toPcm(buf)
     }
 
     // Hard-clip float → PCM16. No global normalize (unavailable while streaming).

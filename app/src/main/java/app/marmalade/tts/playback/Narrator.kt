@@ -205,7 +205,8 @@ class Narrator(
 
     // -- sessions --------------------------------------------------------------------
 
-    private class Chunk(val pcm: ShortArray, val sampleRate: Int) {
+    /** [resumePoint]: playback may restart here (see [app.marmalade.tts.engine.SynthAudio.resumePoint]). */
+    private class Chunk(val pcm: ShortArray, val sampleRate: Int, val resumePoint: Boolean) {
         val audioMs: Double get() = pcm.size * 1000.0 / sampleRate
     }
 
@@ -278,8 +279,18 @@ class Narrator(
 
         fun tag(seg: Int, chunk: Int) = ChunkTag(id, epoch, seg, chunk)
 
-        /** Listener's position: where playback (re)starts. */
-        fun listenerChunk(): Int = heardChunk ?: 0
+        /**
+         * Listener's position in [cursor]: where playback (re)starts. The
+         * heard chunk, moved back to its sentence's start — a streaming
+         * engine's slice may begin mid-word, and only a
+         * [Chunk.resumePoint] is a place to restart from.
+         */
+        fun listenerChunk(): Int {
+            var c = heardChunk ?: return 0
+            val chunks = segs[cursor].chunks
+            while (c > 0 && chunks[c]?.resumePoint == false && (c - 1) in chunks) c--
+            return c
+        }
 
         fun dropPcm() {
             segs.forEach { it.reset() }
@@ -599,7 +610,7 @@ class Narrator(
             a.writeChunk = a.listenerChunk()
             a.status = Status.Buffering
             a.startGranted = false
-            log("resume after interrupt seg=${a.cursor} chunk=${a.writeChunk} epoch=${a.epoch}")
+            log("resume after interrupt seg=${a.cursor} chunk=${a.writeChunk} heard=${a.heardChunk} epoch=${a.epoch}")
         }
     }
 
@@ -744,7 +755,7 @@ class Narrator(
         val seg = s.segs[r.segment]
         when (val e = msg.event) {
             is RenderEvent.Chunk -> {
-                seg.chunks[e.index] = Chunk(e.audio.pcm, e.audio.sampleRate)
+                seg.chunks[e.index] = Chunk(e.audio.pcm, e.audio.sampleRate, e.audio.resumePoint)
                 seg.rendered = e.index + 1
                 if (!e.skewed) {
                     s.rtf.add(e.renderMs.toDouble(), e.audio.pcm.size * 1000.0 / e.audio.sampleRate)
@@ -847,8 +858,12 @@ class Narrator(
             if (st is Status.Paused && st.by == PausedBy.Navigation) continue
             for (i in s.cursor until s.segs.size) {
                 val seg = s.segs[i]
+                // Intact from the resume point (a rewind restarts there), but
+                // ahead only from the heard chunk: a cloud request is one
+                // resume point over a whole paragraph of buffers.
                 val from = if (i == s.cursor) s.listenerChunk() else 0
-                val own = seg.audioMsFrom(from) / s.tempo
+                val aheadFrom = if (i == s.cursor) s.heardChunk ?: 0 else 0
+                val own = seg.audioMsFrom(aheadFrom) / s.tempo
                 items += RenderPlanner.Item(
                     sessionId = s.id,
                     segment = i,
@@ -1072,15 +1087,18 @@ class Narrator(
             is OutputEvent.ChunkStarted -> {
                 val s = sessionById(event.tag.sessionId) ?: return
                 if (event.tag.epoch != s.epoch) return
-                if (event.tag.segment != s.cursor || s.heardStartAt == null) {
-                    if (event.tag.segment != s.cursor) {
-                        s.cursor = event.tag.segment
-                        s.pausedInSegmentMs = 0
-                    }
+                val newSegment = event.tag.segment != s.cursor || s.heardStartAt == null
+                if (event.tag.segment != s.cursor) {
+                    s.cursor = event.tag.segment
+                    s.pausedInSegmentMs = 0
+                }
+                // Before trimming: the old segment's heard chunk would mark
+                // this one's unheard chunks as heard.
+                s.heardChunk = event.tag.chunk
+                if (newSegment) {
                     s.heardStartAt = clock()
                     trimHeard(s)
                 }
-                s.heardChunk = event.tag.chunk
                 if (s.status == Status.Buffering) s.status = Status.Playing
             }
             is OutputEvent.ChunkFinished -> {
@@ -1113,15 +1131,18 @@ class Narrator(
     /**
      * Drop heard audio: every segment before the previous one, and — so one
      * huge segment can't grow without bound — the oldest heard chunks beyond
-     * [NarratorConfig.retainHeardMs].
+     * [NarratorConfig.retainHeardMs]. Never the listener's sentence: a resume
+     * restarts from its first chunk.
      */
     private fun trimHeard(s: Session, finished: ChunkTag? = null) {
         for (i in 0 until (s.cursor - 1).coerceAtLeast(0)) s.segs[i].chunks.clear()
+        val keepFrom = s.listenerChunk()
         var heardMs = 0.0
         val heard = ArrayList<Pair<Int, Int>>()
         for (i in (s.cursor - 1).coerceAtLeast(0)..s.cursor) {
             val seg = s.segs[i]
             for ((c, chunk) in seg.chunks) {
+                if (i == s.cursor && c >= keepFrom) continue
                 val isHeard = i < s.cursor ||
                     (finished != null && finished.segment == i && c <= finished.chunk) ||
                     (i == s.cursor && c < (s.heardChunk ?: 0))
@@ -1139,12 +1160,15 @@ class Narrator(
 
     /**
      * Flush [s]'s track. Everything queued on it goes, so every other session
-     * on that track is rewritten from its listener position too.
+     * on that track is rewritten from its listener position too — under a new
+     * epoch, so a report the writer sent before the Flush applied (say its
+     * SessionEnded) can't act on the rewritten audio.
      */
     private fun flushTrack(s: Session) {
         output.submit(OutputCommand.Flush(s.track, s.id, s.epoch + 1))
         for (o in program(s.track)) {
             if (o === s) continue
+            o.epoch++
             o.begun = false
             o.ended = false
             o.writeSeg = o.cursor

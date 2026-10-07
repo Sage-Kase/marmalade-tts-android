@@ -75,7 +75,7 @@ import kotlinx.coroutines.launch
 //   A SHELL. All in-app speech — the reader's article, the Speak screen and
 //   previews, shares, Tasker — is owned by the process's one Narrator
 //   (playback/Narrator.kt): queue, voice, speed, cursor, audio focus,
-//   residency, keepalive, latency stats and the writer (BlockTrackOutput).
+//   residency, keepalive, latency stats and the writer (AudioTrackOutput).
 //   This service only:
 //
 //     - turns intents into Narrator commands. ACTION_SPEAK is a one-shot

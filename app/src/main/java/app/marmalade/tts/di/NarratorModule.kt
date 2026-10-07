@@ -9,7 +9,7 @@ import app.marmalade.tts.playback.Narrator
 import app.marmalade.tts.playback.NarratorConfig
 import app.marmalade.tts.playback.NarratorControl
 import app.marmalade.tts.service.AudioFocusPort
-import app.marmalade.tts.service.BlockTrackOutput
+import app.marmalade.tts.service.AudioTrackOutput
 import app.marmalade.tts.service.EngineResidency
 import app.marmalade.tts.service.KeepaliveCoordinator
 import app.marmalade.tts.service.NarratorPreparer
@@ -41,7 +41,7 @@ object NarratorModule {
         engines: EngineRegistry,
         resolver: NarratorResolver,
         preparer: NarratorPreparer,
-        output: BlockTrackOutput,
+        output: AudioTrackOutput,
         focus: AudioFocusPort,
         host: ServiceHost,
         residency: EngineResidency,

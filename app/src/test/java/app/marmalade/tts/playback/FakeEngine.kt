@@ -63,6 +63,14 @@ class FakeEngine(
      * one collected after a wait arrives at once.
      */
     var internalBuffer = false
+
+    /**
+     * Emit each sentence chunk as this many slices, like the streaming
+     * engines (KittenDirect, the Kokoro stream dev engine): only the first
+     * slice of a chunk is a [SynthAudio.resumePoint]. Render time is spread
+     * evenly over the slices.
+     */
+    var slicesPerChunk = 1
     val synthLock = Mutex()
 
     val renders = ArrayList<Render>()
@@ -108,11 +116,13 @@ class FakeEngine(
         requests += Triple(voiceId, phonemizationLanguage, speed)
         val pieces = chunksOf(text)
         if (lockMode == LockMode.WholeUtterance) {
-            synthLock.withLock { for (p in pieces) emit(renderOne(p, text)) }
+            synthLock.withLock { for (p in pieces) for (i in 0 until slicesPerChunk) emit(renderOne(p, text, i)) }
         } else {
             for (p in pieces) {
-                val audio = synthLock.withLock { renderOne(p, text) }
-                emit(audio)
+                for (i in 0 until slicesPerChunk) {
+                    val audio = synthLock.withLock { renderOne(p, text, i) }
+                    emit(audio)
+                }
             }
         }
     }
@@ -137,10 +147,11 @@ class FakeEngine(
 
     private fun tokens(s: String): Int = (s.length * tokensPerChar).roundToInt().coerceAtLeast(1)
 
-    private suspend fun renderOne(piece: String, whole: String): SynthAudio {
+    /** One slice ([slice] of [slicesPerChunk]) of [piece]. */
+    private suspend fun renderOne(piece: String, whole: String, slice: Int): SynthAudio {
         failWhen(whole)?.let { throw it }
         val t = tokens(piece)
-        val renderMs = ((fixedMsPerChunk + t * msPerToken) * rtfScale(clock())).roundToInt().toLong()
+        val renderMs = ((fixedMsPerChunk + t * msPerToken) * rtfScale(clock()) / slicesPerChunk).roundToInt().toLong()
         val r = Render(whole, renders.count { it.text == whole }, clock())
         renders += r
         concurrent++
@@ -155,7 +166,7 @@ class FakeEngine(
             concurrent--
             r.endMs = clock()
         }
-        val samples = (t * audioMsPerToken * sampleRate / 1000).roundToInt()
-        return SynthAudio(ShortArray(samples) { (it % 200 - 100).toShort() }, sampleRate)
+        val samples = (t * audioMsPerToken * sampleRate / 1000 / slicesPerChunk).roundToInt()
+        return SynthAudio(ShortArray(samples) { (it % 200 - 100).toShort() }, sampleRate, resumePoint = slice == 0)
     }
 }

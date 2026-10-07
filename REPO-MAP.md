@@ -184,9 +184,8 @@ When investigating **{concern}**, start at **{files}**:
   installed old copy from the seed at start (`EngineInstaller.refreshSeed`;
   an uninstalled Kitten stays uninstalled) and `EngineInstaller.install`
   copies a baked engine from the APK (`SeedAssets`) instead of downloading
-  — the v22 download still has the old layout. Narrator rewinds (resume
-  after an interrupting share) restart from the heard chunk, which for
-  Kitten is now a slice, i.e. mid-sentence.
+  — the v22 download still has the old layout. Only a piece's first slice
+  is a `SynthAudio.resumePoint` (see the Narrator's resume points).
 - `engine/SherpaEngine.kt` — abstract base (loadLock, ensureModelLoaded,
   synthesize, release, floatToPcm16, sampleRate)
 - `engine/KittenEngine.kt`, `engine/KokoroEngine.kt` — subclasses,
@@ -257,7 +256,7 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   epochs (a jump/stop/resume bumps it and flushes the writer); child jobs
   by their own token. Encodes Max's §6 answers: a share while the article
   plays interrupts on the `Interrupt` track and the article resumes from the
-  start of the interrupted chunk; ~60 s ahead on-device, cloud this block +
+  start of the interrupted chunk's sentence; ~60 s ahead on-device, cloud this block +
   next; preparing continues while paused except after `PauseReason.Navigation`;
   every speed change (cloud too) is the writer's live Tempo, engines render
   at 1.0 (speed range: the article 0.5–3, the reader's chips; a one-shot
@@ -269,6 +268,18 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   are the reader's article-only buttons.
   A stop drops the article's audio and restarts its block on Play — a
   re-render need not cut the same chunks (Kokoro's short first piece).
+  **Resume points** (issue #11): every rewind to "the heard chunk" (resume
+  after an interrupting share, rewriting the other sessions on a flushed
+  track) goes through `Session.listenerChunk()`, which steps back to the
+  last chunk flagged `SynthAudio.resumePoint`. Engines that render whole
+  pieces leave it true; streaming ones flag only a piece's first slice
+  (KittenDirect, the Kokoro stream dev engine), so on-device voices resume
+  at the sentence (or clause) start, never mid-word. The cloud engine flags
+  a request's first network buffer: a cloud resume restarts the interrupted
+  REQUEST (≤ 1000 chars, usually the paragraph; the MP3 path is one buffer
+  per request anyway). `trimHeard` never drops the listener's sentence. The
+  render budget counts ahead from the heard chunk, not the resume point (a
+  whole cloud paragraph would otherwise count as "ahead").
 - `playback/SegmentRenderer.kt` — one render job: prepare, stream the
   engine at 1.0, wait for the budget permit between chunks, one TTFA sample
   and one RTF sample per job (chunks after a permit wait are skewed: the
@@ -285,11 +296,39 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   into `VoiceLatencyTracker` + RTF into settings, `NarratorWakeLock`/`WakeLockArm`
   = held while buffering/playing, re-armed per heard chunk), `EngineResidency`
   (the `ResidencyPort`), `KeepaliveCoordinator` (session start) and
-  `service/BlockTrackOutput.kt` — C1's writer: one thread per track is the only
-  AudioTrack caller, non-blocking writes, but still a track + effect chain per
-  block, drained and released at each paragraph (today's gap; C2 makes it one
-  continuous track). A refused format, failed write or parked track (head
-  frozen with a full buffer) → `OutputEvent.TrackFailed` → the session fails.
+  `service/AudioTrackOutput.kt` — the writer (step C2): ONE thread,
+  `narrator-writer`, is the only caller of the in-app AudioTracks (at most two:
+  `Track.Main`, `Track.Interrupt`). It runs `playback/TrackWriter.kt` — pure
+  Kotlin, the same code the harness runs — per track: a flat state machine
+  that applies commands between ≤ 20 ms input slices and writes non-blocking.
+  **Playback is continuous**: one track for every block of a session and across
+  sessions at the same sample rate (no drain, rebuild or chain restart at a
+  paragraph); a Begin at another rate waits until the audio ahead is heard,
+  then rebuilds at that boundary frame. One `StreamingEffectChain` (live Tempo
+  + alias effects) per session. Flush = pause → `AudioTrack.flush()` (ignored
+  while playing!) → head and frame marks reset → older epochs dropped. **The
+  mixer plays whole periods**, so a track's last few tens of ms stay unplayed
+  until more data comes (the old per-block "head stalled … abandoning drain"):
+  when the writer has nothing to write and real audio is stuck, it pads
+  silence just past it (at a session end at once, mid-session after 40 ms).
+  The pad doubles while the head stays stuck (AudioTrack starts a new or
+  flushed track only near a full ~250 ms buffer) and shrinks back to 60 ms
+  once the real audio is heard. On Pause the queued padding is flushed — if
+  the head is still short (AudioTrack pauses asynchronously), re-checked for
+  200 ms. The live Tempo stage holds back up to a frame (~43 ms): about to run
+  dry mid-session, the writer pushes it out (`drainLiveTempo`, later effects
+  keep their state, one ring-out at the session end).
+  Logcat `D/AudioTrackOutput`: `track opened|released|rebuild`, and per block
+  boundary `seg A→B session=S pad=Xms underrun=Yms` (0/0 = gapless). A refused
+  format, failed write or parked track (head frozen 2.5 s while playing real
+  audio) → `OutputEvent.TrackFailed` for EVERY session with audio on or queued
+  for that track (a short one-shot can sit on it whole, End applied) → each
+  fails. A track idle 30 s is released; a paused or idle writer sleeps on its
+  inbox. The Narrator rewrites a flushed track's other sessions under a new
+  epoch, so a report sent before the Flush applied is ignored. The harness's
+  `VirtualAudioOutput` can model the device's start threshold
+  (`startThresholdMs` + a 250 ms `bufferMs`) and asynchronous pause
+  (`pauseLatencyMs`); its 30 ms default buffer hides both.
   `service/ServiceUi.kt` is the pure state → notification/media-session table.
   `service/SpeakShim.kt` holds the `ACTION_SPEAK` shim and `PlaybackHost`
   (`ServicePlaybackHost` sends `ACTION_HOST` so the service is foreground
@@ -312,9 +351,16 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   paused timeout.
 - Tests: `test/.../playback/` — `NarratorHarness` (virtual clock, fake
   ports, invariants), `FakeEngine` (lock, non-abortable mode, over-cap
-  re-split, internal buffer), `VirtualAudioOutput` (real
-  `StreamingEffectChain`, side-band frame marks), and the §5.2 scenarios in
-  `Narrator{Scenarios,Budget,Sessions}Test`. The reader's stories
+  re-split, internal buffer), `VirtualAudioOutput` (the device's own
+  `TrackWriter` over a virtual AudioTrack that plays whole mixer periods,
+  ignores a flush while playing and can be parked; side-band frame tags, so
+  stale audio is caught frame-exact), and the §5.2 scenarios in
+  `Narrator{Scenarios,Budget,Sessions,Output,ResumePoint}Test` (Output = C2:
+  no gap at a paragraph, one track per session, stale epochs, flush
+  mid-write, rate change, interrupt, parked track). The writer against a REAL
+  AudioTrack: `androidTest/.../AudioTrackOutputInstrumentedTest` — **emulator
+  only**, run with `am instrument`, never `connectedAndroidTest` (recipe in
+  its KDoc). The reader's stories
   (`ReaderPlaybackControllerTest`, `ReaderViewModelTest`), the shim
   (`SpeakShimTest`) and the shell's duties (`NarratorShellTest`) run against
   the same harness.
@@ -662,9 +708,9 @@ write Marmalade code.
 - **The Narrator's effect chain runs at PLAYBACK, not in the render**
   (2026-09-28, carried into the Narrator in C1): render jobs hand the
   writer raw engine PCM rendered at 1.0 (so RTF is measured pre-stretch);
-  the writer (`service/BlockTrackOutput`, one `StreamingEffectChain` per
-  block with a live Tempo stage in front of the alias's effects) shapes it
-  in 50 ms slices right before the AudioTrack. A speed change is an
+  the writer (`playback/TrackWriter` in `service/AudioTrackOutput`, one
+  `StreamingEffectChain` per session with a live Tempo stage in front of the
+  alias's effects) shapes it in 20 ms slices right before the AudioTrack. A speed change is an
   `OutputCommand.SetTempo`, audible within the AudioTrack's ~250 ms buffer,
   logged `D/Narrator: speed A→B` — no restart, no re-render, cloud voices
   included. Engine pre-roll (`playbackRate`) is sized at stream start only
