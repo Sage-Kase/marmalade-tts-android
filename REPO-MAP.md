@@ -225,6 +225,32 @@ When investigating **{concern}**, start at **{files}**:
   copies a baked engine from the APK (`SeedAssets`) instead of downloading
   — the v22 download still has the old layout. Only a piece's first slice
   is a `SynthAudio.resumePoint` (see the Narrator's resume points).
+- **Kokoro streams** (issue #13 "E", `engine/kokoro/KokoroDirectEngine.kt`,
+  prototyped by #5's dev engine): a bundle with `planner.onnx` + `gen.onnx`
+  + `genstats/<voice>.bin` (all 53 voices; the int8 v23 model cut in two,
+  weights unchanged; scripts `~/coding/scratch/kokoro-stream-d1c/`) plans
+  each piece ONCE and renders it in Kitten's slices (0.5 s, 1 s, doubling to
+  4 s, 4 frames of context; `KokoroStreamSlicing`, whose slices never cut
+  inside the trailing pause, so TailTrim + SilenceCompressor run on the last
+  slice alone). The generator's 48 norms can't use one fixed table per voice
+  (~2.9 dB off): `genstats/<voice>.bin` is a small per-voice linear model and
+  `KokoroGenStats` turns it into each piece's table from its pause share and
+  length. Sentences stay whole up to the 500-token cap (budget target 360, no
+  short first piece); over-cap chunks still re-split (`tokenPieces`). Pre-roll
+  above 1× is decided UP FRONT (`PrerollGate.prerollChunksFor`) from the last
+  measured streamed RTF (0.85 before any): K ≥ 2 holds every slice of chunks
+  0..K−2 until chunk K−1's first slice exists. Both graphs: CPU EP (QDQ),
+  intra-op spinning ON (#5 clean phone bench, Heart: first sound median /
+  worst 1.81 s / 5.6 s unsplit → 0.94 s / 1.38 s streamed + spinning). A
+  bundle without the layout (installed v23, the German engine, the debug 7M)
+  renders exactly as before through `model.onnx` (the whole path: short first
+  piece, chunk-grain `PrerollGate`, spinning off). `isInstalled` and the
+  installer's layout check accept either; `modelFile()` prefers a `.ort` of
+  any graph. Debug knobs (`EngineDevKnobs`): `kokoro.stream=false` forces the
+  whole path when model.onnx is present, `kokoro.spin=false|true`. The
+  `render path:` log line at load names the path, threads, spin and shrink;
+  `StreamPerf` has one plan line per request, then per piece `kokoro plan=…`,
+  per slice `kokoro slice=i/n`, and `kokoro piece … rtf=`.
 - `engine/SherpaEngine.kt` — abstract base (loadLock, ensureModelLoaded,
   synthesize, release, floatToPcm16, sampleRate)
 - `engine/KittenEngine.kt`, `engine/KokoroEngine.kt` — subclasses,
@@ -241,8 +267,9 @@ When investigating **{concern}**, start at **{files}**:
   engine): sentences split at `.!?;:` + space, newlines and 。！？；：; tiny
   sentences merge up to 90 tokens (never past 200, never the request's
   first); a sentence over 270 is cut at `,;:`/—/、，；： to ≤ 200, then
-  word level (spaces; Japanese kana→kanji/katakana steps), then hard.
-  Every piece of a cut sentence uses the WHOLE sentence's style row
+  word level (spaces; Japanese kana→kanji/katakana steps), then hard. (The
+  streaming path uses target 360 and never the short first piece below; see
+  "Kokoro streams".) Every piece of a cut sentence uses the WHOLE sentence's style row
   (`TokenChunk.rowTokens` → `kokoroStyleRow`) — Kokoro picks its row by
   token count, and a short piece's own row sounds like a sentence end.
   **Short first piece** (Max's blind A/B, `docs/release/first-piece-lab.html`):
