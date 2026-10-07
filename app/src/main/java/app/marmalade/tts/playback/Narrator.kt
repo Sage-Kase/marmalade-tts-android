@@ -1072,15 +1072,18 @@ class Narrator(
             is OutputEvent.ChunkStarted -> {
                 val s = sessionById(event.tag.sessionId) ?: return
                 if (event.tag.epoch != s.epoch) return
-                if (event.tag.segment != s.cursor || s.heardStartAt == null) {
-                    if (event.tag.segment != s.cursor) {
-                        s.cursor = event.tag.segment
-                        s.pausedInSegmentMs = 0
-                    }
+                val newSegment = event.tag.segment != s.cursor || s.heardStartAt == null
+                if (event.tag.segment != s.cursor) {
+                    s.cursor = event.tag.segment
+                    s.pausedInSegmentMs = 0
+                }
+                // Before trimming: the old segment's heard chunk would mark
+                // this one's unheard chunks as heard.
+                s.heardChunk = event.tag.chunk
+                if (newSegment) {
                     s.heardStartAt = clock()
                     trimHeard(s)
                 }
-                s.heardChunk = event.tag.chunk
                 if (s.status == Status.Buffering) s.status = Status.Playing
             }
             is OutputEvent.ChunkFinished -> {
