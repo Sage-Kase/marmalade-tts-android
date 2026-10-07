@@ -5,6 +5,19 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **Kitten starts speaking sooner**: the built-in Kitten voices now
+  stream each sentence in short slices (half a second, then one, two and
+  four seconds) instead of rendering the whole sentence or clause before
+  the first sound. The model is the same Kitten Nano 0.8, cut into two
+  parts so the voice part can render piece by piece; nothing was
+  retrained. Stopping or skipping cuts the render in flight short, as
+  before.
+- An installed Kitten from an earlier version is replaced from the copy
+  inside the app the first time the new version starts (no download),
+  and installing Kitten from the Engines screen copies it from the app
+  instead of downloading it.
+
 ## [1.1.0] - 2026-10-03
 
 ### Added

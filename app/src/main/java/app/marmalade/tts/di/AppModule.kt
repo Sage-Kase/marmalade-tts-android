@@ -37,6 +37,7 @@ import app.marmalade.tts.install.EngineFilesDir
 import app.marmalade.tts.lang.LangDetector
 import app.marmalade.tts.install.HttpFetcher
 import app.marmalade.tts.install.NativeEngineHandle
+import app.marmalade.tts.install.SeedAssets
 import app.marmalade.tts.install.UrlHttpFetcher
 import app.marmalade.tts.perf.DeviceCapability
 import app.marmalade.tts.reader.LanguageAwareReaderVoicePicker
@@ -174,6 +175,11 @@ object AppModule {
     @Singleton
     fun provideEngineFilesDir(@ApplicationContext ctx: Context): EngineFilesDir =
         EngineFilesDir { ctx.filesDir }
+
+    /** The APK's assets, for installing a baked engine from its seed. */
+    @Provides
+    @Singleton
+    fun provideSeedAssets(@ApplicationContext ctx: Context): SeedAssets = SeedAssets { ctx.assets }
 
     /**
      * Routes the installer's `NativeEngineHandle` to the live engine

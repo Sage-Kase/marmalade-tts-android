@@ -6,7 +6,6 @@ import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.os.Build
 import android.util.Log
-import app.marmalade.tts.audio.TailTrim
 import app.marmalade.tts.audio.TextChunker
 import app.marmalade.tts.data.KittenDirectVoiceCatalog
 import app.marmalade.tts.data.SettingsRepository
@@ -54,12 +53,28 @@ import kotlinx.coroutines.withContext
 // used a BSD-3 OpenPhonemizer ONNX to stay GPL-free; it was dropped because
 // IPA-convention mismatches degraded quality.)
 //
+// Streaming (issue #10, from the #3/#9 prototype): the model is shipped cut
+// in two (scripts/kitten-stream/split.py, nothing retrained). Each chunk is
+// planned ONCE — the planner graph runs the text model, durations, pitch, the
+// decoder's frame-rate front and the harmonic source with the sentence's one
+// style row — and the generator graph (iSTFTNet, ~98% of the decoder's time)
+// renders the planned frames in slices of 0.5 s, 1 s, then doubling to 4 s,
+// each sent the moment it exists. The generator's InstanceNorms use fixed
+// per-voice statistics (genstats/), which makes it purely convolutional, so
+// slices rendered with 4 frames of context join exactly; the fixed statistics
+// differ from the whole-sentence ones by about Kitten's own run-to-run
+// variation (~0.5 dB mel). There is no non-streaming mode: one slice costs
+// what the unsplit model did, each extra one ~120 ms on a Pixel 8a (#5).
+//
 // Bundle layout (`${filesDir}/engines/kitten-direct-v0_8/`):
-//   kitten.onnx                       — acoustic model (15M params)
+//   planner.onnx, gen.onnx            — the two graphs (15M params between them)
+//   genstats/<name>.bin               — float32 [2, 3456] generator norm table per voice
 //   voices/<name>.bin                 — float32 [N, 256] style table per voice
 //   phonemizer/                       — legacy (espeak data + ≤v14 .so);
 //                                       ignored — the APK carries both the
 //                                       lib and the shared data
+// An older bundle (one kitten.onnx: the v22 download, seeds before 1.2) fails
+// the layout check and is replaced from the APK's seed (EngineInstaller).
 //
 // Carries over the Pocket engine perf lessons (A-G atoms):
 //   - direct ByteBuffers for ONNX inputs
@@ -67,12 +82,6 @@ import kotlinx.coroutines.withContext
 //   - per-device thread autodetect via CpuClusterDetector
 //   - warmup synth after load
 //   - manual thread override from Settings
-//
-// What's still TODO (split into later atoms so each is verifiable on its
-// own — see [[one-change-then-verify]]):
-//   - Sentence-boundary chunking + per-chunk streaming (#63 / atom Q)
-//   - Bundle creation + EngineCatalog entry           (#62 / atom R)
-//   - Device validation against sherpa-Kitten         (#64 / atom S)
 // -----------------------------------------------------------------------------
 
 private const val TAG = "KittenDirectEngine"
@@ -165,7 +174,7 @@ open class KittenDirectEngine @Inject constructor(
      * This does NOT retire the per-voice priors in [SPEED_PRIORS]. Those
      * are not user speed: they are part of each voice's blessed sound,
      * Max's picks from the 2026-08-07 ear-lab, and the raw model runs
-     * ~25% too fast without them. So [inferIpa] keeps applying
+     * ~25% too fast without them. So [plan] keeps applying
      * `prior × incoming speed` to the tensor natively — with the
      * incoming speed now pinned at 1.0, that is just the prior. Only the
      * user-requested rate moved to the effect chain.
@@ -188,8 +197,10 @@ open class KittenDirectEngine @Inject constructor(
     override val maxInputChars: Int = 255
 
     private val engineDir: File get() = File(ctx.filesDir, "engines/$engineName")
-    private val acousticModelFile: File get() = File(engineDir, MODEL_FILE)
+    private val plannerFile: File get() = File(engineDir, PLANNER_FILE)
+    private val genFile: File get() = File(engineDir, GEN_FILE)
     private val voicesDir: File get() = File(engineDir, VOICES_DIR)
+    private val genStatsDir: File get() = File(engineDir, GENSTATS_DIR)
 
     private val loadLock = Mutex()
     private val synthLock = Mutex()
@@ -197,11 +208,15 @@ open class KittenDirectEngine @Inject constructor(
     // -- live state (null while not loaded) -----------------------------------
 
     @Volatile private var env: OrtEnvironment? = null
-    private var acousticSession: OrtSession? = null
+    private var plannerSession: OrtSession? = null
+    private var genSession: OrtSession? = null
     private var phonemizer: EspeakPhonemizer? = null
 
     /** Voice style tables (`float32[N, 256]`) cached per voice. */
     private val voiceTables = HashMap<String, FloatArray>()
+
+    /** Generator norm tables (`float32[2, S]`) cached per voice. */
+    private val normTables = HashMap<String, FloatArray>()
 
     /**
      * P-D: warmup runs async on this scope after [doLoad] returns, so the
@@ -217,10 +232,10 @@ open class KittenDirectEngine @Inject constructor(
 
     override fun isInstalled(): Boolean {
         if (!engineDir.isDirectory) return false
-        if (!acousticModelFile.isFile) return false
-        if (!voicesDir.isDirectory) return false
+        if (!plannerFile.isFile || !genFile.isFile) return false
         for (voice in voiceMetas) {
-            if (!File(voicesDir, "${voice.displayName.lowercase()}.bin").isFile) return false
+            val name = "${voice.displayName.lowercase()}.bin"
+            if (!File(voicesDir, name).isFile || !File(genStatsDir, name).isFile) return false
         }
         return true
     }
@@ -256,17 +271,22 @@ open class KittenDirectEngine @Inject constructor(
 
     private fun doLoad(intraOpThreads: Int) {
         // Build everything against a local [ort]; only publish to the
-        // [env] field at the END, after [acousticSession] and [phonemizer]
+        // [env] field at the END, after both sessions and [phonemizer]
         // are both set. ensureLoadedSuspending uses an unlocked `if (env
         // != null) return` fast path — assigning env mid-load lets a
         // concurrent caller skip the lock and reach inference with
-        // acousticSession still null ("acoustic session missing").
+        // a session still null ("planner session missing").
         val ort = OrtEnvironment.getEnvironment()
         // ORT copies the options into the native session; close them after
         // so keepalive evict/reload cycles don't leak native memory.
-        acousticSession = buildSessionOptions(intraOpThreads).use {
-            createSession(ort, it, acousticModelFile)
-        }
+        plannerSession = buildSessionOptions(intraOpThreads).use { createSession(ort, it, plannerFile) }
+        genSession = buildSessionOptions(intraOpThreads, generator = true).use { createSession(ort, it, genFile) }
+        Log.i(
+            TAG,
+            "streaming render: planner (XNNPACK) + generator (CPU EP, spinning), slices ${KittenStreamSlicing.FIRST_SLICE_FRAMES}, " +
+                "${KittenStreamSlicing.SLICE_FRAMES}, doubling to ${KittenStreamSlicing.MAX_SLICE_FRAMES} frames, " +
+                "context ${KittenStreamSlicing.CONTEXT_FRAMES}",
+        )
 
         // libespeak-ng.so is compiled from source into the APK, and the data
         // is the app-level shared full-language tree — bundle-shipped espeak
@@ -289,27 +309,37 @@ open class KittenDirectEngine @Inject constructor(
         env = ort
 
         // P-D: warmup runs async so doLoad returns as soon as ORT + espeak
-        // are usable. Warmup acquires synthLock to serialise against any
-        // user synth that lands during the gap. ensureModelLoaded() (and
+        // are usable. Warmup takes synthLock per ORT call, like any synth,
+        // so a user synth landing during the gap interleaves with it. ensureModelLoaded() (and
         // by extension SpeechPlayer.preload) considers the engine "ready"
         // the moment doLoad returns — a Speak tap arriving before warmup
         // completes pays a brief synthLock wait instead of blocking the
         // entire load.
-        warmupJob = warmupScope.launch {
-            synthLock.withLock { warmupSynth() }
-        }
+        warmupJob = warmupScope.launch { warmupSynth() }
     }
 
     /**
      * Same options stack as [app.marmalade.tts.engine.PocketEngine.doLoad],
      * factored here to make any future tuning land in both engines via a
      * single edit. See PocketEngine's load() for the calibration history.
+     *
+     * The [generator] graph differs (issue #10, Pixel 8a, Bella, B1 set):
+     * it runs ~99% on the CPU EP (Conv), so XNNPACK only adds partitioning
+     * cost, and with XNNPACK gone its intra-op threads may spin without the
+     * contention that made Pocket turn spinning off. Measured one change
+     * at a time: streamed RTF 0.49 → 0.43 (CPU EP only) → 0.35–0.36 (plus
+     * spinning); median first sound 1013 → 900 → 831–890 ms. The planner keeps XNNPACK
+     * (its text model runs on it) and no spinning.
      */
-    private fun buildSessionOptions(intraOpThreads: Int): OrtSession.SessionOptions {
+    private fun buildSessionOptions(intraOpThreads: Int, generator: Boolean = false): OrtSession.SessionOptions {
         return OrtSession.SessionOptions().apply {
             setIntraOpNumThreads(intraOpThreads)
             setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
             setMemoryPatternOptimization(true)
+            if (generator) {
+                addConfigEntry("session.intra_op.allow_spinning", "1")
+                return@apply
+            }
             // x86_64 only exists in debug builds, for the emulator (release
             // ships ARM only). ORT's x86_64 XNNPACK EP segfaults in
             // createSession there, crashing the first-launch benchmark, so
@@ -329,16 +359,17 @@ open class KittenDirectEngine @Inject constructor(
     }
 
     /**
-     * Touch each session with a 1-character synth so ORT's first-call
-     * kernel compilation costs are folded into engine load. Mirrors
-     * PocketEngine's warmup strategy.
+     * Touch both sessions with a 1-word synth so ORT's first-call kernel
+     * compilation costs are folded into engine load. Mirrors PocketEngine's
+     * warmup strategy.
      */
     private suspend fun warmupSynth() {
         val t0 = System.currentTimeMillis()
         try {
             val firstVoice = voiceMetas.first().displayName
-            for (piece in ipaPieces("Hi.", KITTEN_DEFAULT_ESPEAK_VOICE)) {
-                inferIpa(piece.text, piece.ipa, firstVoice, speed = 1.0f, rowText = piece.text)
+            val pieces = synthLock.withLock { ipaPieces("Hi.", KITTEN_DEFAULT_ESPEAK_VOICE) }
+            for (piece in pieces) {
+                renderIpa(piece.text, piece.ipa, firstVoice, speed = 1.0f, rowText = piece.text) { _, _ -> }
             }
             Log.i(TAG, "warmup synth done in ${System.currentTimeMillis() - t0} ms")
         } catch (t: Throwable) {
@@ -375,13 +406,12 @@ open class KittenDirectEngine @Inject constructor(
     }
 
     /**
-     * Sentence-chunked streaming. Splits the input via [TextChunker] at
-     * [maxInputChars], synthesises one chunk at a time inside
-     * [synthLock] (so multiple concurrent callers don't trample each
-     * other's ORT session), and emits each chunk's PCM the moment it's
-     * ready. This is what gives KittenDirect a usable TTFA on long
-     * inputs — without it, a paragraph would block on the full synth
-     * before any audio plays.
+     * Clause-chunked, slice-streamed synthesis. Splits the input via
+     * [TextChunker.clauseChunks], plans one chunk at a time and emits its
+     * audio slice by slice (0.5 s, 1 s, 2 s, then 4 s — see [renderIpa]),
+     * so the first sound waits for one planner call and one 0.5 s slice,
+     * not the whole first chunk. Every ORT call runs inside [synthLock]
+     * (one session pair, non-reentrant).
      *
      * Chunks are never word-split, so a run-on sentence can phonemize
      * past the 512-position BERT limit; [ipaPieces] then re-splits it
@@ -392,13 +422,13 @@ open class KittenDirectEngine @Inject constructor(
         voiceId: String,
         speed: Float,
         phonemizationLanguage: String?,
-        // Unused: warm Kitten renders at RTF 0.24–0.27 on the 8a, so even a
-        // 2× stretch leaves ~2× headroom on the played clock — no pre-roll
+        // Unused: streamed Kitten renders at RTF ~0.3 on a cool 8a (~0.7
+        // warm, issue #9), so playback rarely outruns it — no pre-roll
         // needed. Wire a PrerollGate here (see KokoroDirectEngine) if a
         // slower device ever proves otherwise.
         playbackRate: Float,
     ): Flow<SynthAudio> = channelFlow {
-        // TTFA diagnostic: split "load wait" from "first chunk inference".
+        // TTFA diagnostic: split "load wait" from the first render.
         // If loadMs > 0 on the first run after a cold start, the user is paying
         // load + warmup as part of TTFA — async warmup (P-D) might shave it
         // off if we also wire eager pre-load somewhere.
@@ -423,18 +453,13 @@ open class KittenDirectEngine @Inject constructor(
         // newline = sentence boundary, clause cuts at `;` `:` + dialogue
         // intro, no merging, never word-split. Fragments keep their
         // PRE-SPLIT sentence's style row; the gap after each chunk is
-        // sized by boundary type. The old R16 whole-sentence mode also
-        // made the first chunk the whole first sentence, which put
-        // Kitten's TTFA behind Kokoro's despite 3× the inference speed.
+        // sized by boundary type. The clause cuts are prosody, not latency
+        // (the model gives a mid-render `;` `:` only ~50 ms of pause), so
+        // they stayed when streaming made the first chunk's length cheap.
         val chunks = TextChunker.clauseChunks(text)
         if (chunks.isEmpty()) return@channelFlow
 
-        // P-A diagnostic: track inter-chunk producer rhythm. The "gap" line
-        // measures wall-clock between two consecutive chunks LEAVING the
-        // producer — i.e. how long downstream had to wait between handoffs.
-        // RTF (real-time factor) = inferMs / audioMs; <1 = producer faster
-        // than playback (no audible gap possible from inference alone).
-        var prevSendNs = 0L
+        var firstSent = false
         for ((idx, chunk) in chunks.withIndex()) {
             // A cancelled stream (reader tap, Stop, skip) must stop HERE:
             // inference blocks and the uncontended lock/buffered send never
@@ -442,9 +467,6 @@ open class KittenDirectEngine @Inject constructor(
             // every remaining chunk while holding the service's synth mutex —
             // the next request's TTFA paid for all of them (~11 s on the 8a).
             ensureActive()
-            // Single ORT session is non-reentrant, so we serialise per piece.
-            // The send() outside the lock is fine because PCM is already a
-            // ShortArray; no further session access happens during emit.
             val pieces = synthLock.withLock { ipaPieces(chunk.text, espeakVoice) }
             // An over-cap chunk's pieces go out one at a time, each as soon
             // as it is rendered, instead of all joined after the last one.
@@ -452,38 +474,28 @@ open class KittenDirectEngine @Inject constructor(
                 // Per-piece check: a stop lands between pieces rather than
                 // after the whole chunk.
                 ensureActive()
-                val inferStartNs = System.nanoTime()
-                // Every piece keeps the sentence's [rowText] register.
-                val pcm = synthLock.withLock {
-                    inferIpa(piece.text, piece.ipa, voiceName, speed, rowText = chunk.rowText)
-                }
-                val inferMs = (System.nanoTime() - inferStartNs) / 1_000_000
-                if (pcm.isEmpty()) continue
-                val audioMs = pcm.size * 1000L / sampleRate
-                val gapMs = if (prevSendNs == 0L) -1L else (System.nanoTime() - prevSendNs) / 1_000_000
-                val rtf = if (audioMs > 0) inferMs.toDouble() / audioMs else Double.NaN
-                val pieceTag = if (pieces.size > 1) " piece=$pi/${pieces.size}" else ""
-                Log.d(PERF_TAG, "kitten chunk=$idx/${chunks.size}$pieceTag infer=${inferMs}ms audio=${audioMs}ms rtf=${"%.2f".format(rtf)} gap=${gapMs}ms textLen=${piece.text.length}")
-                if (prevSendNs == 0L) {
-                    val ttfaMs = (System.nanoTime() - streamStartNs) / 1_000_000
-                    Log.d(PERF_TAG, "kitten TTFA=${ttfaMs}ms (loadWait=${loadWaitMs}ms + firstInfer=${inferMs}ms + overhead=${ttfaMs - loadWaitMs - inferMs}ms)")
-                }
-                // Boundary-typed gap rides on the chunk that closes it
-                // (see CLAUSE_GAP_MS/SENTENCE_GAP_MS) — i.e. on its last
-                // piece. Not appended after the last chunk.
-                val out = if (idx < chunks.size - 1 && pi == pieces.size - 1) {
-                    val gap = if (chunk.sentenceEnd) SENTENCE_GAP_MS else CLAUSE_GAP_MS
-                    pcm.copyOf(pcm.size + sampleRate * gap / 1000)
+                // Boundary-typed gap rides on the chunk's last slice (see
+                // CLAUSE_GAP_MS/SENTENCE_GAP_MS). Not after the last chunk.
+                val gapSamples = if (idx < chunks.size - 1 && pi == pieces.size - 1) {
+                    sampleRate * (if (chunk.sentenceEnd) SENTENCE_GAP_MS else CLAUSE_GAP_MS) / 1000
                 } else {
-                    pcm
+                    0
                 }
-                send(SynthAudio(pcm = out, sampleRate = sampleRate))
-                prevSendNs = System.nanoTime()
+                // Every piece keeps the sentence's [rowText] register.
+                renderIpa(piece.text, piece.ipa, voiceName, speed, rowText = chunk.rowText) { pcm, last ->
+                    if (!firstSent) {
+                        firstSent = true
+                        val ttfaMs = (System.nanoTime() - streamStartNs) / 1_000_000
+                        Log.d(PERF_TAG, "kitten TTFA=${ttfaMs}ms (loadWait=${loadWaitMs}ms)")
+                    }
+                    val out = if (last && gapSamples > 0) pcm.copyOf(pcm.size + gapSamples) else pcm
+                    send(SynthAudio(pcm = out, sampleRate = sampleRate))
+                }
             }
         }
     }.flowOn(Dispatchers.Default)
 
-    /** One model call's worth of text: [text] and its ≤ [MAX_PHONEMES_PER_CHUNK] IPA. */
+    /** One planner call's worth of text: [text] and its ≤ [MAX_PHONEMES_PER_CHUNK] IPA. */
     private class IpaPiece(val text: String, val ipa: String)
 
     /**
@@ -507,20 +519,74 @@ open class KittenDirectEngine @Inject constructor(
         return pieces.map { IpaPiece(it, phon.phonemize(it, espeakVoice).take(MAX_PHONEMES_PER_CHUNK)) }
     }
 
-    /** One ORT call for ≤ [MAX_PHONEMES_PER_CHUNK] IPA characters of [text]. */
-    private suspend fun inferIpa(
+    /**
+     * One planned piece: everything the generator needs, copied out of the
+     * planner's results so the session is free between slices. [x] is the
+     * decoder front's `[channels, 2 × totalFrames]` output, row-major; [har]
+     * the harmonic source, `totalFrames × FRAME_SAMPLES` samples; [gn] the
+     * voice's generator norm table; [speech] the frames kept after the
+     * lead/tail trim.
+     */
+    private class Plan(
+        val x: FloatArray,
+        val channels: Int,
+        val totalFrames: Int,
+        val s128: FloatArray,
+        val har: FloatArray,
+        val gn: FloatArray,
+        val speech: IntRange,
+    )
+
+    /**
+     * Render [ipa] (≤ [MAX_PHONEMES_PER_CHUNK] characters of [text]): plan it
+     * once, then generate its speech frames slice by slice, handing each
+     * slice's PCM to [emit] (`last` on the final one) as soon as it exists.
+     * [synthLock] is held per ORT call only, never across [emit]. Both kinds
+     * of run are abortable: a cancelled stream (reader tap, Stop) stops inside
+     * the planner or slice in flight instead of finishing it.
+     */
+    private suspend fun renderIpa(
         text: String,
         ipa: String,
         voiceName: String,
         speed: Float,
         rowText: String,
-    ): ShortArray {
-        if (ipa.isEmpty()) return ShortArray(0)
-        val ort = env ?: error("engine not loaded")
-        val session = acousticSession ?: error("acoustic session missing")
+        emit: suspend (pcm: ShortArray, last: Boolean) -> Unit,
+    ) {
+        if (ipa.isEmpty()) return
+        val inputIds = wrapForKitten(encodePhonemes(ipa))
+        val t0 = System.nanoTime()
+        val plan = synthLock.withLock { plan(text, ipa, inputIds, voiceName, speed, rowText) }
+        val planMs = (System.nanoTime() - t0) / 1_000_000
+        val slices = KittenStreamSlicing.slices(
+            plan.speech, plan.totalFrames, max = KittenStreamSlicing.MAX_SLICE_FRAMES,
+        )
+        var genMs = 0L
+        for ((i, slice) in slices.withIndex()) {
+            val tGen = System.nanoTime()
+            val pcm = synthLock.withLock { generate(plan, slice) }
+            val sliceMs = (System.nanoTime() - tGen) / 1_000_000
+            genMs += sliceMs
+            Log.v(PERF_TAG, "kitten slice=$i/${slices.size} frames=${slice.render.count()} gen=${sliceMs}ms")
+            emit(pcm, i == slices.size - 1)
+        }
+        val audioMs = plan.speech.count() * KittenTrim.FRAME_SAMPLES * 1000L / sampleRate
+        val rtf = if (audioMs > 0) (planMs + genMs).toDouble() / audioMs else Double.NaN
+        Log.d(PERF_TAG, "kitten piece textLen=${text.length} plan=${planMs}ms gen=${genMs}ms slices=${slices.size} audio=${audioMs}ms rtf=${"%.2f".format(rtf)}")
+    }
 
-        val phonemeIds = encodePhonemes(ipa)
-        val inputIds = wrapForKitten(phonemeIds)
+    /** The planner run for one piece. Caller holds [synthLock]. */
+    private suspend fun plan(
+        text: String,
+        ipa: String,
+        inputIds: IntArray,
+        voiceName: String,
+        speed: Float,
+        rowText: String,
+    ): Plan {
+        val ort = env ?: error("engine not loaded")
+        val session = plannerSession ?: error("planner session missing")
+
         // Upstream KittenML indexes voice style by the ORIGINAL TEXT
         // length, not the phoneme-string length
         // (onnx_model.py:108 `ref_id = min(len(text), voices[voice].shape[0] - 1)`).
@@ -530,6 +596,7 @@ open class KittenDirectEngine @Inject constructor(
         // PRE-SPLIT sentence when [text] is a clause fragment — the
         // fragment must keep its sentence's register (F rules).
         val style = lookupVoiceStyle(voiceName, rowText.length)
+        val gn = normTable(voiceName)
 
         // The per-voice prior stays native. The raw model runs ~25% too
         // fast at speed=1.0 — without the prior we sound rushed and words
@@ -555,10 +622,7 @@ open class KittenDirectEngine @Inject constructor(
         val speedTensor = directFloatTensor(ort, longArrayOf(1)) { buf ->
             buf.put(effectiveSpeed)
         }
-
         try {
-            // Abortable: a cancelled stream (reader tap, Stop) stops this run
-            // between graph nodes instead of finishing an unwanted chunk.
             return abortableInference(engineName, ::OrtRunAbort) { abort ->
                 session.run(
                     mapOf(
@@ -568,27 +632,85 @@ open class KittenDirectEngine @Inject constructor(
                     ),
                     abort.options,
                 ).use { results ->
-                    val raw = extractWaveform(results[0].value)
-                    // Duration-exact lead/tail trim (CLI _trim_run port). The
-                    // model's second output is per-token frame counts; when it
-                    // matches the waveform, trim the BOS lead pad and the
-                    // trailing pause group. Contract broken / output missing →
-                    // amplitude-aware tail trim (see TailTrim), which is the same
-                    // recipe the CLI kokoro daemon uses when it has no usable
-                    // alignment. The blind 5000-sample chop that used to live here
-                    // silently cut ~200 ms off the end (issue #8).
-                    val dur = if (results.size() > 1) extractDurations(results[1].value) else null
-                    val trimmed = dur?.let { KittenTrim.trim(inputIds, raw, it) } ?: run {
-                        warnTrimFallback(inputIds, raw, dur)
-                        TailTrim.trimTail(raw)
+                    val xTensor = results.get(GEN_X).get() as OnnxTensor
+                    val xLen = xTensor.info.shape[2].toInt()
+                    val x = floatsOf(xTensor)
+                    val har = floatsOf(results.get(GEN_HAR).get() as OnnxTensor)
+                    val totalFrames = xLen / 2
+                    check(har.size == totalFrames * KittenTrim.FRAME_SAMPLES) {
+                        "planner outputs disagree: x=$xLen values, har=${har.size} samples"
                     }
-                    floatToPcm16(trimmed)
+                    val dur = extractDurations(results.get(DURATION).get().value)
+                    Plan(
+                        x = x,
+                        channels = x.size / xLen,
+                        totalFrames = totalFrames,
+                        s128 = floatsOf(results.get(GEN_S).get() as OnnxTensor),
+                        har = har,
+                        gn = gn,
+                        speech = speechFrames(inputIds, dur, totalFrames),
+                    )
                 }
             }
         } finally {
             inputIdTensor.close()
             styleTensor.close()
             speedTensor.close()
+        }
+    }
+
+    /**
+     * The frames to keep: duration-exact lead/tail trim (CLI `_trim_run`
+     * port, see [KittenTrim]) — the BOS lead pad and the trailing pause
+     * group are never rendered. When the durations don't add up to the
+     * planned frames (never seen since issue #8's rounding fix) everything is
+     * kept rather than cutting speech.
+     */
+    private fun speechFrames(ids: IntArray, dur: LongArray?, totalFrames: Int): IntRange {
+        if (dur != null && dur.sum() == totalFrames.toLong()) {
+            KittenStreamSlicing.speechFrames(ids, dur)?.let { return it }
+        }
+        Log.w(
+            TAG,
+            "duration contract broken: frames=$totalFrames vs Σdur=${dur?.sum()} " +
+                "(ids=${ids.size} durs=${dur?.size}) — rendering untrimmed",
+        )
+        return 0 until totalFrames
+    }
+
+    /** One generator slice of [plan]: its kept PCM. Caller holds [synthLock]. */
+    private suspend fun generate(plan: Plan, slice: KittenStreamSlicing.Slice): ShortArray {
+        val ort = env ?: error("engine not loaded")
+        val session = genSession ?: error("generator session missing")
+        val first = slice.render.first
+        val frames = slice.render.count()
+        val xLen = 2 * plan.totalFrames
+        val xTensor = directFloatTensor(ort, longArrayOf(1, plan.channels.toLong(), 2L * frames)) { buf ->
+            for (c in 0 until plan.channels) buf.put(plan.x, c * xLen + 2 * first, 2 * frames)
+        }
+        val harTensor = directFloatTensor(ort, longArrayOf(1, frames.toLong() * KittenTrim.FRAME_SAMPLES, 1)) { buf ->
+            buf.put(plan.har, first * KittenTrim.FRAME_SAMPLES, frames * KittenTrim.FRAME_SAMPLES)
+        }
+        val sTensor = directFloatTensor(ort, longArrayOf(1, plan.s128.size.toLong())) { it.put(plan.s128) }
+        val gnTensor = directFloatTensor(ort, longArrayOf(2, plan.gn.size / 2L)) { it.put(plan.gn) }
+        try {
+            return abortableInference(engineName, ::OrtRunAbort) { abort ->
+                session.run(
+                    mapOf(GEN_X to xTensor, GEN_S to sTensor, GEN_HAR to harTensor, GEN_NORMS to gnTensor),
+                    abort.options,
+                ).use { results ->
+                    val wav = extractWaveform(results[0].value)
+                    check(wav.size >= slice.keepOffsetSamples + slice.keepSamples) {
+                        "generator returned ${wav.size} samples for $frames frames"
+                    }
+                    floatToPcm16(wav, slice.keepOffsetSamples, slice.keepSamples)
+                }
+            }
+        } finally {
+            xTensor.close()
+            harTensor.close()
+            sTensor.close()
+            gnTensor.close()
         }
     }
 
@@ -630,11 +752,22 @@ open class KittenDirectEngine @Inject constructor(
             Log.w(TAG, "voice file missing for $voiceName")
             return FloatArray(0)
         }
+        return readFloats(file)
+    }
+
+    /** float32 `[2, S]`: per-channel multiply (row 0) and add (row 1) for the generator's norms. */
+    private fun normTable(voiceName: String): FloatArray =
+        normTables.getOrPut(voiceName) { readFloats(File(genStatsDir, "${voiceName.lowercase()}.bin")) }
+
+    private fun readFloats(file: File): FloatArray {
         val bytes = file.readBytes()
         val out = FloatArray(bytes.size / 4)
         ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer().get(out)
         return out
     }
+
+    private fun floatsOf(tensor: OnnxTensor): FloatArray =
+        tensor.floatBuffer.let { buf -> FloatArray(buf.remaining()).also { buf.get(it) } }
 
     /** Cast ORT's polymorphic output into a flat FloatArray. */
     private fun extractWaveform(value: Any?): FloatArray = when (value) {
@@ -646,31 +779,10 @@ open class KittenDirectEngine @Inject constructor(
         else -> FloatArray(0)
     }
 
-    /**
-     * Name the reason the duration-exact trim was skipped. Without this the
-     * fallback was silent, so nobody could tell from a device log whether a
-     * reported cutoff came from a broken duration contract or from the trim
-     * itself (issue #8).
-     */
-    private fun warnTrimFallback(ids: IntArray, raw: FloatArray, dur: LongArray?) {
-        if (dur == null) {
-            Log.w(TAG, "no usable duration output — amplitude tail trim instead of duration-exact trim")
-            return
-        }
-        var total = 0L
-        for (d in dur) total += d
-        Log.w(
-            TAG,
-            "duration contract broken: wav.size=${raw.size} vs " +
-                "${KittenTrim.FRAME_SAMPLES}×Σdur=${total * KittenTrim.FRAME_SAMPLES} " +
-                "(ids=${ids.size} durs=${dur.size}) — amplitude tail trim instead",
-        )
-    }
-
-    private fun floatToPcm16(samples: FloatArray): ShortArray {
-        val out = ShortArray(samples.size)
-        for (i in samples.indices) {
-            val clamped = samples[i].coerceIn(-1.0f, 1.0f)
+    private fun floatToPcm16(samples: FloatArray, offset: Int, count: Int): ShortArray {
+        val out = ShortArray(count)
+        for (i in 0 until count) {
+            val clamped = samples[offset + i].coerceIn(-1.0f, 1.0f)
             out[i] = (clamped * 32767.0f).toInt().toShort()
         }
         return out
@@ -737,18 +849,31 @@ open class KittenDirectEngine @Inject constructor(
         // touch sessions we're about to null out.
         warmupJob?.cancel()
         warmupJob = null
-        try { acousticSession?.close() } catch (_: Throwable) {}
+        try { plannerSession?.close() } catch (_: Throwable) {}
+        try { genSession?.close() } catch (_: Throwable) {}
         try { phonemizer?.close() } catch (_: Throwable) {}
-        acousticSession = null
+        plannerSession = null
+        genSession = null
         phonemizer = null
         voiceTables.clear()
+        normTables.clear()
         env = null  // process-scoped; do not close
     }
 
     companion object {
         const val ENGINE_NAME = "kitten-direct-v0_8"
-        private const val MODEL_FILE = "kitten.onnx"
+        private const val PLANNER_FILE = "planner.onnx"
+        private const val GEN_FILE = "gen.onnx"
         private const val VOICES_DIR = "voices"
+        private const val GENSTATS_DIR = "genstats"
+
+        // Graph-boundary tensors (scripts/kitten-stream/split.py): planner
+        // outputs, generator inputs. GEN_NORMS is the generator's norm table.
+        private const val GEN_X = "/decoder/decode.3/Mul_output_0"
+        private const val GEN_S = "/Unsqueeze_12_output_0"
+        private const val GEN_HAR = "/decoder/generator/m_source/l_tanh/Tanh_output_0"
+        private const val GEN_NORMS = "gn"
+        private const val DURATION = "duration"
 
         /**
          * Per-token durations from the model's second output, as frame

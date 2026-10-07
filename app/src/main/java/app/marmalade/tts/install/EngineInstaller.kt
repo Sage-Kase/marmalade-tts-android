@@ -95,6 +95,18 @@ class InstallException(
  * `HttpURLConnection`; unit tests substitute a synchronous in-memory
  * fetcher so they don't need to stand up a real TCP server.
  */
+/**
+ * The APK's assets, where baked engine trees live under `engines-seed/`
+ * ([EngineInstaller.seedFromAssets]). Null when there are none (JVM tests).
+ */
+fun interface SeedAssets {
+    fun get(): AssetManager?
+
+    companion object {
+        val NONE = SeedAssets { null }
+    }
+}
+
 fun interface HttpFetcher {
     /**
      * Open an input stream for [url]. Implementations are responsible for
@@ -424,6 +436,7 @@ open class EngineInstaller @Inject constructor(
     private val filesDir: EngineFilesDir,
     private val engineHandle: NativeEngineHandle,
     private val httpFetcher: HttpFetcher,
+    private val seedAssets: SeedAssets = SeedAssets.NONE,
 ) {
 
     init {
@@ -475,6 +488,11 @@ open class EngineInstaller @Inject constructor(
      * the existing engine directory is removed first so the new install
      * starts clean.
      *
+     * An engine baked into the APK (Kitten) is copied from there instead of
+     * downloaded: the APK's copy is the layout this build's engine reads (the
+     * v22 Kitten download still has the single kitten.onnx that 1.2's
+     * streaming engine replaced), and it needs no network.
+     *
      * @return Result.success(Unit) on success, Result.failure(IOException)
      *   on any download / verification / I/O error. The state flow has
      *   already been updated to Failed before the Result returns.
@@ -504,6 +522,7 @@ open class EngineInstaller @Inject constructor(
             }
             return result
         }
+        seedAssets.get()?.takeIf { hasSeed(it, engineName) }?.let { return seedFromAssets(it, engineName) }
         return installViaDescriptor(descriptor, onProgress)
     }
 
@@ -684,7 +703,7 @@ open class EngineInstaller @Inject constructor(
 
         val assetRoot = "$SEED_ASSET_DIR/$engineName"
         // No baked tree for this engine — nothing to do.
-        if (assets.list(assetRoot).isNullOrEmpty()) {
+        if (!hasSeed(assets, engineName)) {
             return@withLock Result.success(Unit)
         }
 
@@ -720,6 +739,19 @@ open class EngineInstaller @Inject constructor(
         }
         } // installMutex.withLock
     }
+
+    /**
+     * Re-seed [engineName] when it is installed but its files no longer pass
+     * the layout check — an app update changed the baked bundle (1.2: Kitten's
+     * kitten.onnx became planner.onnx + gen.onnx + genstats/) or the files
+     * were damaged. An engine the user uninstalled stays uninstalled, and a
+     * copy that verifies is left alone ([seedFromAssets] is a no-op for it).
+     */
+    open suspend fun refreshSeed(assets: AssetManager, engineName: String): Result<Unit> =
+        if (engineDirFor(engineName).isDirectory) seedFromAssets(assets, engineName) else Result.success(Unit)
+
+    private fun hasSeed(assets: AssetManager, engineName: String): Boolean =
+        !assets.list("$SEED_ASSET_DIR/$engineName").isNullOrEmpty()
 
     /**
      * Recursively copy an APK asset subtree at [assetPath] into [dest].
@@ -1502,26 +1534,31 @@ open class EngineInstaller @Inject constructor(
     }
 
     /**
-     * KittenDirect layout: kitten.onnx + voices/<name>.bin (8 voices).
-     * Bundles (and pre-1.0 baked seeds) also carry phonemizer/ trees —
-     * harmless leftovers; espeak's library ships inside the APK and its
-     * data is the app-level shared tree (SharedEspeakData), so the
-     * installer no longer requires or checks them.
+     * KittenDirect layout (1.2, issue #10): the streaming pair planner.onnx +
+     * gen.onnx, and per voice voices/<name>.bin (style table) and
+     * genstats/<name>.bin (generator norm table), 8 voices. The pre-1.2
+     * layout (one kitten.onnx: older seeds and the v22 download) fails here,
+     * which is what makes [refreshSeed] replace it. Bundles (and pre-1.0
+     * baked seeds) also carry phonemizer/ trees — harmless leftovers;
+     * espeak's library ships inside the APK and its data is the app-level
+     * shared tree (SharedEspeakData), so the installer no longer requires or
+     * checks them.
      */
     private fun verifyKittenDirectLayout(dir: File): InstallState {
-        val acoustic = File(dir, "kitten.onnx")
-        if (!acoustic.isFile || acoustic.length() < MIN_MODEL_BYTES) return InstallState.Corrupt
-
-        val voicesDir = File(dir, "voices")
-        if (!voicesDir.isDirectory) return InstallState.Corrupt
+        for (graph in listOf("planner.onnx", "gen.onnx")) {
+            val file = File(dir, graph)
+            if (!file.isFile || file.length() < MIN_MODEL_BYTES) return InstallState.Corrupt
+        }
         // Lowercased displayName from KittenDirectVoiceCatalog. Hardcoded
         // here to keep the installer module free of an `engine/kitten/`
         // import — matches the same convention verifyPocketLayout uses.
         val expectedVoices = listOf("bella", "jasper", "luna", "bruno",
                                     "rosie", "hugo", "kiki", "leo")
         for (name in expectedVoices) {
-            val bin = File(voicesDir, "$name.bin")
-            if (!bin.isFile || bin.length() == 0L) return InstallState.Corrupt
+            for (table in listOf("voices", "genstats")) {
+                val bin = File(dir, "$table/$name.bin")
+                if (!bin.isFile || bin.length() == 0L) return InstallState.Corrupt
+            }
         }
         return InstallState.Installed
     }

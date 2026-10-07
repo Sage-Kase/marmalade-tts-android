@@ -10,7 +10,9 @@ the APK, and the APK also ships the full `espeak-ng-data` dictionaries
 The nano engine is **baked into the APK** as a seed
 (`assets/engines-seed/kitten-direct-v0_8/`: model + 8 voices,
 Apache-2.0) so the app speaks offline from first launch, with no
-download.
+download. Since 1.2 the baked model is the upstream `kitten.onnx` cut
+into two graphs so it can stream (see section 1); the downloadable
+bundle still carries the unmodified `kitten.onnx`.
 
 ## License posture — APK vs bundle
 
@@ -25,13 +27,26 @@ the pinned `third_party/espeak-ng` submodule. See
 
 ## 1. Acoustic model — KittenML/kitten-tts-nano-0.8
 
-- **Files:** `kitten.onnx`, `voices/{bella,jasper,luna,bruno,rosie,hugo,kiki,leo}.bin`
+- **Files:** baked into the APK: `planner.onnx`, `gen.onnx`,
+  `genstats/<voice>.bin`, `voices/<voice>.bin` for the 8 voices (bella,
+  jasper, luna, bruno, rosie, hugo, kiki, leo). The v22 engine bundle:
+  `kitten.onnx` and `voices/<voice>.bin`.
 - **Upstream:** https://github.com/KittenML/KittenTTS
 - **Distribution:** https://huggingface.co/KittenML/kitten-tts-nano-0.8-fp32
 - **License:** Apache License, Version 2.0
 - **Notice:** Copyright (c) KittenML contributors. Voices were extracted
   from upstream's `voices.npz` and saved as per-voice little-endian
   float32 binaries.
+- **Modifications (APK, since 1.2):** `planner.onnx` and `gen.onnx` are
+  upstream's `kitten.onnx` cut into two graphs, weights unchanged and
+  nothing retrained: the planner holds the text model, durations, pitch,
+  the decoder's front and the harmonic source; the generator holds the
+  iSTFTNet vocoder, with its InstanceNormalization layers replaced by a
+  per-channel scale and shift read from an input. `genstats/<voice>.bin`
+  holds those scales and shifts per voice, computed from the generator's
+  activations on 17 test sentences. Each graph's `doc_string` states the
+  change. Made by `scripts/kitten-stream/split.py`; the source model's
+  and the outputs' SHA-256 sums are in that folder.
 
 ## 2. Phonemizer — espeak-ng
 
