@@ -73,8 +73,9 @@ import kotlinx.coroutines.withContext
 // attributing the split graphs' cost on the phone. `spin=true` and
 // `mempattern=false` flip those two ORT session options (issue #5's per-call
 // overhead experiments). Voice style
-// tables are read from the installed KittenDirect bundle. Chunking, style row,
-// speed priors and inter-chunk gaps mirror [KittenDirectEngine]. Not in
+// tables are read from the installed KittenDirect bundle. Chunking, the
+// over-long re-split, style row, speed priors and inter-chunk gaps mirror
+// [KittenDirectEngine]. Not in
 // EngineRegistry or any catalog: only [EngineBenchService] calls it, and the
 // debug source set keeps it out of every release build.
 // -----------------------------------------------------------------------------
@@ -134,7 +135,7 @@ class KittenStreamDevEngine @Inject constructor(
                 env = ort
                 Log.i(TAG, "loaded threads=$threads $dev")
                 // Warm both graphs (first-call kernel setup) before anyone times a synth.
-                renderChunk("Hi.", "Hi.", WARMUP_VOICE, 1f, "en-us") { _, _ -> }
+                renderChunk(phonemizer!!.phonemize("Hi.", "en-us"), "Hi.", WARMUP_VOICE, 1f) { _, _ -> }
             }
         }
     }
@@ -186,38 +187,49 @@ class KittenStreamDevEngine @Inject constructor(
             }
             // Each slice goes out the moment it is rendered; the boundary gap rides on the last.
             lock.withLock {
-                renderChunk(chunk.text, chunk.rowText, voice, speed, espeakVoice) { pcm, last ->
-                    val out = if (last && gapMs > 0) pcm.copyOf(pcm.size + sampleRate * gapMs / 1000) else pcm
-                    if (first) {
-                        Log.d(PERF_TAG, "kstream TTFA=${(System.nanoTime() - t0) / 1_000_000}ms")
-                        first = false
+                val pieces = ipaPieces(chunk.text, espeakVoice)
+                for ((pi, ipa) in pieces.withIndex()) {
+                    renderChunk(ipa, chunk.rowText, voice, speed) { pcm, last ->
+                        val end = last && pi == pieces.size - 1
+                        val out = if (end && gapMs > 0) pcm.copyOf(pcm.size + sampleRate * gapMs / 1000) else pcm
+                        if (first) {
+                            Log.d(PERF_TAG, "kstream TTFA=${(System.nanoTime() - t0) / 1_000_000}ms")
+                            first = false
+                        }
+                        send(SynthAudio(out, sampleRate))
                     }
-                    send(SynthAudio(out, sampleRate))
                 }
             }
         }
     }.flowOn(Dispatchers.Default)
 
     /**
-     * Plan [text] once, then render its speech frames slice by slice, handing
+     * [text]'s IPA, re-split like KittenDirect's `ipaPieces` when it runs past
+     * the model's [MAX_PHONEMES] (nothing is dropped). Caller holds [lock].
+     */
+    private fun ipaPieces(text: String, espeakVoice: String): List<String> {
+        val phon = phonemizer ?: error("phonemizer missing")
+        val ipa = phon.phonemize(text, espeakVoice)
+        if (ipa.length <= MAX_PHONEMES) return listOf(ipa)
+        val pieces = TextChunker.splitToFit(text) { phon.phonemize(it, espeakVoice).length <= MAX_PHONEMES }
+        Log.i(TAG, "IPA ${ipa.length} > $MAX_PHONEMES — re-split into ${pieces.size} pieces")
+        // splitToFit leaves a piece oversize only if it's one character.
+        return pieces.map { phon.phonemize(it, espeakVoice).take(MAX_PHONEMES) }
+    }
+
+    /**
+     * Plan [ipa] once, then render its speech frames slice by slice, handing
      * each slice's PCM to [emit] (with `true` on the last) as soon as it
      * exists. Caller holds [lock].
      */
     private suspend fun renderChunk(
-        text: String,
+        ipa: String,
         rowText: String,
         voice: String,
         speed: Float,
-        espeakVoice: String,
         emit: suspend (ShortArray, Boolean) -> Unit,
     ) {
         val ort = env ?: error("not loaded")
-        val phon = phonemizer ?: error("phonemizer missing")
-        var ipa = phon.phonemize(text, espeakVoice)
-        if (ipa.length > MAX_PHONEMES) {
-            Log.w(TAG, "IPA ${ipa.length} > $MAX_PHONEMES — truncated (dev engine; KittenDirect re-splits)")
-            ipa = ipa.take(MAX_PHONEMES)
-        }
         if (ipa.isEmpty()) return
         val phonemes = encodePhonemes(ipa)
         val ids = IntArray(phonemes.size + 3).also {
