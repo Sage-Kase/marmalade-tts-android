@@ -166,13 +166,28 @@ When investigating **{concern}**, start at **{files}**:
   - XNNPACK keeps a separate weight copy per reuse of a shared layer:
     ALBERT on XNNPACK is +280 MB against +35 MB on the plain CPU EP, which
     is most of Kitten's 364 MB. XNNPACK was also slower than the CPU EP for
-    all 21 models tried.
+    all 21 models tried. **Applied in #13 "A"**: Kitten's planner left
+    XNNPACK.
   - With prepacking off, the XNNPACK planner SIGSEGVs in ORT 1.26.
   - 4 intra-op threads ran Kitten's generator 1.8× faster than the 5 that
-    `CpuClusterDetector` picks.
+    `CpuClusterDetector` picked. **Why (#13 "C")**: a screen-off reader is a
+    foreground service, and the 8a's `foreground` cpuset is CPUs 0–7 (the
+    prime core, CPU 8, is only in `top-app`), so the 5th thread ran on a
+    little core. The autodetect now leaves out a lone prime core
+    (`CpuClusterDetector.threadsFor`); apps can't read `/dev/cpuset`
+    (SELinux), so the rule is general, not a lookup.
   - A fresh or idle process's first ~1 s of calls costs +40–85 ms each.
   - An arena shrink after each run halves the generator's and Kokoro's
-    peak RAM.
+    peak RAM. **Applied in #13 "B"** (`OrtRunAbort(shrinkArena)`, Kitten's
+    generator and every Kokoro run).
+  - **A/B in one APK (#13)**: debug builds read session knobs from
+    `files/dev/engine-knobs.properties` at engine load (`EngineDevKnobs`;
+    the release twin returns null): `threads`, `shrink=false`,
+    `kitten.plannerXnnpack=true`, `kokoro.stream=false`, `kokoro.spin`.
+    `EngineBenchService --ez exit true` gives each run a fresh process and
+    logs peak PSS, VmHWM, process CPU time and battery charge per run;
+    `--es dumpTokens` writes phone-exact Kokoro token ids. Driver:
+    `~/coding/scratch/lean-engines/bench.py`.
 - **Debug-only pickable engines (`BuildTypeEngines`, issue #9)**: a
   prototype engine can be made selectable like any other voice in the DEBUG
   build (aliases, the picker, the primary alias that system TTS uses). None
