@@ -2,10 +2,15 @@ package app.marmalade.tts.engine
 
 import app.marmalade.tts.data.VoicePathResolver
 import app.marmalade.tts.data.cloud.CloudProviderDirectory
+import app.marmalade.tts.data.pickableVoices
+import app.marmalade.tts.data.probeInstalledVoiceAssets
 import app.marmalade.tts.devbench.KittenStreamDevEngine
 import app.marmalade.tts.devbench.KokoroStreamDevEngine
+import app.marmalade.tts.install.EngineInstaller
 import java.io.File
+import java.io.IOException
 import java.nio.file.Files
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -87,6 +92,33 @@ class BuildTypeEnginesTest {
             assertTrue(BuildTypeEngines.isInstalled(kitten, files))
             assertFalse(BuildTypeEngines.isInstalled(kokoro, files))
             assertFalse(BuildTypeEngines.isInstalled("kitten-direct-v0_8", files))
+        } finally {
+            files.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `sideloaded bundles make every stream voice pickable outside developer mode`() = runBlocking {
+        val files = Files.createTempDirectory("bte-pick").toFile()
+        try {
+            for (engine in listOf(kitten, kokoro)) {
+                File(files, "engines/$engine/genstats").mkdirs()
+                File(files, "engines/$engine/planner.onnx").writeText("x")
+                File(files, "engines/$engine/gen.onnx").writeText("x")
+            }
+            File(files, "engines/kitten-direct-v0_8/voices").mkdirs()
+            File(files, "engines/kokoro-direct-v1_0/voices.bin").apply { parentFile!!.mkdirs() }.writeText("x")
+            val installer = EngineInstaller(
+                filesDir = { files },
+                engineHandle = { },
+                httpFetcher = { _ -> throw IOException("not used") },
+            )
+            val assets = probeInstalledVoiceAssets(installer, anyCloudKeySet = false)
+            assertTrue(kitten in assets.engines && kokoro in assets.engines)
+            assertEquals(
+                BuildTypeEngines.voices,
+                BuildTypeEngines.voices.pickableVoices(assets, showDeveloper = false, flavor = "fdroid"),
+            )
         } finally {
             files.deleteRecursively()
         }
