@@ -311,12 +311,24 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   until more data comes (the old per-block "head stalled … abandoning drain"):
   when the writer has nothing to write and real audio is stuck, it pads
   silence just past it (at a session end at once, mid-session after 40 ms).
+  The pad doubles while the head stays stuck (AudioTrack starts a new or
+  flushed track only near a full ~250 ms buffer) and shrinks back to 60 ms
+  once the real audio is heard. On Pause the queued padding is flushed — if
+  the head is still short (AudioTrack pauses asynchronously), re-checked for
+  200 ms. The live Tempo stage holds back up to a frame (~43 ms): about to run
+  dry mid-session, the writer pushes it out (`drainLiveTempo`, later effects
+  keep their state, one ring-out at the session end).
   Logcat `D/AudioTrackOutput`: `track opened|released|rebuild`, and per block
   boundary `seg A→B session=S pad=Xms underrun=Yms` (0/0 = gapless). A refused
   format, failed write or parked track (head frozen 2.5 s while playing real
   audio) → `OutputEvent.TrackFailed` for EVERY session with audio on or queued
-  for that track (a short one-shot can sit on it whole, End applied) → each fails. A track idle 30 s is
-  released; a paused or idle writer sleeps on its inbox.
+  for that track (a short one-shot can sit on it whole, End applied) → each
+  fails. A track idle 30 s is released; a paused or idle writer sleeps on its
+  inbox. The Narrator rewrites a flushed track's other sessions under a new
+  epoch, so a report sent before the Flush applied is ignored. The harness's
+  `VirtualAudioOutput` can model the device's start threshold
+  (`startThresholdMs` + a 250 ms `bufferMs`) and asynchronous pause
+  (`pauseLatencyMs`); its 30 ms default buffer hides both.
   `service/ServiceUi.kt` is the pure state → notification/media-session table.
   `service/SpeakShim.kt` holds the `ACTION_SPEAK` shim and `PlaybackHost`
   (`ServicePlaybackHost` sends `ACTION_HOST` so the service is foreground
