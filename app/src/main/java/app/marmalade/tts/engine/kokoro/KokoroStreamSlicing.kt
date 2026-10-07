@@ -1,13 +1,13 @@
-package app.marmalade.tts.devbench
+package app.marmalade.tts.engine.kokoro
 
 import app.marmalade.tts.engine.kitten.KittenStreamSlicing
 import app.marmalade.tts.engine.kitten.SPACE_TOKEN
 
 /**
- * Frame arithmetic for [KokoroStreamDevEngine], kept free of Android and ORT
- * so the JVM tests pin it. Kokoro-82M's generator has the same frame grid as
- * Kitten's (600 samples = 25 ms per duration frame at 24 kHz), so slices reuse
- * [KittenStreamSlicing.Slice].
+ * Frame arithmetic for [KokoroDirectEngine]'s streaming render (issues #5,
+ * #13), kept free of Android and ORT so the JVM tests pin it. Kokoro-82M's
+ * generator has the same frame grid as Kitten's (600 samples = 25 ms per
+ * duration frame at 24 kHz), so slices reuse [KittenStreamSlicing.Slice].
  *
  * Unlike Kitten, Kokoro trims nothing at the head and only the trailing
  * near-silence at the tail (TailTrim + SilenceCompressor, both of which look

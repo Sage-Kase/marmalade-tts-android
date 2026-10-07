@@ -76,10 +76,7 @@ class PrerollGate<T>(
      */
     fun onChunkRendered(chunk: T, renderMs: Long, audioMs: Long): List<T> {
         if (seen == 0 && audioMs > 0 && playbackRate > 0f) {
-            val playedMs = audioMs / playbackRate
-            val deficitFraction = max(0.0, renderMs / playedMs - REALTIME_MARGIN)
-            val shortfall = (totalChunks - 1) * deficitFraction
-            prerollChunks = (1 + floor(shortfall + 0.5).toInt()).coerceIn(1, maxPreroll)
+            prerollChunks = prerollChunksFor(playbackRate, totalChunks, renderMs.toDouble() / audioMs, maxPreroll)
         }
         val idx = seen++
         // Mirrors PocketEngine's emitOrBuffer: chunks 0..K−2 are held,
@@ -105,6 +102,27 @@ class PrerollGate<T>(
     }
 
     companion object {
+        /**
+         * K for a text of [totalChunks] chunks rendered at real-time factor
+         * [rtf] (render time ÷ audio time, on the engine's clock) and played
+         * at [playbackRate]: the class comment's formula, capped at
+         * [maxPreroll]. [onChunkRendered] decides with chunk 0's measured
+         * RTF; an engine that streams slices of a chunk before the chunk's
+         * render time is known (KokoroDirect, issue #13) decides up front
+         * with its last measured RTF instead.
+         */
+        fun prerollChunksFor(
+            playbackRate: Float,
+            totalChunks: Int,
+            rtf: Double,
+            maxPreroll: Int = MAX_PREROLL_CHUNKS,
+        ): Int {
+            if (playbackRate <= 0f || rtf.isNaN()) return 1
+            val deficitFraction = max(0.0, rtf * playbackRate - REALTIME_MARGIN)
+            val shortfall = (totalChunks - 1) * deficitFraction
+            return (1 + floor(shortfall + 0.5).toInt()).coerceIn(1, maxPreroll)
+        }
+
         /**
          * Required headroom before K stays at 1: a played RTF of 0.95
          * has technically no deficit but also no slack for a slow

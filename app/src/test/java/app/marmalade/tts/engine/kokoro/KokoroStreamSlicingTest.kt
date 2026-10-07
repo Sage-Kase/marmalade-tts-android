@@ -1,4 +1,4 @@
-package app.marmalade.tts.devbench
+package app.marmalade.tts.engine.kokoro
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
