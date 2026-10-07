@@ -22,8 +22,18 @@ internal object KittenStreamSlicing {
     /** First slice: 0.5 s, small so the first audio is out quickly. */
     const val FIRST_SLICE_FRAMES = 20
 
-    /** Later slices: 1 s. Larger slices amortise the context overhead. */
+    /** Second slice: 1 s. Larger slices amortise the context overhead. */
     const val SLICE_FRAMES = 40
+
+    /**
+     * Cap for the in-app schedule, where slices double after the second
+     * (1 s, 2 s, 4 s, 4 s, …). On the phone every generator call costs
+     * ~120 ms (Kitten) to ~150–290 ms (Kokoro) before its first frame
+     * (issue #5), so fixed 1 s slices spent up to ~60% more CPU than the
+     * unsplit model; doubling keeps the call count logarithmic while each
+     * slice is still rendered long before the audio ahead of it runs out.
+     */
+    const val MAX_SLICE_FRAMES = 160
 
     /**
      * The speech-bearing frames `[start, end)` of a render, with the same
@@ -51,8 +61,10 @@ internal object KittenStreamSlicing {
     }
 
     /**
-     * Cut [speech] into a [first]-frame slice then [size]-frame slices, each
-     * rendered with [context] extra frames per side, clamped to `[0, totalFrames)`.
+     * Cut [speech] into a [first]-frame slice, then a [size]-frame slice, each
+     * later one twice the one before up to [max] frames (`max = size`, the
+     * default, keeps every later slice at [size]). Each is rendered with
+     * [context] extra frames per side, clamped to `[0, totalFrames)`.
      */
     fun slices(
         speech: IntRange,
@@ -60,11 +72,15 @@ internal object KittenStreamSlicing {
         first: Int = FIRST_SLICE_FRAMES,
         size: Int = SLICE_FRAMES,
         context: Int = CONTEXT_FRAMES,
+        max: Int = size,
     ): List<Slice> {
         val out = ArrayList<Slice>()
         var a = speech.first
+        val cap = maxOf(max, size)
+        var later = size
         while (a <= speech.last) {
-            val b = minOf(speech.last + 1, a + if (out.isEmpty()) first else size)
+            val len = if (out.isEmpty()) first else later.also { later = minOf(later * 2, cap) }
+            val b = minOf(speech.last + 1, a + len)
             out += Slice(
                 keep = a until b,
                 render = maxOf(0, a - context) until minOf(totalFrames, b + context),

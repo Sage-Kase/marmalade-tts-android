@@ -2,6 +2,7 @@ package app.marmalade.tts.data
 
 import app.marmalade.tts.BuildConfig
 import app.marmalade.tts.data.db.VoiceMeta
+import app.marmalade.tts.engine.BuildTypeEngines
 import app.marmalade.tts.install.EngineCatalog
 import app.marmalade.tts.install.EngineInstaller
 import app.marmalade.tts.install.InstallState
@@ -154,6 +155,9 @@ suspend fun probeInstalledVoiceAssets(
             // until the user takes the update.
             if (installer.verifyPack(pack.id).isUsableOnDisk) packs += pack.id
         }
+    }
+    for (name in BuildTypeEngines.names) {
+        if (installer.verify(name) is InstallState.Installed) engines += name
     }
     if (anyCloudKeySet) engines += CloudApiVoiceCatalog.ENGINE
     return InstalledVoiceAssets(engines = engines, packs = packs)

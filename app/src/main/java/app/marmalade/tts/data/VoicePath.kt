@@ -1,6 +1,7 @@
 package app.marmalade.tts.data
 
 import app.marmalade.tts.data.cloud.CloudProviderDirectory
+import app.marmalade.tts.engine.BuildTypeEngines
 import app.marmalade.tts.install.EngineCatalog
 import app.marmalade.tts.install.VoicePackCatalog
 import javax.inject.Inject
@@ -81,7 +82,9 @@ class VoicePathResolver @Inject constructor(
         // On-device: the engine is the model, and the id is `engine:voice`.
         // The id's voice key is machinery-facing (`am_adam`, `marius`) —
         // show the human form the picker uses instead.
-        val engineLabel = EngineCatalog.byName(engineName)?.displayName ?: engineName
+        val engineLabel = EngineCatalog.byName(engineName)?.displayName
+            ?: BuildTypeEngines.displayName(engineName)
+            ?: engineName
         val voiceKey = voiceId.substringAfterLast(':', voiceId)
         val voiceLabel = when (engineName) {
             KokoroDirectVoiceCatalog.ENGINE -> KokoroDirectVoiceCatalog.bareName(voiceKey)
@@ -90,7 +93,8 @@ class VoicePathResolver @Inject constructor(
             // falling back to the raw key for a pack the build no longer ships.
             VitsVoiceCatalog.ENGINE ->
                 VoicePackCatalog.voiceByKey(engineName, voiceKey)?.displayName ?: voiceKey
-            else -> voiceKey.replaceFirstChar { it.uppercase() }
+            else -> BuildTypeEngines.voiceLabel(engineName, voiceKey)
+                ?: voiceKey.replaceFirstChar { it.uppercase() }
         }
         return VoicePath(
             source = engineLabel,

@@ -32,8 +32,9 @@ internal object KokoroStreamSlicing {
     }
 
     /**
-     * Cut `[0, totalFrames)` into a [first]-frame slice then [size]-frame
-     * slices, cutting only before [tailStart]; the last slice runs to the end.
+     * Cut `[0, totalFrames)` like [KittenStreamSlicing.slices] (a [first]-frame
+     * slice, then [size] frames growing to [max]), cutting only before
+     * [tailStart]; the last slice runs to the end.
      * Each renders [context] extra frames per side, clamped to the render.
      */
     fun slices(
@@ -42,10 +43,11 @@ internal object KokoroStreamSlicing {
         first: Int = KittenStreamSlicing.FIRST_SLICE_FRAMES,
         size: Int = KittenStreamSlicing.SLICE_FRAMES,
         context: Int = KittenStreamSlicing.CONTEXT_FRAMES,
+        max: Int = size,
     ): List<KittenStreamSlicing.Slice> {
         if (totalFrames <= 0) return emptyList()
         val cutEnd = tailStart.coerceIn(1, totalFrames)
-        val body = KittenStreamSlicing.slices(0 until cutEnd, totalFrames, first, size, context)
+        val body = KittenStreamSlicing.slices(0 until cutEnd, totalFrames, first, size, context, max)
         val last = body.last()
         return body.dropLast(1) + KittenStreamSlicing.Slice(
             keep = last.keep.first until totalFrames,

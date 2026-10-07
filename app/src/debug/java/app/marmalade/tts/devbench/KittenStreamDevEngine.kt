@@ -62,19 +62,22 @@ import kotlinx.coroutines.withContext
 // differs from the unsplit render by ~0.5 dB mel, the same as two unsplit
 // renders differ from each other (Kitten's source is random).
 //
-// Sideloaded into `${filesDir}/engines/kitten-stream-dev/`. An optional
-// `dev.properties` there overrides the slicing (`first`, `slice`, `context`,
-// in frames) and turns on ORT profiling (`profile=true`, JSON written to
+// Sideloaded into `${filesDir}/engines/kitten-stream-dev/`. Slices are 0.5 s,
+// 1 s, then doubling to 4 s (issue #9: each generator call has ~120 ms of
+// fixed cost on the phone). An optional `dev.properties` there overrides the
+// slicing (`first`, `slice`, `max`, `context`, in frames; `max=40` is #3's
+// fixed 1 s schedule) and turns on ORT profiling (`profile=true`, JSON written to
 // `files/bench/prof-*` when the engine is released), so on-device
 // experiments need no reinstall. `whole=true` runs the installed, unsplit
 // kitten.onnx through the same session setup instead: the control for
 // attributing the split graphs' cost on the phone. `spin=true` and
 // `mempattern=false` flip those two ORT session options (issue #5's per-call
 // overhead experiments). Voice style
-// tables are read from the installed KittenDirect bundle. Chunking, style row,
-// speed priors and inter-chunk gaps mirror [KittenDirectEngine]. Not in
-// EngineRegistry or any catalog: only [EngineBenchService] calls it, and the
-// debug source set keeps it out of every release build.
+// tables are read from the installed KittenDirect bundle. Chunking, the
+// over-long re-split, style row, speed priors and inter-chunk gaps mirror
+// [KittenDirectEngine]. The debug build registers it as a pickable engine
+// (`engine/BuildTypeEngines.kt`, issue #9); [EngineBenchService] drives it
+// silently. The debug source set keeps it out of every release build.
 // -----------------------------------------------------------------------------
 
 @Singleton
@@ -102,9 +105,7 @@ class KittenStreamDevEngine @Inject constructor(
     private val styleTables = HashMap<String, FloatArray>()
     private val normTables = HashMap<String, FloatArray>()
 
-    override fun isInstalled(): Boolean =
-        File(dir, PLANNER).isFile && File(dir, GEN).isFile && File(dir, "genstats").isDirectory &&
-            kittenVoices.isDirectory
+    override fun isInstalled(): Boolean = isInstalledIn(ctx.filesDir)
 
     override fun isLoaded(): Boolean = env != null
 
@@ -132,7 +133,7 @@ class KittenStreamDevEngine @Inject constructor(
                 env = ort
                 Log.i(TAG, "loaded threads=$threads $dev")
                 // Warm both graphs (first-call kernel setup) before anyone times a synth.
-                renderChunk("Hi.", "Hi.", WARMUP_VOICE, 1f, "en-us") { _, _ -> }
+                renderChunk(phonemizer!!.phonemize("Hi.", "en-us"), "Hi.", WARMUP_VOICE, 1f) { _, _ -> }
             }
         }
     }
@@ -184,38 +185,49 @@ class KittenStreamDevEngine @Inject constructor(
             }
             // Each slice goes out the moment it is rendered; the boundary gap rides on the last.
             lock.withLock {
-                renderChunk(chunk.text, chunk.rowText, voice, speed, espeakVoice) { pcm, last ->
-                    val out = if (last && gapMs > 0) pcm.copyOf(pcm.size + sampleRate * gapMs / 1000) else pcm
-                    if (first) {
-                        Log.d(PERF_TAG, "kstream TTFA=${(System.nanoTime() - t0) / 1_000_000}ms")
-                        first = false
+                val pieces = ipaPieces(chunk.text, espeakVoice)
+                for ((pi, ipa) in pieces.withIndex()) {
+                    renderChunk(ipa, chunk.rowText, voice, speed) { pcm, last ->
+                        val end = last && pi == pieces.size - 1
+                        val out = if (end && gapMs > 0) pcm.copyOf(pcm.size + sampleRate * gapMs / 1000) else pcm
+                        if (first) {
+                            Log.d(PERF_TAG, "kstream TTFA=${(System.nanoTime() - t0) / 1_000_000}ms")
+                            first = false
+                        }
+                        send(SynthAudio(out, sampleRate))
                     }
-                    send(SynthAudio(out, sampleRate))
                 }
             }
         }
     }.flowOn(Dispatchers.Default)
 
     /**
-     * Plan [text] once, then render its speech frames slice by slice, handing
+     * [text]'s IPA, re-split like KittenDirect's `ipaPieces` when it runs past
+     * the model's [MAX_PHONEMES] (nothing is dropped). Caller holds [lock].
+     */
+    private fun ipaPieces(text: String, espeakVoice: String): List<String> {
+        val phon = phonemizer ?: error("phonemizer missing")
+        val ipa = phon.phonemize(text, espeakVoice)
+        if (ipa.length <= MAX_PHONEMES) return listOf(ipa)
+        val pieces = TextChunker.splitToFit(text) { phon.phonemize(it, espeakVoice).length <= MAX_PHONEMES }
+        Log.i(TAG, "IPA ${ipa.length} > $MAX_PHONEMES — re-split into ${pieces.size} pieces")
+        // splitToFit leaves a piece oversize only if it's one character.
+        return pieces.map { phon.phonemize(it, espeakVoice).take(MAX_PHONEMES) }
+    }
+
+    /**
+     * Plan [ipa] once, then render its speech frames slice by slice, handing
      * each slice's PCM to [emit] (with `true` on the last) as soon as it
      * exists. Caller holds [lock].
      */
     private suspend fun renderChunk(
-        text: String,
+        ipa: String,
         rowText: String,
         voice: String,
         speed: Float,
-        espeakVoice: String,
         emit: suspend (ShortArray, Boolean) -> Unit,
     ) {
         val ort = env ?: error("not loaded")
-        val phon = phonemizer ?: error("phonemizer missing")
-        var ipa = phon.phonemize(text, espeakVoice)
-        if (ipa.length > MAX_PHONEMES) {
-            Log.w(TAG, "IPA ${ipa.length} > $MAX_PHONEMES — truncated (dev engine; KittenDirect re-splits)")
-            ipa = ipa.take(MAX_PHONEMES)
-        }
         if (ipa.isEmpty()) return
         val phonemes = encodePhonemes(ipa)
         val ids = IntArray(phonemes.size + 3).also {
@@ -256,7 +268,7 @@ class KittenStreamDevEngine @Inject constructor(
             "planner contract broken: Σdur=${dur.sum()} xFrames=$xFrames har=${har.size}"
         }
         val speech = KittenStreamSlicing.speechFrames(ids, dur) ?: return
-        val slices = KittenStreamSlicing.slices(speech, totalFrames, dev.first, dev.slice, dev.context)
+        val slices = KittenStreamSlicing.slices(speech, totalFrames, dev.first, dev.slice, dev.context, dev.max)
         Log.d(PERF_TAG, "kstream plan=${planMs}ms tokens=${ids.size} frames=$totalFrames speech=${speech.first}..${speech.last} slices=${slices.size}")
 
         val gn = normTable(voice)
@@ -354,6 +366,7 @@ class KittenStreamDevEngine @Inject constructor(
     private data class DevConfig(
         val first: Int = KittenStreamSlicing.FIRST_SLICE_FRAMES,
         val slice: Int = KittenStreamSlicing.SLICE_FRAMES,
+        val max: Int = KittenStreamSlicing.MAX_SLICE_FRAMES,
         val context: Int = KittenStreamSlicing.CONTEXT_FRAMES,
         val profile: Boolean = false,
         val whole: Boolean = false,
@@ -368,6 +381,7 @@ class KittenStreamDevEngine @Inject constructor(
                 return DevConfig(
                     first = p.getProperty("first")?.toIntOrNull() ?: d.first,
                     slice = p.getProperty("slice")?.toIntOrNull() ?: d.slice,
+                    max = p.getProperty("max")?.toIntOrNull() ?: d.max,
                     context = p.getProperty("context")?.toIntOrNull() ?: d.context,
                     profile = p.getProperty("profile") == "true",
                     whole = p.getProperty("whole") == "true",
@@ -395,5 +409,12 @@ class KittenStreamDevEngine @Inject constructor(
         // Same boundary gaps as KittenDirectEngine (Max's 2026-08-07 ear-lab).
         private const val CLAUSE_GAP_MS = 80
         private const val SENTENCE_GAP_MS = 260
+
+        /** The sideloaded bundle plus the KittenDirect voice tables it borrows, under [filesDir]. */
+        fun isInstalledIn(filesDir: File): Boolean {
+            val dir = File(filesDir, "engines/$ENGINE")
+            return File(dir, PLANNER).isFile && File(dir, GEN).isFile && File(dir, "genstats").isDirectory &&
+                File(filesDir, "engines/${KittenDirectEngine.ENGINE_NAME}/voices").isDirectory
+        }
     }
 }

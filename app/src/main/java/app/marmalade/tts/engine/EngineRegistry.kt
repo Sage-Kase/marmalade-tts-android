@@ -41,7 +41,8 @@ class EngineRegistry internal constructor(engines: List<TtsEngine>) {
         pocketDev: PocketDevEngine,
         vits: VitsDirectEngine,
         cloudApi: CloudApiEngine,
-    ) : this(listOf(kokoroDirect, kokoroGerman, kittenDirect, pocket, pocketDev, vits, cloudApi))
+        buildTypeEngines: Set<@JvmSuppressWildcards TtsEngine>,
+    ) : this(listOf(kokoroDirect, kokoroGerman, kittenDirect, pocket, pocketDev, vits, cloudApi) + buildTypeEngines)
 
     private val table: Map<String, TtsEngine> = engines.associateByTo(LinkedHashMap()) { it.engineName }
 
@@ -54,9 +55,13 @@ class EngineRegistry internal constructor(engines: List<TtsEngine>) {
 
     /**
      * What a warm-up loads: the on-device engines minus developer-only
-     * diagnostic ones, which a regular user never routes to.
+     * diagnostic ones, which a regular user never routes to, and the debug
+     * build's sideloaded [BuildTypeEngines] (two big models nobody asked for
+     * unless an alias uses them; the first read loads them).
      */
-    val warmable: List<TtsEngine> = onDevice.filter { it.engineName !in EngineCatalog.developerOnlyNames }
+    val warmable: List<TtsEngine> = onDevice.filter {
+        it.engineName !in EngineCatalog.developerOnlyNames && it.engineName !in BuildTypeEngines.names
+    }
 
     /** The engine named [engineName], or null when this registry has none by that name. */
     fun find(engineName: String): TtsEngine? = table[engineName]
@@ -72,7 +77,7 @@ class EngineRegistry internal constructor(engines: List<TtsEngine>) {
         /** Default engine: Kokoro Direct (matches `EngineCatalog.KOKORO_DIRECT.isRecommended`). */
         const val DEFAULT_ENGINE: String = KokoroDirectVoiceCatalog.ENGINE
 
-        /** Every engine the app can dispatch to, in-app. */
+        /** Every engine the app can dispatch to, in-app ([BuildTypeEngines] last: debug only). */
         val ENGINE_NAMES: List<String> = listOf(
             KokoroDirectVoiceCatalog.ENGINE,
             KokoroGermanVoiceCatalog.ENGINE,
@@ -81,7 +86,7 @@ class EngineRegistry internal constructor(engines: List<TtsEngine>) {
             PocketDevVoiceCatalog.ENGINE,
             VitsVoiceCatalog.ENGINE,
             CloudApiVoiceCatalog.ENGINE,
-        )
+        ) + BuildTypeEngines.names
 
         /**
          * The engines system TTS dispatches to and advertises: every engine
@@ -133,7 +138,7 @@ class EngineRegistry internal constructor(engines: List<TtsEngine>) {
             PocketDevVoiceCatalog.ENGINE -> "Pocket TTS (clean)"
             VitsVoiceCatalog.ENGINE -> "VITS Marmalade"
             CloudApiVoiceCatalog.ENGINE -> "Cloud"
-            else -> engineName
+            else -> BuildTypeEngines.displayName(engineName) ?: engineName
         }
     }
 }
