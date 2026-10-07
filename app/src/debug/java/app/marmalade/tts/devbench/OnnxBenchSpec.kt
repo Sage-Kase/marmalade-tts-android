@@ -13,7 +13,7 @@ import java.util.Random
  *
  * A spec line is whitespace-separated `key=value` pairs:
  *
- *     name=s1.fp32.cpu model=x1/m/s1.fp32.onnx ep=cpu sizes=8,16,32 secPerT=0.0125
+ *     name=s1.fp32.cpu model=x1/m/s1.fp32.onnx ep=cpu sizes=8,16,32 secPerT=0.0125 warmupMs=1500
  *         in.x=f32[1,133,T+54] in.style=f32[1,256] in.speed=f32[1]=1.0
  *
  * `in.<input>=` takes one [InputSource]: `f32[dims]` (seeded uniform in
@@ -51,6 +51,14 @@ internal object OnnxBenchSpec {
         val sizes: List<Int> = listOf(1),
         /** Timed calls per size, after one untimed-for-the-median first call. */
         val calls: Int = 7,
+        /**
+         * Keep calling at the first size for this long before timing anything
+         * (after the logged first call): a fresh process's threads start on
+         * whatever cores the scheduler picks, which can cost more than the work.
+         */
+        val warmupMs: Int = 0,
+        /** ORT `session.intra_op_thread_affinities` (1-based CPUs, `;` per pool thread), or null. */
+        val affinity: String? = null,
         /** Seconds of audio per unit of T; 0 when T isn't audio (tokens, steps). */
         val secPerT: Double = 0.0,
         val inputs: Map<String, InputSource>,
@@ -132,7 +140,7 @@ internal object OnnxBenchSpec {
             .toMap()
         val known = setOf(
             "name", "model", "ep", "threads", "opt", "arena", "mempattern", "prepack",
-            "spin", "mmap", "shrink", "sizes", "calls", "secPerT",
+            "spin", "mmap", "shrink", "sizes", "calls", "secPerT", "warmupMs", "affinity",
         )
         val unknown = kv.keys.filterNot { it in known || it.startsWith("in.") }
         require(unknown.isEmpty()) { "unknown keys $unknown" }
@@ -150,11 +158,14 @@ internal object OnnxBenchSpec {
             shrink = flag("shrink", false),
             sizes = kv["sizes"]?.split(',')?.map { it.toInt() } ?: listOf(1),
             calls = kv["calls"]?.toInt() ?: 7,
+            warmupMs = kv["warmupMs"]?.toInt() ?: 0,
+            affinity = kv["affinity"],
             secPerT = kv["secPerT"]?.toDouble() ?: 0.0,
             inputs = inputs,
         )
         require(spec.sizes.isNotEmpty() && spec.sizes.all { it > 0 }) { "sizes must be positive" }
         require(spec.calls >= 1) { "calls must be ≥ 1" }
+        require(spec.warmupMs >= 0) { "warmupMs must be ≥ 0" }
         require(!spec.shrink || spec.arena) { "shrink needs the arena on" }
         return spec
     }

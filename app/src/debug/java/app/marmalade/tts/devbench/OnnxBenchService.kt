@@ -47,6 +47,7 @@ import kotlinx.coroutines.launch
 //   start  spec + thermal
 //   load   envMs (ORT init), loadMs (createSession), PSS before/after, VmHWM
 //   first  the first run's ms and PSS after it
+//   warm   (warmupMs > 0) calls repeated at the first size before timing
 //   size   per T: first call at that shape, median/min of the timed calls,
 //          PSS after, element count of output 0
 //   fit    ms ≈ fixed + slope·T over the size medians (per audio second when
@@ -107,7 +108,8 @@ class OnnxBenchService : Service() {
             TAG,
             "start name=${s.name} model=${s.model} ep=${s.ep} threads=$threads opt=${s.opt} arena=${s.arena} " +
                 "mempattern=${s.memPattern} prepack=${s.prepack} spin=${s.spin} mmap=${s.mmap} shrink=${s.shrink} " +
-                "sizes=${s.sizes.joinToString(",")} calls=${s.calls} ${BenchDevice.thermal(this)}",
+                "sizes=${s.sizes.joinToString(",")} calls=${s.calls} warmupMs=${s.warmupMs} affinity=${s.affinity} " +
+                BenchDevice.thermal(this),
         )
         // App start may have warmed an engine (keepalive): drop it, settle, then baseline.
         delay(SETTLE_MS)
@@ -162,6 +164,16 @@ class OnnxBenchService : Service() {
                 if (first) {
                     Log.i(TAG, "first name=${s.name} T=$t firstCallMs=${fmt(firstMs)} ${memLine()}")
                     first = false
+                    if (s.warmupMs > 0) {
+                        val w0 = System.nanoTime()
+                        val warm = ArrayList<Double>()
+                        while (ms(w0) < s.warmupMs) warm += call()
+                        Log.i(
+                            TAG,
+                            "warm name=${s.name} T=$t calls=${warm.size} firstMs=${fmt(warm.first())} " +
+                                "lastMs=${fmt(warm.last())} minMs=${fmt(warm.min())}",
+                        )
+                    }
                 }
                 val timed = List(s.calls) { call() }
                 medians += BenchSupport.median(timed)
@@ -187,6 +199,7 @@ class OnnxBenchService : Service() {
         setCPUArenaAllocator(s.arena)
         addConfigEntry("session.intra_op.allow_spinning", if (s.spin) "1" else "0")
         if (!s.prepack) addConfigEntry("session.disable_prepacking", "1")
+        s.affinity?.let { addConfigEntry("session.intra_op_thread_affinities", it) }
         if (s.mmap) {
             addConfigEntry("session.use_memory_mapped_ort_model", "1")
             addConfigEntry("session.use_ort_model_bytes_for_initializers", "1")

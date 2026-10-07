@@ -59,6 +59,8 @@ class OnnxBenchSpecTest {
         assertEquals(listOf(20, 40), s.sizes)
         assertEquals(7, s.calls)
         assertEquals(0.025, s.secPerT, 0.0)
+        assertEquals(0, s.warmupMs)
+        assertNull(s.affinity)
         assertEquals(setOf("/decoder/decode.3/Mul_output_0", "gn"), s.inputs.keys)
     }
 
@@ -70,15 +72,18 @@ class OnnxBenchSpecTest {
         assertThrows(IllegalArgumentException::class.java) { OnnxBenchSpec.parseLine("name=a model=m.onnx sizes=8,0") }
         assertThrows(IllegalArgumentException::class.java) { OnnxBenchSpec.parseLine("name=a name=b model=m.onnx") }
         assertThrows(IllegalArgumentException::class.java) { OnnxBenchSpec.parseLine("model=m.onnx") }
+        assertThrows(IllegalArgumentException::class.java) { OnnxBenchSpec.parseLine("name=a model=m.onnx warmupMs=-1") }
     }
 
     @Test
     fun `find picks the named line and skips comments`() {
-        val file = "# X1\n\nname=a model=a.onnx\nname=b model=b.ort mmap=1 ep=xnnpack\n"
+        val file = "# X1\n\nname=a model=a.onnx\nname=b model=b.ort mmap=1 ep=xnnpack warmupMs=1500 affinity=6;7;8;9\n"
         val b = OnnxBenchSpec.find(file, "b")!!
         assertEquals("b.ort", b.model)
         assertTrue(b.mmap)
         assertEquals(OnnxBenchSpec.Ep.XNNPACK, b.ep)
+        assertEquals(1500, b.warmupMs)
+        assertEquals("6;7;8;9", b.affinity)
         assertNull(OnnxBenchSpec.find(file, "c"))
     }
 
