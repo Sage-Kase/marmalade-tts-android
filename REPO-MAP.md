@@ -150,6 +150,25 @@ When investigating **{concern}**, start at **{files}**:
   CPU (issue #5). Since issue #9 the slices are 0.5 s, 1 s, then doubling to
   4 s (`max` knob; `max=40` restores the fixed 1 s schedule the #3/#5 tables
   were measured with).
+- **Debug-only model timing (`devbench/OnnxBenchService`, issue #12 "X1")**:
+  times ANY `.onnx`/`.ort` file with no engine around it, silently (outputs
+  are dropped). One adb start = one line of `files/x1/specs.txt` = one
+  session, then **the process kills itself**, so every run's load time and
+  PSS start from a fresh process (it releases any engine that app start
+  warmed first). The spec grammar, input recipes (seeded random, constants,
+  `.npy` sliced or wrapped along an axis, dims linear in `T`) and log lines
+  (`X1Bench`: load ms, PSS total/native/other, VmHWM, first call, per-size
+  median, fixed + per-audio-second fit) are in `OnnxBenchSpec`, pinned by
+  `OnnxBenchSpecTest`. Session knobs: `ep`, `threads`, `opt`, `arena`,
+  `mempattern`, `prepack`, `spin`, `mmap` (`.ort` with initializers in the
+  mapping), `shrink`. Driver, models and results:
+  `~/coding/scratch/x1-phone-timing/` (`x1.py`). Gotchas: ORT 1.26's
+  "Runtime"-style `.ort` of Kokoro's QDQ graph won't load (selector replay
+  error), so CPU runs use "Fixed" style with `--target_platform arm`; the
+  8a flags LIGHT throttling at ~39 °C skin (`VIRTUAL-SKIN`), so the driver
+  gates on that and requeues a run that ended throttled.
+  `BenchDevice` holds the thermal line and foreground notice both bench
+  services share.
 - **Debug-only pickable engines (`BuildTypeEngines`, issue #9)**: the
   Kokoro stream dev engine is selectable like any other voice in the DEBUG
   build (aliases, the picker, the primary alias that system TTS uses), as
