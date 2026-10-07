@@ -69,8 +69,10 @@ import kotlinx.coroutines.withContext
 // en-us / en-gb with the Kokoro fixups); the bench is English.
 //
 // Sideloaded into `${filesDir}/engines/kokoro-stream-dev/`; voices.bin is read
-// from the installed KokoroDirect bundle. An optional `dev.properties` there
-// overrides the slicing (`first`, `slice`, `context`, in frames), turns on ORT
+// from the installed KokoroDirect bundle. Slices are 0.5 s, 1 s, then doubling
+// to 4 s (each generator call costs ~150–290 ms on the phone, issue #5). An
+// optional `dev.properties` there overrides the slicing (`first`, `slice`,
+// `max`, `context`, in frames; `max=40` is #5's fixed 1 s schedule), turns on ORT
 // profiling (`profile=true`, JSON in `files/bench/` on release) or runs the
 // installed, unsplit model.onnx through the same chunking and session setup
 // (`whole=true`): the control that attributes the split's cost. `spin=true`
@@ -268,7 +270,7 @@ class KokoroStreamDevEngine @Inject constructor(
                 "planner contract broken: Σdur=${dur.sum()} xLen=$xLen har=${har.size}"
             }
             val tail = KokoroStreamSlicing.tailStart(ids, dur) ?: error("ids/durations disagree")
-            val slices = KokoroStreamSlicing.slices(totalFrames, tail, dev.first, dev.slice, dev.context)
+            val slices = KokoroStreamSlicing.slices(totalFrames, tail, dev.first, dev.slice, dev.context, dev.max)
             Log.d(PERF_TAG, "kkstream plan=${planMs}ms tokens=${ids.size} frames=$totalFrames tail=$tail slices=${slices.size}")
 
             val pause = KokoroGenStats.pauseFrames(ids, dur).toDouble() / totalFrames
@@ -359,6 +361,7 @@ class KokoroStreamDevEngine @Inject constructor(
     private data class DevConfig(
         val first: Int = KittenStreamSlicing.FIRST_SLICE_FRAMES,
         val slice: Int = KittenStreamSlicing.SLICE_FRAMES,
+        val max: Int = KittenStreamSlicing.MAX_SLICE_FRAMES,
         val context: Int = KittenStreamSlicing.CONTEXT_FRAMES,
         val profile: Boolean = false,
         val whole: Boolean = false,
@@ -373,6 +376,7 @@ class KokoroStreamDevEngine @Inject constructor(
                 return DevConfig(
                     first = p.getProperty("first")?.toIntOrNull() ?: d.first,
                     slice = p.getProperty("slice")?.toIntOrNull() ?: d.slice,
+                    max = p.getProperty("max")?.toIntOrNull() ?: d.max,
                     context = p.getProperty("context")?.toIntOrNull() ?: d.context,
                     profile = p.getProperty("profile") == "true",
                     whole = p.getProperty("whole") == "true",

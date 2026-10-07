@@ -62,9 +62,11 @@ import kotlinx.coroutines.withContext
 // differs from the unsplit render by ~0.5 dB mel, the same as two unsplit
 // renders differ from each other (Kitten's source is random).
 //
-// Sideloaded into `${filesDir}/engines/kitten-stream-dev/`. An optional
-// `dev.properties` there overrides the slicing (`first`, `slice`, `context`,
-// in frames) and turns on ORT profiling (`profile=true`, JSON written to
+// Sideloaded into `${filesDir}/engines/kitten-stream-dev/`. Slices are 0.5 s,
+// 1 s, then doubling to 4 s (issue #9: each generator call has ~120 ms of
+// fixed cost on the phone). An optional `dev.properties` there overrides the
+// slicing (`first`, `slice`, `max`, `context`, in frames; `max=40` is #3's
+// fixed 1 s schedule) and turns on ORT profiling (`profile=true`, JSON written to
 // `files/bench/prof-*` when the engine is released), so on-device
 // experiments need no reinstall. `whole=true` runs the installed, unsplit
 // kitten.onnx through the same session setup instead: the control for
@@ -256,7 +258,7 @@ class KittenStreamDevEngine @Inject constructor(
             "planner contract broken: Σdur=${dur.sum()} xFrames=$xFrames har=${har.size}"
         }
         val speech = KittenStreamSlicing.speechFrames(ids, dur) ?: return
-        val slices = KittenStreamSlicing.slices(speech, totalFrames, dev.first, dev.slice, dev.context)
+        val slices = KittenStreamSlicing.slices(speech, totalFrames, dev.first, dev.slice, dev.context, dev.max)
         Log.d(PERF_TAG, "kstream plan=${planMs}ms tokens=${ids.size} frames=$totalFrames speech=${speech.first}..${speech.last} slices=${slices.size}")
 
         val gn = normTable(voice)
@@ -354,6 +356,7 @@ class KittenStreamDevEngine @Inject constructor(
     private data class DevConfig(
         val first: Int = KittenStreamSlicing.FIRST_SLICE_FRAMES,
         val slice: Int = KittenStreamSlicing.SLICE_FRAMES,
+        val max: Int = KittenStreamSlicing.MAX_SLICE_FRAMES,
         val context: Int = KittenStreamSlicing.CONTEXT_FRAMES,
         val profile: Boolean = false,
         val whole: Boolean = false,
@@ -368,6 +371,7 @@ class KittenStreamDevEngine @Inject constructor(
                 return DevConfig(
                     first = p.getProperty("first")?.toIntOrNull() ?: d.first,
                     slice = p.getProperty("slice")?.toIntOrNull() ?: d.slice,
+                    max = p.getProperty("max")?.toIntOrNull() ?: d.max,
                     context = p.getProperty("context")?.toIntOrNull() ?: d.context,
                     profile = p.getProperty("profile") == "true",
                     whole = p.getProperty("whole") == "true",

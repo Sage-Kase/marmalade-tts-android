@@ -44,6 +44,20 @@ class KittenStreamSlicingTest {
     }
 
     @Test
+    fun `with a cap, slices after the second double up to it`() {
+        val speech = 0 until 500
+        val slices = KittenStreamSlicing.slices(speech, totalFrames = 500, first = 20, size = 40, context = 4, max = 160)
+        assertEquals(listOf(20, 40, 80, 160, 160, 40), slices.map { it.keep.last - it.keep.first + 1 })
+        assertEquals(speech.toList(), slices.flatMap { it.keep.toList() })
+    }
+
+    @Test
+    fun `a cap below the second slice means fixed slices`() {
+        val slices = KittenStreamSlicing.slices(0 until 120, totalFrames = 120, first = 20, size = 40, context = 4, max = 10)
+        assertEquals(listOf(20, 40, 40, 20), slices.map { it.keep.last - it.keep.first + 1 })
+    }
+
+    @Test
     fun `render windows add context on both sides, clamped to the render`() {
         val slices = KittenStreamSlicing.slices(2 until 50, totalFrames = 52, first = 20, size = 40, context = 4)
         assertEquals(0 until 26, slices[0].render) // 2-4 clamps to 0

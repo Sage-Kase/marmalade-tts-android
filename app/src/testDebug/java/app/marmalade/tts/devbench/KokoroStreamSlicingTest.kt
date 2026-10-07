@@ -31,6 +31,12 @@ class KokoroStreamSlicingTest {
     }
 
     @Test
+    fun `growing slices still leave the whole trailing pause to the last one`() {
+        val slices = KokoroStreamSlicing.slices(totalFrames = 200, tailStart = 150, first = 20, size = 40, context = 4, max = 160)
+        assertEquals(listOf(0 until 20, 20 until 60, 60 until 140, 140 until 200), slices.map { it.keep })
+    }
+
+    @Test
     fun `no cut falls inside the trailing pause`() {
         // body [0, 61) cuts at 20 and 60, leaving a 1-frame slice that the tail absorbs
         val slices = KokoroStreamSlicing.slices(totalFrames = 80, tailStart = 61, first = 20, size = 40, context = 4)
