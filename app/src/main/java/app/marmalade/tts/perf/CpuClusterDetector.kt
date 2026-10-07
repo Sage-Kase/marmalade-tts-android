@@ -11,8 +11,8 @@ import java.io.File
  *   - some perf cores (Cortex-A715/A720/A710)
  *   - some efficiency cores (Cortex-A510/A520)
  *
- * ONNX Runtime intra-op threading benefits from filling the prime + perf
- * cluster, but spilling onto efficiency cores often regresses matmul-heavy
+ * ONNX Runtime intra-op threading benefits from filling the fast cores,
+ * but spilling onto efficiency cores often regresses matmul-heavy
  * workloads (efficiency cores are 2-4× slower at the same frequency and
  * thrash the shared cache). This detector counts cores in the *non-lowest*
  * frequency tier — the union of prime + perf, excluding efficiency.
@@ -23,12 +23,21 @@ import java.io.File
  *   - `related_cpus`     — whitespace-separated list of CPU indices
  *
  * Fallback when sysfs isn't readable (some manufacturers restrict it):
- * `Runtime.availableProcessors() / 2` rounded up, capped at 6. Reasonable
+ * `Runtime.availableProcessors() / 2` rounded up. Reasonable
  * compromise for "most phones have roughly half big, half little."
  *
- * The detection runs once at engine init and the result is cached for the
- * process lifetime — sysfs paths are stable across reads, and ARM
- * core-frequency tiers don't change at runtime.
+ * Each engine load reads sysfs afresh; it's a handful of small files, and
+ * ARM core-frequency tiers don't change at runtime.
+ *
+ * A lone top-tier core (the "prime" core) is NOT counted (issue #13 "C").
+ * Android confines an app's threads to a cpuset that follows its state, and
+ * a reader running with the screen off is a foreground service, not the
+ * visible app: on the Pixel 8a that cpuset is CPUs 0–7, which leaves out
+ * the prime core (CPU 8). Five threads for "4 mid + 1 prime" then put one
+ * thread on a slow little core, and every parallel step waits for it:
+ * Kitten's generator ran 1.8× faster with 4 threads than with 5 (#12 "X1").
+ * Many phones keep their single prime core out of that cpuset, and the app
+ * can't read the cpuset itself (SELinux), so the rule is general.
  */
 object CpuClusterDetector {
 
@@ -36,9 +45,9 @@ object CpuClusterDetector {
     private const val CPUFREQ_ROOT = "/sys/devices/system/cpu/cpufreq"
 
     /**
-     * Returns the count of performance cores (prime + perf cluster) on
-     * this device. Always returns at least 1; capped at 8 since ORT
-     * gains diminish past that on consumer hardware.
+     * Returns the intra-op thread count for this device: its performance
+     * cores, without a lone prime core ([threadsFor]). Always at least 1;
+     * capped at 8 since ORT gains diminish past that on consumer hardware.
      */
     fun detectPerfCoreCount(): Int {
         val detected = readFromSysfs()
@@ -70,18 +79,27 @@ object CpuClusterDetector {
         }
     }
 
-    private fun readFromSysfs(): Int {
-        val clusters = readClusters()
-        if (clusters.isEmpty()) return fallbackEstimate()
+    private fun readFromSysfs(): Int = threadsFor(readClusters()) ?: fallbackEstimate()
 
+    /**
+     * Intra-op threads for a device with [clusters]: the cores above the
+     * lowest frequency tier, minus a lone top-tier core when other fast
+     * cores exist (see the class comment). A single-tier device uses all
+     * its cores but one. Null when [clusters] is empty (sysfs unreadable).
+     */
+    fun threadsFor(clusters: List<Cluster>): Int? {
+        if (clusters.isEmpty()) return null
         val minFreq = clusters.minOf { it.maxFreqKhz }
-        val perfCores = clusters.filter { it.maxFreqKhz > minFreq }.sumOf { it.cpuCount }
-        if (perfCores > 0) return perfCores
-
-        // Single-cluster device (rare on modern phones — old Snapdragon 4xx etc).
-        // Use them all minus 1 to leave a core for the OS scheduler.
-        val total = clusters.sumOf { it.cpuCount }
-        return (total - 1).coerceAtLeast(1)
+        val perf = clusters.filter { it.maxFreqKhz > minFreq }
+        if (perf.isEmpty()) {
+            // Single-tier device (old Snapdragon 4xx etc.): all cores but one,
+            // leaving a core for the OS scheduler.
+            return (clusters.sumOf { it.cpuCount } - 1).coerceAtLeast(1)
+        }
+        val perfCores = perf.sumOf { it.cpuCount }
+        val topFreq = perf.maxOf { it.maxFreqKhz }
+        val topCores = perf.filter { it.maxFreqKhz == topFreq }.sumOf { it.cpuCount }
+        return if (topCores == 1 && perfCores > 1) perfCores - 1 else perfCores
     }
 
     private fun fallbackEstimate(): Int {
