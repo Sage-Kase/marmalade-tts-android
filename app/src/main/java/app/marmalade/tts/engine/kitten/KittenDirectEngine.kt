@@ -354,8 +354,12 @@ open class KittenDirectEngine @Inject constructor(
             if (EngineDevKnobs.get(ctx.filesDir, "kitten.plannerXnnpack") == "true" &&
                 Build.SUPPORTED_ABIS.firstOrNull() != "x86_64"
             ) {
-                addXnnpack(mapOf("intra_op_num_threads" to intraOpThreads.toString()))
-                Log.i(TAG, "planner: XNNPACK EP (dev knob)")
+                try {
+                    addXnnpack(mapOf("intra_op_num_threads" to intraOpThreads.toString()))
+                    Log.i(TAG, "planner: XNNPACK EP (dev knob)")
+                } catch (t: Throwable) {
+                    Log.w(TAG, "planner: XNNPACK EP unavailable; CPU EP only", t)
+                }
             }
         }
     }
