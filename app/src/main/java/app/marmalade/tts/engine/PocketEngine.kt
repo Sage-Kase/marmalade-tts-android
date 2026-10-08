@@ -23,6 +23,12 @@ import app.marmalade.tts.engine.pocket.bindStateInputs
 import app.marmalade.tts.engine.pocket.enableStatePinning
 import app.marmalade.tts.engine.pocket.initStates
 import app.marmalade.tts.engine.pocket.PocketStatesSnapshot
+import app.marmalade.tts.engine.pocket.PocketCacheShapes
+import app.marmalade.tts.engine.pocket.PocketMimiBatch
+import app.marmalade.tts.engine.pocket.PocketSessionPlan
+import app.marmalade.tts.engine.pocket.PocketStateCarry
+import app.marmalade.tts.engine.pocket.StateFrame
+import app.marmalade.tts.engine.pocket.PocketTimes
 import app.marmalade.tts.engine.pocket.resetStatesToInit
 import app.marmalade.tts.engine.pocket.restoreStates
 import app.marmalade.tts.engine.pocket.snapshotStates
@@ -188,6 +194,49 @@ open class PocketEngine @Inject constructor(
      */
     private var mimiState: PocketStates? = null
 
+    /**
+     * #15 "A": carry flow_lm and mimi state from run to run without copying
+     * (see [PocketStateCarry]). Debug knob `pocket.carry=copy` restores the
+     * copying path for an A/B.
+     */
+    private var zeroCopyState = false
+
+    /**
+     * State shapes to initialise from: the bundle's manifests, unless the
+     * debug knobs `pocket.cacheLen` / `pocket.mimiCap` resize the caches for
+     * a `*_dyncache` graph (#15 "F", picked with `pocket.file.<graph>`).
+     */
+    private var flowManifest: List<PocketBundle.StateSpec> = emptyList()
+    private var mimiManifest: List<PocketBundle.StateSpec> = emptyList()
+
+    /** Zero-copy path only: the flow_lm init state every chunk starts from (read-only). */
+    private var flowInitState: PocketStates? = null
+
+    /**
+     * #15 "C": flow_lm's state right after the voice prompt (phase 1), for
+     * the last voice used, so later chunks skip re-running the prompt. Phase
+     * 1 has no randomness, so starting from it is exact. One voice only
+     * (~49 MB native); zero-copy path only; debug knob
+     * `pocket.voiceCache=false` turns it off. Touched under [synthLock].
+     */
+    private var voicePrompt: Pair<FloatArray, StateFrame>? = null
+    private var voicePromptCache = false
+
+    /**
+     * Latent frames per mimi_decoder run (#15 "D"): consecutive batches no
+     * larger than [PocketMimiBatch.maxExactBatch], so every frame decodes
+     * exactly as it would alone. Debug knob `pocket.decode` = a frame count,
+     * or `pal` for the old lead-in + 64-frame re-decode (inexact) to A/B.
+     */
+    private var decodeBatch = 0
+    private var decodePal = false
+
+    /** Debug knob `pocket.ortProfile`: requests left before ORT's profiler is closed. */
+    private var profileRequestsLeft = 0
+
+    /** Debug knob `pocket.seed`: reseeds the noise at each request, for bit-exact A/B checks. */
+    private var seed: Long? = null
+
     /** `[1, 1, 1024]` learned embedding prepended to the voice prompt. */
     private var bosBeforeVoice: FloatArray? = null
 
@@ -312,43 +361,60 @@ open class PocketEngine @Inject constructor(
         // Users can override via Settings → Performance → Thread count.
         Log.i(TAG, "ORT intraOpNumThreads=$intraOpThreads (manual setting or autodetect)")
         // P-Q: flow_lm_flow is a 1-frame Euler net — over-parallelising it
-        // wakes the whole XNNPACK pool just to do a small matmul. Per the
-        // adversarial review, give it a smaller thread budget (2) so the
-        // bigger sessions (text_cond / mimi / flow_lm_main) don't contend
-        // for cores when the Euler call wakes up.
-        val flowFlowThreads = (intraOpThreads / 2).coerceAtLeast(2)
-        val opts = buildPocketSessionOptions(intraOpThreads, label = "main")
-        val flowFlowOpts = if (flowFlowThreads != intraOpThreads) {
-            buildPocketSessionOptions(flowFlowThreads, label = "flow_lm_flow")
-        } else {
-            opts
-        }
+        // wakes the whole pool just to do a small matmul, so it gets half
+        // the threads (at least 2). Per-graph settings and their debug A/B
+        // knobs: [PocketSessionPlan].
+        val knob = { key: String -> EngineDevKnobs.get(ctx.filesDir, key) }
+        val plan = PocketSessionPlan.resolve(intraOpThreads, knob)
+        profileRequestsLeft = knob("pocket.ortProfile")?.toIntOrNull() ?: 0
+        val profileDir = if (profileRequestsLeft > 0) File(ctx.filesDir, "bench/ortprof").apply { mkdirs() } else null
+        seed = knob("pocket.seed")?.toLongOrNull()
+        zeroCopyState = knob("pocket.carry") != "copy"
+        voicePromptCache = zeroCopyState && knob("pocket.voiceCache") != "false"
+        flowManifest = knob("pocket.cacheLen")?.toIntOrNull()
+            ?.let { PocketCacheShapes.flowLm(bundle!!.flowLmStateManifest, it) } ?: bundle!!.flowLmStateManifest
+        mimiManifest = knob("pocket.mimiCap")?.toIntOrNull()
+            ?.let { PocketCacheShapes.mimi(bundle!!.mimiStateManifest, it) } ?: bundle!!.mimiStateManifest
+        val decodeKnob = knob("pocket.decode")
+        decodePal = decodeKnob == "pal"
+        val exact = PocketMimiBatch.maxExactBatch(PocketMimiBatch.ringCapacity(mimiManifest))
+        decodeBatch = (decodeKnob?.toIntOrNull() ?: exact).coerceIn(1, exact)
 
         val files = bundle!!.onnxFiles
         Log.i(TAG, "Loading Pocket bundle (quantization=${bundle!!.quantizationVariant}): " +
             "text_cond=${files.textConditioner}, mimi_enc=${files.mimiEncoder}, " +
             "mimi_dec=${files.mimiDecoder}, flow_main=${files.flowLmMain}, " +
             "flow_flow=${files.flowLmFlow}")
-        // ORT copies the options into each native session at creation, so
-        // they're closed right after — otherwise every keepalive evict/reload
-        // leaked the native OrtSessionOptions.
-        try {
-            textCondSession = createSession(ort, opts, files.textConditioner)
-            mimiEncoderSession = createSession(ort, opts, files.mimiEncoder)
-            mimiDecoderSession = createSession(ort, opts, files.mimiDecoder)
-            flowLmMainSession = createSession(ort, opts, files.flowLmMain)
-            introspectFlowMainOutputs(bundle!!, flowLmMainSession!!)
-            flowLmFlowSession = createSession(ort, flowFlowOpts, files.flowLmFlow)
-        } finally {
-            opts.close()
-            // Same instance when the thread counts match; a second close throws.
-            if (flowFlowOpts !== opts) flowFlowOpts.close()
+        Log.i(TAG, "session plan: " + plan.entries.joinToString(" ") { (g, c) ->
+            "$g=${c.threads}t${if (c.xnnpack) "+xnn" else ""}${if (c.spin) "+spin" else ""}"
+        } + (if (profileDir != null) " ortProfile=$profileRequestsLeft" else "") +
+            (seed?.let { " seed=$it" } ?: "") + " carry=${if (zeroCopyState) "zero" else "copy"}" +
+            " voiceCache=$voicePromptCache decode=${if (decodePal) "pal" else "$decodeBatch"}" +
+            " cacheLen=${flowManifest.first { it.shape.size == 5 }.shape[2]}" +
+            " mimiCap=${PocketMimiBatch.ringCapacity(mimiManifest)}")
+        fun session(graph: String, fileName: String): OrtSession {
+            // ORT copies the options into the native session at creation, so
+            // they're closed right after — otherwise every keepalive
+            // evict/reload leaked the native OrtSessionOptions.
+            return buildPocketSessionOptions(plan.getValue(graph), graph, profileDir).use { opts ->
+                createSession(ort, opts, fileName)
+            }
         }
+        // Debug knob `pocket.file.<graph>`: load another file from the engine
+        // dir (#15 "F": model-file prototypes sideloaded beside the bundle).
+        fun file(graph: String, default: String) = knob("pocket.file.$graph") ?: default
+        textCondSession = session("text", file("text", files.textConditioner))
+        mimiEncoderSession = session("enc", file("enc", files.mimiEncoder))
+        mimiDecoderSession = session("dec", file("dec", files.mimiDecoder))
+        flowLmMainSession = session("main", file("main", files.flowLmMain))
+        introspectFlowMainOutputs(bundle!!, flowLmMainSession!!)
+        flowLmFlowSession = session("flow", file("flow", files.flowLmFlow))
 
         // P-Y — engine-level mimi state map. Allocated once, reset per
         // synth. (flow_lm state is built fresh per chunk in
         // startArSession — the P-Y bisect reverted its engine-level half.)
-        mimiState = initStates(bundle!!.mimiStateManifest)
+        mimiState = initStates(mimiManifest)
+        flowInitState = if (zeroCopyState) initStates(flowManifest) else null
 
         // Publish only after every field a sibling caller's synth path
         // touches is non-null. Warmup launches after the publish because
@@ -406,15 +472,17 @@ open class PocketEngine @Inject constructor(
     }
 
     /**
-     * Per-session OrtSession.SessionOptions builder. Factored out by P-Q so
-     * flow_lm_flow can use a smaller thread count than the other sessions.
-     * Heavy ops (text_cond / mimi / flow_lm_main) want all perf cores;
-     * flow_lm_flow is a 1-frame Euler net that doesn't benefit from full
-     * parallelism and just wakes the whole pool for no gain.
+     * One graph's OrtSession.SessionOptions ([PocketSessionPlan] decides
+     * threads, XNNPACK and spinning per graph). [profileDir] non-null turns
+     * on ORT's per-node profiler for the `pocket.ortProfile` debug knob.
      */
-    private fun buildPocketSessionOptions(intraOpThreads: Int, label: String): OrtSession.SessionOptions {
+    private fun buildPocketSessionOptions(
+        cfg: app.marmalade.tts.engine.pocket.PocketGraphConfig,
+        label: String,
+        profileDir: File?,
+    ): OrtSession.SessionOptions {
         return OrtSession.SessionOptions().apply {
-            setIntraOpNumThreads(intraOpThreads)
+            setIntraOpNumThreads(cfg.threads)
             setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
             // Memory-pattern optimization restored — bisect confirmed it
             // doesn't fix the intermittent middle-chunk glitch in
@@ -433,31 +501,35 @@ open class PocketEngine @Inject constructor(
                 setSessionLogVerbosityLevel(0)
                 Log.w(TAG, "ORT verbose diagnostic ENABLED for $label — disable after capture")
             }
-            // XNNPACK execution provider. Ships ARM kernels (sdot, fp16
-            // SIMD, optional i8mm) tuned for the Cortex-X3/A715 cores in
-            // Tensor G3 and the equivalent clusters in Snapdragon 8 Gen
-            // 2/3 and Exynos 2400 — same EP that react-native-executorch
-            // uses for Kokoro on the same hardware. ORT falls back to
-            // CPU EP for any ops XNNPACK doesn't support, so the worst
-            // case is "no speedup on flow_lm_main's int8 KV-cache loop"
-            // rather than an outright failure.
-            //
-            // The Map is wrapped in a try/catch because XNNPACK is
-            // optionally bundled in some onnxruntime-android builds;
-            // if the runtime was compiled without it, addXnnpack throws
-            // and we fall back to a pure CPU-EP session.
-            try {
-                addXnnpack(mapOf("intra_op_num_threads" to intraOpThreads.toString()))
-                // XNNPACK has its own pthread pool; ORT's intra-op pool with
-                // spinning enabled fights it for cores. Per ORT's own diagnostic
-                // warning, disable spinning so ORT threads park instead of
-                // busy-waiting when XNNPACK is busy. Slightly higher per-call
-                // wake-up cost but no contention.
-                addConfigEntry("session.intra_op.allow_spinning", "0")
-                Log.i(TAG, "XNNPACK EP enabled for $label (intra_op_num_threads=$intraOpThreads, allow_spinning=0)")
-            } catch (t: Throwable) {
-                Log.w(TAG, "XNNPACK EP unavailable for $label; using CPU EP only", t)
+            if (profileDir != null) enableProfiling(File(profileDir, label).absolutePath)
+            // Spinning keeps the intra-op threads hot between the many
+            // short calls of the AR loop instead of paying a wake-up each.
+            // XNNPACK has its own pthread pool, and spinning ORT threads
+            // fight it for cores (ORT warns about it).
+            addConfigEntry("session.intra_op.allow_spinning", if (cfg.spin) "1" else "0")
+            // XNNPACK execution provider. ORT falls back to the CPU EP for
+            // any op XNNPACK doesn't support (flow_lm_main's MatMulInteger
+            // among them). Wrapped because XNNPACK is optional in some
+            // onnxruntime-android builds; without it the CPU EP runs alone.
+            if (cfg.xnnpack) {
+                try {
+                    addXnnpack(mapOf("intra_op_num_threads" to cfg.threads.toString()))
+                } catch (t: Throwable) {
+                    Log.w(TAG, "XNNPACK EP unavailable for $label; using CPU EP only", t)
+                }
             }
+        }
+    }
+
+    /** Debug knob `pocket.ortProfile`: close every session's profile and log where it went. */
+    private fun endOrtProfiling() {
+        for ((name, s) in listOf(
+            "text" to textCondSession, "enc" to mimiEncoderSession, "dec" to mimiDecoderSession,
+            "main" to flowLmMainSession, "flow" to flowLmFlowSession,
+        )) {
+            runCatching { s?.endProfiling() }
+                .onSuccess { Log.i(PERF_TAG, "pocket ortProfile $name=$it") }
+                .onFailure { Log.w(TAG, "endProfiling($name) failed: ${it.message}") }
         }
     }
 
@@ -492,9 +564,13 @@ open class PocketEngine @Inject constructor(
                 Log.d(PERF_TAG, "pocket warmup prefill ${p.name}=${p.ms}ms${p.detail?.let { " ($it)" } ?: ""}")
             }
             val latents = ArrayList<FloatArray>(3)
-            repeat(2) {
-                val step = stepAr(ar) ?: return@repeat
-                latents.add(step.latent)
+            try {
+                repeat(2) {
+                    val step = stepAr(ar) ?: return@repeat
+                    latents.add(step.latent)
+                }
+            } finally {
+                ar.carry?.close()
             }
             if (latents.isNotEmpty()) {
                 val flat = FloatArray(latents.size * bundle.latentDim)
@@ -503,7 +579,7 @@ open class PocketEngine @Inject constructor(
                     System.arraycopy(l, 0, flat, pos, bundle.latentDim)
                     pos += bundle.latentDim
                 }
-                runMimiDecoder(bundle, flat)
+                runMimiDecoder(bundle, flat, mimiState ?: return)
             }
             Log.i(TAG, "Pocket warmup synth completed in ${System.currentTimeMillis() - tStart} ms")
         } catch (t: Throwable) {
@@ -686,6 +762,7 @@ open class PocketEngine @Inject constructor(
         synthLock.withLock { coroutineScope {
             // Under the lock: a first-use voice encodes through mimi_encoder.
             val voiceEmb = embeddingForVoice(voiceName)
+            seed?.let { random.setSeed(it) }
             var prerollChunks = 1
             val buffered = ArrayList<SynthAudio>(MAX_PREROLL_CHUNKS)
             // Pipelining: when sub-realtime (K > 1), kick off chunk N's mimi
@@ -823,14 +900,14 @@ open class PocketEngine @Inject constructor(
                 if (canPipeline) {
                     pendingDecode = idx to async(Dispatchers.Default) {
                         val decodeStartNs = System.nanoTime()
-                        val out = decodeChunkAudio(bundle, latents, mimiState)
+                        val out = decodeChunkAudio(bundle, latents, mimiState, idx)
                         val decodeMs = (System.nanoTime() - decodeStartNs) / 1_000_000
                         Log.d(PERF_TAG, "pocket chunk=$idx decode=${decodeMs}ms (pipelined)")
                         out
                     }
                 } else {
                     val decodeStartNs = System.nanoTime()
-                    val audio = decodeChunkAudio(bundle, latents, mimiState)
+                    val audio = decodeChunkAudio(bundle, latents, mimiState, idx)
                     val decodeMs = (System.nanoTime() - decodeStartNs) / 1_000_000
                     Log.d(PERF_TAG, "pocket chunk=$idx decode=${decodeMs}ms (sync)")
                     emitOrBuffer(audio, idx)
@@ -844,6 +921,7 @@ open class PocketEngine @Inject constructor(
             }
             // Defensive — buffered should be empty after the loop's flush logic.
             for (b in buffered) this@channelFlow.send(b)
+            if (profileRequestsLeft > 0 && --profileRequestsLeft == 0) endOrtProfiling()
         } }
     }.flowOn(Dispatchers.Default)
 
@@ -887,6 +965,21 @@ open class PocketEngine @Inject constructor(
         for (p in phases) {
             Log.d(PERF_TAG, "pocket chunk=$chunkIdx prefill ${p.name}=${p.ms}ms${p.detail?.let { " ($it)" } ?: ""}")
         }
+        try {
+            return arLoop(ar, bundle, miniChunk, frameTimes, chunkIdx)
+        } finally {
+            ar.carry?.close()
+        }
+    }
+
+    /** [generateChunkLatents]' frame loop, from a primed [ar] to the flat latents. */
+    private suspend fun arLoop(
+        ar: ArSession,
+        bundle: PocketBundle,
+        miniChunk: String,
+        frameTimes: MutableList<Long>?,
+        chunkIdx: Int,
+    ): FloatArray? {
         val latents = ArrayList<FloatArray>(ar.maxFrames)
         // P-AD diagnostics: track latent magnitude + EOS so a glitchy chunk's
         // logcat distinguishes the two leading theories (per adversarial
@@ -896,6 +989,7 @@ open class PocketEngine @Inject constructor(
         // chunk because the AR loop feeds previousLatent=nextLatent forward.
         var peakLatentAbs = 0f
         var sawNonFinite = false
+        val loopStartNs = System.nanoTime()
         while (true) {
             // Cooperative cancellation. The AR step is a non-suspend ORT
             // native call (~50–100 ms on Pixel 8a depending on EP/thread
@@ -915,6 +1009,8 @@ open class PocketEngine @Inject constructor(
             }
             latents.add(step.latent)
         }
+
+        Log.d(PERF_TAG, ar.times.arLine(chunkIdx, (System.nanoTime() - loopStartNs) / 1_000_000))
 
         // Per-chunk summary. WARN on the two failure signatures; INFO otherwise.
         val summary = "Pocket chunk $chunkIdx: frames=${latents.size}/${ar.maxFrames} " +
@@ -952,6 +1048,7 @@ open class PocketEngine @Inject constructor(
         bundle: PocketBundle,
         latents: FloatArray?,
         mimiState: PocketStates,
+        chunkIdx: Int,
     ): SynthAudio {
         if (latents == null || latents.isEmpty()) {
             return SynthAudio(pcm = ShortArray(0), sampleRate = bundle.sampleRate)
@@ -961,7 +1058,10 @@ open class PocketEngine @Inject constructor(
         // first few latent frames one at a time, the rest batched). No
         // warm-prime / trim / fade is needed here — the root cause was the
         // batched mimi graph corrupting a fresh decode's leading edge.
-        val pcmFloat = runMimiDecoder(bundle, latents, mimiState)
+        val times = PocketTimes()
+        val startNs = System.nanoTime()
+        val pcmFloat = runMimiDecoder(bundle, latents, mimiState, times)
+        Log.d(PERF_TAG, times.decodeLine(chunkIdx, (System.nanoTime() - startNs) / 1_000_000))
         return SynthAudio(pcm = floatToPcm16(pcmFloat), sampleRate = bundle.sampleRate)
     }
 
@@ -1131,6 +1231,9 @@ open class PocketEngine @Inject constructor(
         // here is what actually frees the native memory after uninstall
         // (this @Singleton outlives the engine's files).
         mimiState = null
+        voicePrompt?.second?.release()
+        voicePrompt = null
+        flowInitState = null
         voiceEmbeddings.clear()
         // OrtEnvironment is process-scoped; don't close it.
         env = null
@@ -1353,7 +1456,10 @@ open class PocketEngine @Inject constructor(
         val ort: OrtEnvironment,
         val main: OrtSession,
         val flow: OrtSession,
-        val flowLmState: PocketStates,
+        /** Copying path's state (null on the zero-copy path, which uses [carry]). */
+        val flowLmState: PocketStates?,
+        /** Zero-copy path's state (#15 "A"); the caller closes it when the loop ends. */
+        val carry: PocketStateCarry?,
         val maxFrames: Int,
         val framesAfterEos: Int,
         var previousLatent: FloatArray,
@@ -1362,6 +1468,7 @@ open class PocketEngine @Inject constructor(
         var eosFiredAtFrame: Int = -1,
         var framesPostEos: Int = 0,
         var done: Boolean = false,
+        val times: PocketTimes = PocketTimes(),
     ) {
         /**
          * Reusable buffers for the inner flow_lm_flow Euler loop. Pre-
@@ -1441,62 +1548,90 @@ open class PocketEngine @Inject constructor(
         // across many `session.run` calls (P-Z exhibited a related
         // symptom with persistent input wrappers). Eats some of the
         // accumulation win but mimi P-Y still saves 56 buffers per stream.
-        val state = initStates(bundle.flowLmStateManifest)
-        if (FLOW_MAIN_PINNED_OUTPUTS && flowMainPinnableSpecs.isNotEmpty()) {
+        // Zero-copy (#15 "A"): every chunk starts from the engine-level init
+        // state, which ORT only ever reads, so it is never refilled.
+        // The voice prompt's state is cached by embedding identity (#15 "C").
+        val cachedPrompt = voicePrompt?.takeIf { voicePromptCache && it.first === voiceEmbedding }?.second
+        val carry = when {
+            cachedPrompt != null -> PocketStateCarry(cachedPrompt.retain())
+            else -> flowInitState?.let {
+                PocketStateCarry(PocketStateCarry.bindSlots(ort, bundle.flowLmStateManifest, it))
+            }
+        }
+        val state = if (carry != null) null else initStates(flowManifest)
+        if (state != null && FLOW_MAIN_PINNED_OUTPUTS && flowMainPinnableSpecs.isNotEmpty()) {
             enableStatePinning(state, flowMainPinnableSpecs)
         }
-
-        // PHASE 1: voice conditioning.
-        // text_embeddings = bos_before_voice ++ voice_embedding, shape [1, V+1, conditioningDim]
-        val phase1Start = System.currentTimeMillis()
-        val bos = bosBeforeVoice ?: error("bos_before_voice missing")
-        val voiceFrames = voiceEmbedding.size / bundle.conditioningDim
-        val totalFrames = voiceFrames + if (bundle.insertBosBeforeVoice) 1 else 0
-        val concat = FloatArray(totalFrames * bundle.conditioningDim)
-        run {
-            var pos = 0
-            if (bundle.insertBosBeforeVoice) {
-                System.arraycopy(bos, 0, concat, pos, bos.size)
-                pos += bos.size
+        try {
+            // PHASE 1: voice conditioning.
+            // text_embeddings = bos_before_voice ++ voice_embedding, shape [1, V+1, conditioningDim]
+            val phase1Start = System.currentTimeMillis()
+            if (cachedPrompt == null) {
+                val bos = bosBeforeVoice ?: error("bos_before_voice missing")
+                val voiceFrames = voiceEmbedding.size / bundle.conditioningDim
+                val totalFrames = voiceFrames + if (bundle.insertBosBeforeVoice) 1 else 0
+                val concat = FloatArray(totalFrames * bundle.conditioningDim)
+                run {
+                    var pos = 0
+                    if (bundle.insertBosBeforeVoice) {
+                        System.arraycopy(bos, 0, concat, pos, bos.size)
+                        pos += bos.size
+                    }
+                    System.arraycopy(voiceEmbedding, 0, concat, pos, voiceEmbedding.size)
+                }
+                runFlowLmMain(
+                    session = main,
+                    bundle = bundle,
+                    ort = ort,
+                    state = state,
+                    carry = carry,
+                    sequenceData = FloatArray(0),
+                    sequenceShape = longArrayOf(1, 0, bundle.latentDim.toLong()),
+                    textEmbedsData = concat,
+                    textEmbedsShape = longArrayOf(1, totalFrames.toLong(), bundle.conditioningDim.toLong()),
+                    captureConditioning = false,
+                )
+                if (voicePromptCache && carry != null) {
+                    voicePrompt?.second?.release()
+                    voicePrompt = voiceEmbedding to carry.snapshot()
+                }
             }
-            System.arraycopy(voiceEmbedding, 0, concat, pos, voiceEmbedding.size)
-        }
-        runFlowLmMain(
-            session = main,
-            bundle = bundle,
-            ort = ort,
-            state = state,
-            sequenceData = FloatArray(0),
-            sequenceShape = longArrayOf(1, 0, bundle.latentDim.toLong()),
-            textEmbedsData = concat,
-            textEmbedsShape = longArrayOf(1, totalFrames.toLong(), bundle.conditioningDim.toLong()),
-            captureConditioning = false,
-        )
-        phases?.add(PhaseSpan("flow-lm phase 1 (voice cond)", System.currentTimeMillis() - phase1Start))
+            phases?.add(
+                PhaseSpan(
+                    "flow-lm phase 1 (voice cond)",
+                    System.currentTimeMillis() - phase1Start,
+                    detail = if (cachedPrompt != null) "cached" else null,
+                ),
+            )
 
-        // PHASE 2: text conditioning.
-        val phase2Start = System.currentTimeMillis()
-        val tcStart = System.currentTimeMillis()
-        val textEmbeds = runTextConditioner(textCond, tokens, bundle, ort)
-        val tcMs = System.currentTimeMillis() - tcStart
-        runFlowLmMain(
-            session = main,
-            bundle = bundle,
-            ort = ort,
-            state = state,
-            sequenceData = FloatArray(0),
-            sequenceShape = longArrayOf(1, 0, bundle.latentDim.toLong()),
-            textEmbedsData = textEmbeds,
-            textEmbedsShape = longArrayOf(1, tokens.size.toLong(), bundle.conditioningDim.toLong()),
-            captureConditioning = false,
-        )
-        phases?.add(
-            PhaseSpan(
-                "flow-lm phase 2 (text cond)",
-                System.currentTimeMillis() - phase2Start,
-                detail = "incl. text_conditioner $tcMs ms",
-            ),
-        )
+            // PHASE 2: text conditioning.
+            val phase2Start = System.currentTimeMillis()
+            val tcStart = System.currentTimeMillis()
+            val textEmbeds = runTextConditioner(textCond, tokens, bundle, ort)
+            val tcMs = System.currentTimeMillis() - tcStart
+            runFlowLmMain(
+                session = main,
+                bundle = bundle,
+                ort = ort,
+                state = state,
+                carry = carry,
+                sequenceData = FloatArray(0),
+                sequenceShape = longArrayOf(1, 0, bundle.latentDim.toLong()),
+                textEmbedsData = textEmbeds,
+                textEmbedsShape = longArrayOf(1, tokens.size.toLong(), bundle.conditioningDim.toLong()),
+                captureConditioning = false,
+            )
+            phases?.add(
+                PhaseSpan(
+                    "flow-lm phase 2 (text cond)",
+                    System.currentTimeMillis() - phase2Start,
+                    detail = "incl. text_conditioner $tcMs ms",
+                ),
+            )
+        } catch (t: Throwable) {
+            carry?.close()
+            throw t
+        }
 
         return ArSession(
             bundle = bundle,
@@ -1504,6 +1639,7 @@ open class PocketEngine @Inject constructor(
             main = main,
             flow = flow,
             flowLmState = state,
+            carry = carry,
             maxFrames = estimateMaxFrames(bundle, tokens.size),
             framesAfterEos = framesAfterEosFor(bundle, originalText),
             previousLatent = FloatArray(bundle.latentDim) { Float.NaN },
@@ -1532,13 +1668,18 @@ open class PocketEngine @Inject constructor(
             bundle = ar.bundle,
             ort = ar.ort,
             state = ar.flowLmState,
+            carry = ar.carry,
             sequenceData = ar.previousLatent,
             sequenceShape = longArrayOf(1, 1, ar.bundle.latentDim.toLong()),
             textEmbedsData = FloatArray(0),
             textEmbedsShape = longArrayOf(1, 0, ar.bundle.conditioningDim.toLong()),
             captureConditioning = true,
+            times = ar.times,
         )!! // captureConditioning=true guarantees non-null
+        val flowStartNs = System.nanoTime()
         val nextLatent = runFlowEuler(ar.flow, ar.ort, capture.conditioning, ar.flowScratch, ar.bundle.latentDim)
+        ar.times.flowNs += System.nanoTime() - flowStartNs
+        ar.times.frames++
         ar.previousLatent = nextLatent
         ar.frameIdx++
 
@@ -1606,20 +1747,80 @@ open class PocketEngine @Inject constructor(
         session: OrtSession,
         bundle: PocketBundle,
         ort: OrtEnvironment,
-        state: PocketStates,
+        state: PocketStates?,
+        carry: PocketStateCarry?,
         sequenceData: FloatArray,
         sequenceShape: LongArray,
         textEmbedsData: FloatArray,
         textEmbedsShape: LongArray,
         captureConditioning: Boolean,
+        times: PocketTimes? = null,
     ): FlowLmCapture? {
         val seqT = directFloatTensor(ort, sequenceData, sequenceShape)
         val textT = directFloatTensor(ort, textEmbedsData, textEmbedsShape)
+        if (carry != null) {
+            return runFlowLmMainCarry(session, bundle, carry, seqT, textT, captureConditioning, times)
+        }
         return runFlowLmMainWithTensors(
-            session = session, bundle = bundle, ort = ort, state = state,
+            session = session, bundle = bundle, ort = ort, state = state!!,
             seqT = seqT, textT = textT,
             captureConditioning = captureConditioning,
+            times = times,
         )
+    }
+
+    /**
+     * Zero-copy flow_lm_main run (#15 "A"): the state tensors come from
+     * [carry] and the run's state outputs become its next frame, so no
+     * state byte is copied in Java. Closes [seqT] and [textT]; the Result
+     * belongs to [carry] from here on.
+     */
+    private fun runFlowLmMainCarry(
+        session: OrtSession,
+        bundle: PocketBundle,
+        carry: PocketStateCarry,
+        seqT: OnnxTensor,
+        textT: OnnxTensor,
+        captureConditioning: Boolean,
+        times: PocketTimes?,
+    ): FlowLmCapture? {
+        try {
+            val bindStartNs = System.nanoTime()
+            val inputs = LinkedHashMap<String, OnnxTensor>(bundle.flowLmStateManifest.size + 2)
+            inputs["sequence"] = seqT
+            inputs["text_embeddings"] = textT
+            carry.bind(bundle.flowLmStateManifest, inputs)
+            val runStartNs = System.nanoTime()
+            val result = session.run(inputs)
+            val runEndNs = System.nanoTime()
+            val capture = try {
+                if (captureConditioning) readCapture(result, bundle) else null
+            } catch (t: Throwable) {
+                result.close()
+                throw t
+            }
+            carry.advance(bundle.flowLmStateManifest, result)
+            if (times != null) {
+                times.mainNs += runEndNs - runStartNs
+                times.mainStateNs += (runStartNs - bindStartNs) + (System.nanoTime() - runEndNs)
+            }
+            return capture
+        } finally {
+            seqT.close()
+            textT.close()
+        }
+    }
+
+    private fun readCapture(result: OrtSession.Result, bundle: PocketBundle): FlowLmCapture {
+        val condTensor = result.get("conditioning").orElseThrow {
+            IllegalStateException("flow_lm_main did not return 'conditioning'")
+        } as OnnxTensor
+        val cond = FloatArray(bundle.conditioningDim)
+        condTensor.floatBuffer.get(cond)
+        val eosTensor = result.get("eos_logit").orElseThrow {
+            IllegalStateException("flow_lm_main did not return 'eos_logit'")
+        } as OnnxTensor
+        return FlowLmCapture(conditioning = cond, eosLogit = eosTensor.floatBuffer.get(0))
     }
 
     /**
@@ -1636,7 +1837,9 @@ open class PocketEngine @Inject constructor(
         seqT: OnnxTensor,
         textT: OnnxTensor,
         captureConditioning: Boolean,
+        times: PocketTimes?,
     ): FlowLmCapture? {
+        val bindStartNs = System.nanoTime()
         val inputs = LinkedHashMap<String, OnnxTensor>(state.size + 2)
         inputs["sequence"] = seqT
         inputs["text_embeddings"] = textT
@@ -1667,6 +1870,7 @@ open class PocketEngine @Inject constructor(
         }
 
         try {
+            val runStartNs = System.nanoTime()
             val result = if (pinnedOutputs != null) {
                 // 3-arg run: requested + pinned must be DISJOINT and
                 // their sum must equal the model's actual output count.
@@ -1677,21 +1881,9 @@ open class PocketEngine @Inject constructor(
             } else {
                 session.run(inputs)
             }
+            val runEndNs = System.nanoTime()
             try {
-                val capture = if (captureConditioning) {
-                    val condTensor = result.get("conditioning").orElseThrow {
-                        IllegalStateException("flow_lm_main did not return 'conditioning'")
-                    } as OnnxTensor
-                    val cond = FloatArray(bundle.conditioningDim)
-                    condTensor.floatBuffer.get(cond)
-                    val eosTensor = result.get("eos_logit").orElseThrow {
-                        IllegalStateException("flow_lm_main did not return 'eos_logit'")
-                    } as OnnxTensor
-                    val eos = eosTensor.floatBuffer.get(0)
-                    FlowLmCapture(conditioning = cond, eosLogit = eos)
-                } else {
-                    null
-                }
+                val capture = if (captureConditioning) readCapture(result, bundle) else null
                 if (pinningActive) {
                     // Pinned slots: just swap in/out buffers — ORT already
                     // wrote the new state into the slot's outBuffer. Unpinned
@@ -1719,6 +1911,10 @@ open class PocketEngine @Inject constructor(
                     }
                 } else {
                     updateStatesFromResult(bundle.flowLmStateManifest, result, state)
+                }
+                if (times != null) {
+                    times.mainNs += runEndNs - runStartNs
+                    times.mainStateNs += (runStartNs - bindStartNs) + (System.nanoTime() - runEndNs)
                 }
                 return capture
             } finally {
@@ -1841,30 +2037,86 @@ open class PocketEngine @Inject constructor(
         latents: FloatArray,
         numFrames: Int,
         mimiState: PocketStates,
+        carry: PocketStateCarry?,
+        times: PocketTimes?,
     ): FloatArray {
         val ort = env ?: error("ORT env missing")
         val session = mimiDecoderSession ?: error("mimi decoder session missing")
-        val inputs = LinkedHashMap<String, OnnxTensor>(mimiState.size + 1)
+        val bindStartNs = System.nanoTime()
         val latT = directFloatTensor(
             ort, latents,
             longArrayOf(1, numFrames.toLong(), bundle.latentDim.toLong()),
         )
+        if (carry != null) return decodeMimiCarry(session, bundle, latT, numFrames, carry, times, bindStartNs)
+        val inputs = LinkedHashMap<String, OnnxTensor>(mimiState.size + 1)
         inputs["latent"] = latT
         bindStateInputs(ort, bundle.mimiStateManifest, mimiState, inputs)
         try {
             val out = FloatArray(numFrames * bundle.samplesPerFrame)
+            val runStartNs = System.nanoTime()
             session.run(inputs).use { result ->
+                val runEndNs = System.nanoTime()
                 val audioTensor = result.get("audio_frame").orElseThrow {
                     IllegalStateException("mimi_decoder did not return 'audio_frame'")
                 } as OnnxTensor
                 audioTensor.floatBuffer.get(out)
                 updateStatesFromResult(bundle.mimiStateManifest, result, mimiState)
+                if (times != null) {
+                    if (numFrames == 1) {
+                        times.leadNs += runEndNs - runStartNs; times.leadRuns++
+                    } else {
+                        times.batchNs += runEndNs - runStartNs; times.batchRuns++
+                    }
+                    times.decodeStateNs += (runStartNs - bindStartNs) + (System.nanoTime() - runEndNs)
+                }
             }
             return out
         } finally {
             for (t in inputs.values) {
                 try { t.close() } catch (_: Throwable) {}
             }
+        }
+    }
+
+    /** [decodeMimiChunk]'s zero-copy path (#15 "A"); closes [latT], hands the Result to [carry]. */
+    private fun decodeMimiCarry(
+        session: OrtSession,
+        bundle: PocketBundle,
+        latT: OnnxTensor,
+        numFrames: Int,
+        carry: PocketStateCarry,
+        times: PocketTimes?,
+        bindStartNs: Long,
+    ): FloatArray {
+        try {
+            val inputs = LinkedHashMap<String, OnnxTensor>(bundle.mimiStateManifest.size + 1)
+            inputs["latent"] = latT
+            carry.bind(bundle.mimiStateManifest, inputs)
+            val out = FloatArray(numFrames * bundle.samplesPerFrame)
+            val runStartNs = System.nanoTime()
+            val result = session.run(inputs)
+            val runEndNs = System.nanoTime()
+            try {
+                val audioTensor = result.get("audio_frame").orElseThrow {
+                    IllegalStateException("mimi_decoder did not return 'audio_frame'")
+                } as OnnxTensor
+                audioTensor.floatBuffer.get(out)
+            } catch (t: Throwable) {
+                result.close()
+                throw t
+            }
+            carry.advance(bundle.mimiStateManifest, result)
+            if (times != null) {
+                if (numFrames == 1) {
+                    times.leadNs += runEndNs - runStartNs; times.leadRuns++
+                } else {
+                    times.batchNs += runEndNs - runStartNs; times.batchRuns++
+                }
+                times.decodeStateNs += (runStartNs - bindStartNs) + (System.nanoTime() - runEndNs)
+            }
+            return out
+        } finally {
+            latT.close()
         }
     }
 
@@ -1877,13 +2129,15 @@ open class PocketEngine @Inject constructor(
     private fun runMimiDecoder(
         bundle: PocketBundle,
         latents: FloatArray,
-        mimiState: PocketStates = initStates(bundle.mimiStateManifest),
+        mimiState: PocketStates = initStates(mimiManifest),
+        times: PocketTimes? = null,
     ): FloatArray {
         if (latents.isEmpty()) return FloatArray(0)
         val numFrames = latents.size / bundle.latentDim
         val dim = bundle.latentDim
         val spf = bundle.samplesPerFrame
         val pcm = FloatArray(numFrames * spf)
+        times?.decodedFrames = numFrames
 
         // P-AL segmented overlap-discard (see [MIMI_OVERLAP_FRAMES]). Walk the
         // chunk in MIMI_CHUNK_FRAMES batches; for each, per-frame-decode the
@@ -1894,36 +2148,66 @@ open class PocketEngine @Inject constructor(
         val overlap = MIMI_OVERLAP_FRAMES
         val batch = MIMI_CHUNK_FRAMES
         val one = FloatArray(dim)
+        // Zero-copy (#15 "A"): [mimiState] is only the init source, never
+        // written; the P-AL rewind point is a shared frame, not a copy.
+        val carry = if (zeroCopyState) {
+            PocketStateCarry(PocketStateCarry.bindSlots(env ?: error("ORT env missing"), bundle.mimiStateManifest, mimiState))
+        } else {
+            null
+        }
 
-        var pos = 0
-        while (pos < numFrames) {
-            // Snapshot state as-of `pos`, then per-frame-decode the lead-in.
-            val snapshot: PocketStatesSnapshot = snapshotStates(mimiState)
-            val leadEnd = minOf(pos + overlap, numFrames)
-            for (f in pos until leadEnd) {
-                System.arraycopy(latents, f * dim, one, 0, dim)
-                val framePcm = decodeMimiChunk(bundle, one, 1, mimiState)
-                System.arraycopy(framePcm, 0, pcm, f * spf, framePcm.size)
+        try {
+            if (!decodePal) {
+                // #15 "D": consecutive exact batches, nothing decoded twice.
+                for (range in PocketMimiBatch.batches(numFrames, decodeBatch)) {
+                    val n = range.last - range.first + 1
+                    val part = latents.copyOfRange(range.first * dim, (range.last + 1) * dim)
+                    val out = decodeMimiChunk(bundle, part, n, mimiState, carry, times)
+                    System.arraycopy(out, 0, pcm, range.first * spf, out.size)
+                }
+                return pcm
             }
-            // Tail shorter than `overlap`: it's all per-frame, we're done.
-            if (leadEnd >= numFrames) break
+            var pos = 0
+            while (pos < numFrames) {
+                // Snapshot state as-of `pos`, then per-frame-decode the lead-in.
+                val snapStartNs = System.nanoTime()
+                val frame = carry?.snapshot()
+                val snapshot: PocketStatesSnapshot? = if (carry == null) snapshotStates(mimiState) else null
+                times?.let { it.decodeStateNs += System.nanoTime() - snapStartNs }
+                try {
+                    val leadEnd = minOf(pos + overlap, numFrames)
+                    for (f in pos until leadEnd) {
+                        System.arraycopy(latents, f * dim, one, 0, dim)
+                        val framePcm = decodeMimiChunk(bundle, one, 1, mimiState, carry, times)
+                        System.arraycopy(framePcm, 0, pcm, f * spf, framePcm.size)
+                    }
+                    // Tail shorter than `overlap`: it's all per-frame, we're done.
+                    if (leadEnd >= numFrames) break
 
-            // Re-decode [pos, batchEnd) from the snapshot in one batch; keep
-            // only the interior [leadEnd, batchEnd). The corrupt edge falls on
-            // [pos, leadEnd), which we already emitted clean per-frame.
-            restoreStates(mimiState, snapshot)
-            val batchEnd = minOf(pos + batch, numFrames)
-            val nb = batchEnd - pos
-            val batchData = FloatArray(nb * dim)
-            System.arraycopy(latents, pos * dim, batchData, 0, nb * dim)
-            val batchPcm = decodeMimiChunk(bundle, batchData, nb, mimiState)
-            val keepFromFrame = leadEnd - pos
-            System.arraycopy(
-                batchPcm, keepFromFrame * spf,
-                pcm, leadEnd * spf,
-                (batchEnd - leadEnd) * spf,
-            )
-            pos = batchEnd
+                    // Re-decode [pos, batchEnd) from the snapshot in one batch; keep
+                    // only the interior [leadEnd, batchEnd). The corrupt edge falls on
+                    // [pos, leadEnd), which we already emitted clean per-frame.
+                    val restoreStartNs = System.nanoTime()
+                    if (carry != null) carry.restore(frame!!) else restoreStates(mimiState, snapshot!!)
+                    times?.let { it.decodeStateNs += System.nanoTime() - restoreStartNs }
+                    val batchEnd = minOf(pos + batch, numFrames)
+                    val nb = batchEnd - pos
+                    val batchData = FloatArray(nb * dim)
+                    System.arraycopy(latents, pos * dim, batchData, 0, nb * dim)
+                    val batchPcm = decodeMimiChunk(bundle, batchData, nb, mimiState, carry, times)
+                    val keepFromFrame = leadEnd - pos
+                    System.arraycopy(
+                        batchPcm, keepFromFrame * spf,
+                        pcm, leadEnd * spf,
+                        (batchEnd - leadEnd) * spf,
+                    )
+                    pos = batchEnd
+                } finally {
+                    frame?.release()
+                }
+            }
+        } finally {
+            carry?.close()
         }
         return pcm
     }

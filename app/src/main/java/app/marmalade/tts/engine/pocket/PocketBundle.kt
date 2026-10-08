@@ -114,6 +114,8 @@ data class PocketBundle(
          * starts at shape `[0]` and the model uses it as a position counter).
          */
         val shape: LongArray,
+        /** Module path from the manifest (e.g. `decoder_transformer…/cache`); "" if absent. */
+        val path: String = "",
     )
 
     enum class StateDtype { FLOAT32, INT64, BOOL }
@@ -218,6 +220,7 @@ data class PocketBundle(
                         else -> throw IllegalStateException("Unknown manifest fill '$s' at index $i")
                     },
                     shape = shape,
+                    path = entry.optString("path", ""),
                 )
             }
         }
