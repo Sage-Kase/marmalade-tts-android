@@ -318,12 +318,17 @@ open class KokoroDirectEngine @Inject constructor(
     private var phonemizer: EspeakPhonemizer? = null
 
     /**
-     * Mandarin lexicon, loaded from the bundle's `lexicon-zh.txt`. Null when
-     * the installed bundle predates zh support (graceful degradation — CJK
-     * then falls back to the espeak path, which is broken for Mandarin but
-     * doesn't crash). Bundles from v17 onward ship it.
+     * Mandarin lexicon from the bundle's `lexicon-zh.txt`, loaded the first
+     * time a text has Han characters ([mandarinLexicon]), not at engine load:
+     * building its 68k entries took 0.6–0.8 s of every load on a Pixel 8a
+     * (issue #13 "D2"), almost always for text that has none. Null when the
+     * installed bundle predates zh support (graceful degradation — CJK then
+     * falls back to the espeak path, which is broken for Mandarin but doesn't
+     * crash). Bundles from v17 onward ship it. Guarded by [synthLock], like
+     * every encode.
      */
     private var lexiconZh: LexiconZh? = null
+    private var lexiconZhTried = false
 
     /**
      * Japanese frontend (Open JTalk), loaded from the bundle's `openjtalk_dic`.
@@ -434,6 +439,7 @@ open class KokoroDirectEngine @Inject constructor(
         // so keepalive evict/reload cycles don't leak native memory.
         shrinkArena = EngineDevKnobs.get(ctx.filesDir, "shrink") != "false"
         val path = renderPathFor(engineDir, EngineDevKnobs.get(ctx.filesDir, "kokoro.stream"))
+        val sessionsStart = System.currentTimeMillis()
         if (path == RenderPath.STREAMING) {
             val spin = streamSpinning(EngineDevKnobs.get(ctx.filesDir, "kokoro.spin"))
             val planner = modelFile(engineDir, PLANNER_GRAPH)
@@ -442,7 +448,8 @@ open class KokoroDirectEngine @Inject constructor(
             genSession = streamSessionOptions(intraOpThreads, spin).use { createSession(ort, it, gen) }
             Log.i(
                 TAG,
-                "render path: streaming (${planner.name} + ${gen.name}, CPU EP), threads=$intraOpThreads " +
+                "render path: streaming (${planner.name} + ${gen.name}, CPU EP), " +
+                    "sessions in ${System.currentTimeMillis() - sessionsStart} ms, threads=$intraOpThreads " +
                     "spin=$spin shrink=$shrinkArena, slices ${KittenStreamSlicing.FIRST_SLICE_FRAMES}, " +
                     "${KittenStreamSlicing.SLICE_FRAMES}, doubling to ${KittenStreamSlicing.MAX_SLICE_FRAMES} " +
                     "frames, context ${KittenStreamSlicing.CONTEXT_FRAMES}",
@@ -450,7 +457,11 @@ open class KokoroDirectEngine @Inject constructor(
         } else {
             val model = modelFile(engineDir, MODEL_GRAPH)
             acousticSession = buildSessionOptions(intraOpThreads).use { createSession(ort, it, model) }
-            Log.i(TAG, "render path: whole (${model.name}), threads=$intraOpThreads spin=false shrink=$shrinkArena")
+            Log.i(
+                TAG,
+                "render path: whole (${model.name}), session in ${System.currentTimeMillis() - sessionsStart} ms, " +
+                    "threads=$intraOpThreads spin=false shrink=$shrinkArena",
+            )
         }
         streaming = path == RenderPath.STREAMING
         voicesFloatView = mmapVoicesAsFloatBuffer(voicesFile)
@@ -478,18 +489,6 @@ open class KokoroDirectEngine @Inject constructor(
         }
         phonemizer = espeak
         Log.i(TAG, "espeak version=${espeak.version()}")
-
-        // Mandarin lexicon (sherpa-style Han→IPA token lookup). Optional —
-        // older bundles don't ship it, in which case zh degrades to espeak.
-        val lexFile = File(engineDir, LEXICON_ZH_FILE)
-        if (lexFile.isFile) {
-            val t1 = System.currentTimeMillis()
-            val lex = LexiconZh(lexFile)
-            lexiconZh = lex
-            Log.i(TAG, "loaded lexicon-zh (${lex.size()} entries) in ${System.currentTimeMillis() - t1} ms")
-        } else {
-            Log.w(TAG, "lexicon-zh.txt absent — Mandarin falls back to espeak (degraded)")
-        }
 
         // Japanese frontend (Open JTalk). Optional — older bundles don't ship
         // the dict, in which case ja degrades to espeak.
@@ -1157,6 +1156,23 @@ open class KokoroDirectEngine @Inject constructor(
         return SilenceCompressor.compress(pcm16)
     }
 
+    /** The Mandarin lexicon, loaded on first use (see the field). Caller holds [synthLock]. */
+    private fun mandarinLexicon(): LexiconZh? {
+        if (!lexiconZhTried) {
+            lexiconZhTried = true
+            val lexFile = File(engineDir, LEXICON_ZH_FILE)
+            if (lexFile.isFile) {
+                val t1 = System.currentTimeMillis()
+                lexiconZh = LexiconZh(lexFile).also {
+                    Log.i(TAG, "loaded lexicon-zh (${it.size()} entries) in ${System.currentTimeMillis() - t1} ms")
+                }
+            } else {
+                Log.w(TAG, "lexicon-zh.txt absent — Mandarin falls back to espeak (degraded)")
+            }
+        }
+        return lexiconZh
+    }
+
     /**
      * Encode a chunk of input text to Kokoro token IDs, routing CJK runs
      * through the Mandarin lexicon and everything else through espeak.
@@ -1189,10 +1205,8 @@ open class KokoroDirectEngine @Inject constructor(
             return encodePhonemesKokoro(ipa)
         }
 
-        val lex = lexiconZh
-        if (lex == null || !LexiconZh.CJK_RUN_PATTERN.containsMatchIn(text)) {
-            return encodePhonemesKokoro(espeakPhonemes(phon, text, lang))
-        }
+        val lex = if (LexiconZh.CJK_RUN_PATTERN.containsMatchIn(text)) mandarinLexicon() else null
+        if (lex == null) return encodePhonemesKokoro(espeakPhonemes(phon, text, lang))
 
         Log.d(TAG, "zh-aware encode for '$text'")
         var out = IntArray(text.length * 8)
@@ -1432,6 +1446,7 @@ open class KokoroDirectEngine @Inject constructor(
         phonemizer = null
         openJtalk = null
         lexiconZh = null
+        lexiconZhTried = false
         voicesFloatView = null
         styleScratchBuf = null
         styleScratchFloat = null
