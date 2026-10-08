@@ -141,7 +141,8 @@ When investigating **{concern}**, start at **{files}**:
   1.36 s / 2.3 s, RTF 0.85; streamed + spin 0.94 s / 1.38 s, RTF 0.79; the
   unsplit model with spin RTF 0.78 vs 0.75 without. The planner and every
   slice are many short ORT calls, and sleeping pool threads pay a wake-up on
-  each; spinning's idle-CPU and battery cost is #13's to measure.
+  each. #13 measured spinning's cost in process CPU time over a 6-minute
+  screen-off read: +2.5% (within run-to-run noise), so it stays on.
 - **Debug-only model timing (`devbench/OnnxBenchService`, issue #12 "X1")**:
   times ANY `.onnx`/`.ort` file with no engine around it, silently (outputs
   are dropped). One adb start = one line of `files/x1/specs.txt` = one
@@ -173,9 +174,11 @@ When investigating **{concern}**, start at **{files}**:
     `CpuClusterDetector` picked. **Why (#13 "C")**: a screen-off reader is a
     foreground service, and the 8a's `foreground` cpuset is CPUs 0–7 (the
     prime core, CPU 8, is only in `top-app`), so the 5th thread ran on a
-    little core. The autodetect now leaves out a lone prime core
-    (`CpuClusterDetector.threadsFor`); apps can't read `/dev/cpuset`
-    (SELinux), so the rule is general, not a lookup.
+    little core. The autodetect now leaves out a lone prime core when at
+    least two other fast cores remain (`CpuClusterDetector.threadsFor`; a
+    1 + 1 + 6 Snapdragon 765G keeps it, or it would drop to one thread);
+    apps can't read `/dev/cpuset` (SELinux), so the rule is general, not a
+    lookup.
   - A fresh or idle process's first ~1 s of calls costs +40–85 ms each.
   - An arena shrink after each run halves the generator's and Kokoro's
     peak RAM. **Applied in #13 "B"** (`OrtRunAbort(shrinkArena)`, Kitten's
@@ -230,7 +233,9 @@ When investigating **{concern}**, start at **{files}**:
   is a `SynthAudio.resumePoint` (see the Narrator's resume points).
 - **Kokoro streams** (issue #13 "E", `engine/kokoro/KokoroDirectEngine.kt`,
   prototyped in #5): a bundle with `planner.onnx` + `gen.onnx`
-  + `genstats/<voice>.bin` (all 53 voices; the int8 v23 model cut in two,
+  + `genstats/<voice>.bin` (a non-empty file for every catalog voice, or it
+  isn't the streaming layout: `hasAllGenStats`; an unknown voice key renders
+  with speaker 0's stats, `genStatsKeyFor`; the int8 v23 model cut in two,
   weights unchanged; scripts `~/coding/scratch/kokoro-stream-d1c/`) plans
   each piece ONCE and renders it in Kitten's slices (0.5 s, 1 s, doubling to
   4 s, 4 frames of context; `KokoroStreamSlicing`, whose slices never cut
@@ -238,22 +243,32 @@ When investigating **{concern}**, start at **{files}**:
   slice alone). The generator's 48 norms can't use one fixed table per voice
   (~2.9 dB off): `genstats/<voice>.bin` is a small per-voice linear model and
   `KokoroGenStats` turns it into each piece's table from its pause share and
-  length. Sentences stay whole up to the 500-token cap (budget target 360, no
-  short first piece); over-cap chunks still re-split (`tokenPieces`). Pre-roll
-  above 1× is decided UP FRONT (`PrerollGate.prerollChunksFor`) from the last
-  measured streamed RTF (0.85 before any): K ≥ 2 holds every slice of chunks
-  0..K−2 until chunk K−1's first slice exists. Both graphs: CPU EP (QDQ),
+  length. Sentences stay whole up to the 500-token cap (budget target 360);
+  over-cap chunks still re-split (`tokenPieces`). The planner reads a whole
+  piece before its first slice (~5 ms a token on the 8a), so a first
+  sentence over 160 tokens is cut at a clause into an ~80-token head when
+  its plan would be heard: nothing playing covers it, or a pre-roll is due
+  (`kokoroStreamCutFirst`; #13 review, the long-article set waited up to
+  5.5 s without it). Pre-roll above 1× banks SLICES, not chunks
+  (`PrerollGate.streamBankMs`): played audio enough to cover the request's
+  estimated deficit, from the last measured streamed RTF (0.85 before any),
+  with the hold's render time capped at 2 s. Holding whole chunks made a
+  sped-up listener wait for a full sentence plus the next one's plan.
+  Both graphs: CPU EP (QDQ),
   intra-op spinning ON (#5 clean phone bench, Heart: first sound median /
   worst 1.81 s / 5.6 s unsplit → 0.94 s / 1.38 s streamed + spinning). A
-  bundle without the layout (installed v23, the German engine, the debug 7M)
-  renders exactly as before through `model.onnx` (the whole path: short first
+  bundle without the layout (v23 and older, the German engine, the debug 7M;
+  no published download has the layout yet) renders exactly as before
+  through `model.onnx` (the whole path: short first
   piece, chunk-grain `PrerollGate`, spinning off). `isInstalled` and the
   installer's layout check accept either; `modelFile()` prefers a `.ort` of
   any graph. Debug knobs (`EngineDevKnobs`): `kokoro.stream=false` forces the
   whole path when model.onnx is present, `kokoro.spin=false|true`. The
   `render path:` log line at load names the path, threads, spin and shrink;
-  `StreamPerf` has one plan line per request, then per piece `kokoro plan=…`,
-  per slice `kokoro slice=i/n`, and `kokoro piece … rtf=`.
+  `StreamPerf` has one plan line per request (`cutFirst`, `bank`), then per
+  piece `kokoro plan=…`, per slice `kokoro slice=i/n`, and `kokoro piece …
+  rtf=`. `lexicon-zh.txt` (68k entries, 0.6–0.8 s) loads on the first text
+  with a CJK run (`mandarinLexicon()`), not at load (#13 "D2").
 - `engine/SherpaEngine.kt` — abstract base (loadLock, ensureModelLoaded,
   synthesize, release, floatToPcm16, sampleRate)
 - `engine/KittenEngine.kt`, `engine/KokoroEngine.kt` — subclasses,

@@ -20,6 +20,19 @@ This project follows [Semantic Versioning](https://semver.org/).
   inside the app the first time the new version starts (no download),
   and installing Kitten from the Engines screen copies it from the app
   instead of downloading it.
+- **Kitten uses much less memory**: about 230 MB less once loaded (on a
+  Pixel 8a, about 110 MB instead of 340 MB), at the same speed.
+- **Kokoro gives memory back between sentences**: about 180 MB less is
+  held while reading.
+- **Faster on phones with one extra-fast core**: with the screen off,
+  Android often keeps apps off a phone's single fastest core, and the
+  engines used to plan a thread for it anyway. They now leave it out
+  when the phone has at least two other fast cores. On a Pixel 8a,
+  Kitten renders about 25% faster and uses about 40% less processor
+  time; Kokoro about 4% faster. The thread setting in Advanced settings
+  still overrides this.
+- Kokoro loads about 0.7 s faster: its Mandarin dictionary now loads the
+  first time a text has Chinese characters, not every time.
 
 ### Fixed
 - After text you share interrupts an article, the article picks up again
