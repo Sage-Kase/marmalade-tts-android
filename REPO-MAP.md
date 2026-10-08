@@ -189,6 +189,19 @@ When investigating **{concern}**, start at **{files}**:
   - A fresh or idle process's first ~1 s of calls costs +40–85 ms each.
   - An arena shrink after each run halves the generator's and Kokoro's
     peak RAM.
+- **Kitten's ALBERT has a trained drop-in replacement, not yet in the app**
+  (issue #14 "X2", desktop only): a 4-layer width-256 encoder (3.4M weights,
+  X1's `te-d256` shape) maps the same token ids to the same `d_en` (ALBERT +
+  `bert_encoder` output, [1,128,T]) that Kitten's duration and F0/N
+  predictors consume; everything else in `kitten.onnx` stays. On the 17 B1
+  cases × 8 voices it keeps durations within 0.11 frames/token (90% exact)
+  and F0 within 5.3 Hz, Whisper WER equal. Cutting ALBERT's 12 shared-layer
+  passes to 4/6/8 instead drifts ~1.5 frames and ~23 Hz. Using it means
+  re-cutting `planner.onnx` with the student in ALBERT's place
+  (`scripts/kitten-stream/split.py` input) and timing it on the phone; the
+  student must see exactly the app's Kitten token ids (it was trained on
+  them). Weights, ONNX export and scripts: `~/coding/scratch/x2-encoder/`
+  (lab `tts-training-research/x2-encoder-lab.html`).
 - **Debug-only pickable engines (`BuildTypeEngines`, issue #9)**: the
   Kokoro stream dev engine is selectable like any other voice in the DEBUG
   build (aliases, the picker, the primary alias that system TTS uses), as
