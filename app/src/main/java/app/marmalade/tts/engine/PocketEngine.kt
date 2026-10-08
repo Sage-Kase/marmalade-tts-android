@@ -262,7 +262,8 @@ open class PocketEngine @Inject constructor(
             // else the CPU-cluster autodetect runs. Done here (suspend
             // context) so doLoad stays non-suspend.
             val manualThreads: Int? = settingsRepository.intraOpThreads.firstOrNull()
-            val threadCount = manualThreads
+            val threadCount = EngineDevKnobs.get(ctx.filesDir, "threads")?.toIntOrNull()
+                ?: manualThreads
                 ?: app.marmalade.tts.perf.CpuClusterDetector.detectPerfCoreCount()
             try {
                 doLoad(threadCount)

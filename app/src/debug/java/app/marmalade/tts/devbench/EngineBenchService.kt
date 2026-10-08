@@ -33,7 +33,7 @@ import kotlinx.coroutines.withContext
 // -----------------------------------------------------------------------------
 //
 // Renders a sentence list through one engine's synthesizeStream (speed 1.0,
-// playbackRate 1.0 — what the Narrator asks for) and writes each sentence to a
+// playbackRate 1.0 unless `rate` says otherwise — what the Narrator asks for) and writes each sentence to a
 // WAV. Nothing is played: no AudioTrack, no focus, no notification sound.
 // Timing lands in logcat (`B1Bench` lines here, plus each engine's own
 // `StreamPerf` lines), so a run is attributable from logs alone.
@@ -78,7 +78,10 @@ import kotlinx.coroutines.withContext
 // `--es dumpTokens <file>` (Kokoro engines only) renders nothing: it writes
 // each sentence's token ids, one JSON line each, to `bench/<file>`, phonemized
 // for `voice` or for `--es lang <code>` — training text for the generator
-// statistics.
+// statistics. `--ef rate <x>` passes x as the playback rate (what the
+// Narrator asks for at a listening speed: the engines' pre-roll and
+// first-piece sizing depend on it) and paces by the played length; a line of
+// the sentences file may be a whole paragraph, rendered as one request.
 // -----------------------------------------------------------------------------
 
 @AndroidEntryPoint
@@ -117,6 +120,7 @@ class EngineBenchService : Service() {
             pace = intent.getBooleanExtra(EXTRA_PACE, true),
             stopAfterMs = intent.getIntExtra(EXTRA_STOP_AFTER, 0).toLong(),
             exit = intent.getBooleanExtra(EXTRA_EXIT, false),
+            rate = intent.getFloatExtra(EXTRA_RATE, 1f).takeIf { it > 0f } ?: 1f,
         )
         running = true
         val dumpTokens = intent.getStringExtra(EXTRA_DUMP_TOKENS)
@@ -169,6 +173,7 @@ class EngineBenchService : Service() {
         val pace: Boolean,
         val stopAfterMs: Long,
         val exit: Boolean,
+        val rate: Float,
     )
 
     private fun engineFor(name: String): TtsEngine? = when (name) {
@@ -180,7 +185,7 @@ class EngineBenchService : Service() {
 
     private suspend fun runBench(c: RunConfig) {
         val name = c.engine.engineName
-        Log.i(TAG, "start run=${c.run} engine=$name voice=${c.voice} sentences=${c.sentences.size} passes=${c.passes} pace=${c.pace} stopAfter=${c.stopAfterMs} ${thermal()}")
+        Log.i(TAG, "start run=${c.run} engine=$name voice=${c.voice} sentences=${c.sentences.size} passes=${c.passes} rate=${c.rate} pace=${c.pace} stopAfter=${c.stopAfterMs} ${thermal()}")
 
         // Clean baseline: no engine resident, then load only the target.
         (registry.onDevice + kokoro7m).forEach { it.release() }
@@ -210,7 +215,7 @@ class EngineBenchService : Service() {
                 val pcm = ArrayList<ShortArray>()
                 val start = System.nanoTime()
                 var firstNs = 0L
-                c.engine.synthesizeStream(text, c.voice, 1f, null, 1f).collect {
+                c.engine.synthesizeStream(text, c.voice, 1f, null, c.rate).collect {
                     if (firstNs == 0L) firstNs = System.nanoTime()
                     pcm.add(it.pcm)
                 }
@@ -233,7 +238,7 @@ class EngineBenchService : Service() {
                     File(outDir, String.format(Locale.ROOT, "%02d.wav", idx))
                         .writeBytes(BenchSupport.wavBytes(merged, c.engine.sampleRate))
                 }
-                if (c.pace) delay(audioMs + PACE_EXTRA_MS)
+                if (c.pace) delay((audioMs / c.rate).toLong() + PACE_EXTRA_MS)
             }
             Log.i(TAG, BenchSupport.passSummaryLine(c.run, name, pass, results) + " ${thermal()}")
         }
@@ -321,6 +326,7 @@ class EngineBenchService : Service() {
         const val EXTRA_EXIT = "exit"
         const val EXTRA_DUMP_TOKENS = "dumpTokens"
         const val EXTRA_LANG = "lang"
+        const val EXTRA_RATE = "rate"
 
         private const val NOTIFICATION_ID = 0xB1
         private const val WARMUP_SETTLE_MS = 3_000L
