@@ -957,7 +957,7 @@ open class KokoroDirectEngine @Inject constructor(
     ): StreamPlan {
         val ort = env ?: error("engine not loaded")
         val session = plannerSession ?: error("planner session missing")
-        // Before the run: a voice without statistics fails without spending a plan.
+        // Before the run, so a failed read costs no plan.
         val stats = genStatsModel(voiceName)
         val inputs = tokenInputs(ort, text, ids, voiceName, speed, styleRow)
         try {
@@ -1041,12 +1041,9 @@ open class KokoroDirectEngine @Inject constructor(
      * read on first use. A streaming bundle ships one for every voice, so a
      * missing file is a broken bundle, not a fallback. Caller holds [synthLock].
      */
-    private fun genStatsModel(voiceKey: String): FloatArray = genStatsModels.getOrPut(voiceKey) {
-        val file = File(engineDir, "$GENSTATS_DIR/$voiceKey.bin")
-        check(file.isFile) {
-            "Kokoro voice '$voiceKey' has no generator statistics ($GENSTATS_DIR/$voiceKey.bin is missing from the bundle)"
-        }
-        val bytes = file.readBytes()
+    private fun genStatsModel(voiceKey: String): FloatArray = genStatsModels.getOrPut(genStatsKeyFor(voiceKey)) {
+        // The streaming layout check ([hasStreamingLayout]) found every catalog voice's file.
+        val bytes = File(engineDir, "$GENSTATS_DIR/${genStatsKeyFor(voiceKey)}.bin").readBytes()
         FloatArray(bytes.size / 4).also { ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer().get(it) }
     }
 
@@ -1536,10 +1533,32 @@ open class KokoroDirectEngine @Inject constructor(
         internal fun modelFile(dir: File, graph: String): File =
             File(dir, "$graph.ort").takeIf { it.isFile } ?: File(dir, "$graph.onnx")
 
-        /** Whether [dir] holds the streaming pair and its generator statistics. */
+        /** Whether [dir] holds the streaming pair and every voice's generator statistics. */
         internal fun hasStreamingLayout(dir: File): Boolean =
-            modelFile(dir, PLANNER_GRAPH).isFile && modelFile(dir, GEN_GRAPH).isFile &&
-                File(dir, GENSTATS_DIR).isDirectory
+            modelFile(dir, PLANNER_GRAPH).isFile && modelFile(dir, GEN_GRAPH).isFile && hasAllGenStats(dir)
+
+        /**
+         * Whether [dir]'s genstats/ has a non-empty file for every catalog
+         * voice. An empty or partial directory is not a streaming layout: the
+         * bundle renders whole if it has model.onnx, and is not installed
+         * if it doesn't.
+         */
+        internal fun hasAllGenStats(dir: File): Boolean =
+            KokoroDirectVoiceCatalog.voices.all { v ->
+                File(dir, "$GENSTATS_DIR/${v.id.substringAfter(':')}.bin").let { it.isFile && it.length() > 0 }
+            }
+
+        /**
+         * The catalog voice whose generator statistics [voiceKey] renders
+         * with: itself when the catalog knows it, else speaker 0, the voice
+         * the style lookup falls back to as well. Never a raw key in a path.
+         */
+        internal fun genStatsKeyFor(voiceKey: String): String =
+            if (KokoroDirectVoiceCatalog.speakerIdFor(voiceKey) >= 0) {
+                voiceKey
+            } else {
+                KokoroDirectVoiceCatalog.voices.first().id.substringAfter(':')
+            }
 
         /** A bundle either path can render: voices and tokens, plus the unsplit model or the streaming layout. */
         internal fun isInstalledIn(dir: File): Boolean =

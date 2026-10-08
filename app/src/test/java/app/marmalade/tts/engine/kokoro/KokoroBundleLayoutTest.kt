@@ -1,5 +1,6 @@
 package app.marmalade.tts.engine.kokoro
 
+import app.marmalade.tts.data.KokoroDirectVoiceCatalog
 import app.marmalade.tts.engine.kokoro.KokoroDirectEngine.RenderPath
 import java.io.File
 import java.nio.file.Files
@@ -26,10 +27,16 @@ class KokoroBundleLayoutTest {
         file("tokens.txt")
     }
 
+    private val voiceKeys = KokoroDirectVoiceCatalog.voices.map { it.id.substringAfter(':') }
+
+    private fun stageGenStats() {
+        for (key in voiceKeys) file("genstats/$key.bin")
+    }
+
     private fun stageStreaming() {
         file("planner.onnx")
         file("gen.onnx")
-        file("genstats/af_heart.bin")
+        stageGenStats()
     }
 
     @Test
@@ -69,6 +76,8 @@ class KokoroBundleLayoutTest {
         assertFalse("no genstats/", KokoroDirectEngine.hasStreamingLayout(dir))
         assertFalse(KokoroDirectEngine.isInstalledIn(dir))
         File(dir, "genstats").mkdirs()
+        assertFalse("empty genstats/", KokoroDirectEngine.hasStreamingLayout(dir))
+        stageGenStats()
         File(dir, "gen.onnx").delete()
         assertFalse("no generator", KokoroDirectEngine.hasStreamingLayout(dir))
         file("gen.onnx")
@@ -98,10 +107,38 @@ class KokoroBundleLayoutTest {
 
         stageCommon()
         file("gen.ort")
-        File(dir, "genstats").mkdirs()
+        stageGenStats()
         assertTrue(KokoroDirectEngine.hasStreamingLayout(dir))
         File(dir, "planner.onnx").delete()
         assertTrue("planner.ort alone", KokoroDirectEngine.hasStreamingLayout(dir))
+    }
+
+    @Test
+    fun `a partial genstats renders whole when the unsplit model is there, else is not installed`() {
+        stageCommon()
+        stageStreaming()
+        File(dir, "genstats/${voiceKeys.last()}.bin").delete()
+        assertFalse(KokoroDirectEngine.hasStreamingLayout(dir))
+        assertFalse(KokoroDirectEngine.isInstalledIn(dir))
+        file("model.onnx")
+        assertTrue(KokoroDirectEngine.isInstalledIn(dir))
+        assertEquals(RenderPath.WHOLE, KokoroDirectEngine.renderPathFor(dir, streamKnob = null))
+    }
+
+    @Test
+    fun `an empty stats file doesn't count`() {
+        stageCommon()
+        stageStreaming()
+        File(dir, "genstats/${voiceKeys.first()}.bin").writeBytes(ByteArray(0))
+        assertFalse(KokoroDirectEngine.hasStreamingLayout(dir))
+    }
+
+    @Test
+    fun `generator statistics resolve to a catalog voice, never a raw key`() {
+        assertEquals("af_heart", KokoroDirectEngine.genStatsKeyFor("af_heart"))
+        assertEquals("zf_xiaobei", KokoroDirectEngine.genStatsKeyFor("zf_xiaobei"))
+        assertEquals(voiceKeys.first(), KokoroDirectEngine.genStatsKeyFor("no_such_voice"))
+        assertEquals(voiceKeys.first(), KokoroDirectEngine.genStatsKeyFor("../../shared_prefs/x"))
     }
 
     @Test

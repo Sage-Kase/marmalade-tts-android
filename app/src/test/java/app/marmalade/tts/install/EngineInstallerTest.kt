@@ -1,6 +1,7 @@
 package app.marmalade.tts.install
 
 import app.marmalade.tts.R
+import app.marmalade.tts.data.KokoroDirectVoiceCatalog
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -273,7 +274,7 @@ class EngineInstallerTest {
     @Test
     fun verifyAcceptsEitherKokoroModelLayout() = runTest {
         // Issue #13 "E": the unsplit model.onnx (v23 and older) or the
-        // streaming planner + gen + genstats/ (either may be .ort).
+        // streaming planner + gen + every voice's genstats (either graph may be .ort).
         val descriptor = engineDescriptor(
             name = "kokoro-direct-v1_0",
             url = "https://test/kokoro-direct.tar.bz2",
@@ -292,6 +293,11 @@ class EngineInstallerTest {
         File(dir, "gen.ort").writeBytes(big)
         assertEquals("no genstats/", InstallState.Corrupt, installer.verifyAgainst(descriptor))
         File(dir, "genstats").mkdirs()
+        assertEquals("empty genstats/", InstallState.Corrupt, installer.verifyAgainst(descriptor))
+        val keys = KokoroDirectVoiceCatalog.voices.map { it.id.substringAfter(':') }
+        for (key in keys.drop(1)) File(dir, "genstats/$key.bin").writeText("stats")
+        assertEquals("one voice missing", InstallState.Corrupt, installer.verifyAgainst(descriptor))
+        File(dir, "genstats/${keys.first()}.bin").writeText("stats")
         assertEquals(InstallState.Installed, installer.verifyAgainst(descriptor))
 
         File(dir, "gen.ort").writeText("too small")

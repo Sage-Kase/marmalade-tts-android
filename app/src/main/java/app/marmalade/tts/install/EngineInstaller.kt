@@ -3,6 +3,7 @@ package app.marmalade.tts.install
 import android.content.res.AssetManager
 import android.util.Log
 import app.marmalade.tts.engine.BuildTypeEngines
+import app.marmalade.tts.engine.kokoro.KokoroDirectEngine
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.IOException
@@ -1488,15 +1489,16 @@ open class EngineInstaller @Inject constructor(
      *
      * The model is either the unsplit model.onnx (v23 and older) or the
      * streaming layout (issue #13 "E"): planner + gen graphs and a
-     * genstats/ directory — the same either/or the engine's own
-     * `KokoroDirectEngine.isInstalledIn` applies. A graph may ship as `.ort`.
+     * genstats/<voice>.bin for every voice — the same either/or the
+     * engine's own `KokoroDirectEngine.isInstalledIn` applies. A graph may
+     * ship as `.ort`.
      */
     private fun verifyKokoroDirectLayout(dir: File): InstallState {
         fun graphOk(name: String): Boolean {
             val file = File(dir, "$name.ort").takeIf { it.isFile } ?: File(dir, "$name.onnx")
             return file.isFile && file.length() >= MIN_MODEL_BYTES
         }
-        val streaming = graphOk("planner") && graphOk("gen") && File(dir, "genstats").isDirectory
+        val streaming = graphOk("planner") && graphOk("gen") && KokoroDirectEngine.hasAllGenStats(dir)
         if (!streaming && !graphOk("model")) return InstallState.Corrupt
         val voices = File(dir, "voices.bin")
         if (!voices.isFile || voices.length() == 0L) return InstallState.Corrupt
