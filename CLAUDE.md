@@ -27,6 +27,9 @@ and its own sessions, not here.
 
 ## Guardrails that have bitten before
 
+- **Benches and automated device tests run on the Pixel 6a** (agents'
+  test phone, always connected; see global CLAUDE.md). The Pixel 8a is
+  Max's daily phone: install there only builds Max is to test himself.
 - **Never run `connectedAndroidTest` against the daily phone.** It
   uninstalls the app under test and wipes Max's data. Before any device
   install, snapshot the app's DB and datastore, and install with
