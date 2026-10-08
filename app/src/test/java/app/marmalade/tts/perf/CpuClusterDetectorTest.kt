@@ -22,13 +22,25 @@ class CpuClusterDetectorTest {
     }
 
     @Test
+    fun `1 prime + 2 big + 5 little uses the 2 big cores`() {
+        assertEquals(2, threads(Cluster(1_800_000, 5), Cluster(2_400_000, 2), Cluster(2_900_000, 1)))
+    }
+
+    @Test
+    fun `1 prime + 1 big + 6 little keeps the prime core`() {
+        // Snapdragon 765G (Pixel 5, 4a 5G): 6 x 1.8 GHz, 1 x 2.2 GHz, 1 x 2.4 GHz.
+        // Dropping the prime would leave one thread.
+        assertEquals(2, threads(Cluster(1_804_800, 6), Cluster(2_208_000, 1), Cluster(2_400_000, 1)))
+    }
+
+    @Test
     fun `two mid tiers under a lone prime count both`() {
         // Snapdragon 8 Gen 2 style: 3 little, 2 + 2 mid at different clocks, 1 prime.
         assertEquals(4, threads(Cluster(2_000_000, 3), Cluster(2_800_000, 2), Cluster(2_750_000, 2), Cluster(3_200_000, 1)))
     }
 
     @Test
-    fun `a top tier of two cores is kept`() {
+    fun `2 big + 6 little uses both big cores`() {
         assertEquals(2, threads(Cluster(1_800_000, 6), Cluster(2_600_000, 2)))
     }
 

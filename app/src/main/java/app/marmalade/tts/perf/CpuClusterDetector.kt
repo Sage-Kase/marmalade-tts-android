@@ -44,6 +44,9 @@ object CpuClusterDetector {
     private const val TAG = "CpuClusterDetector"
     private const val CPUFREQ_ROOT = "/sys/devices/system/cpu/cpufreq"
 
+    /** A lone prime core is left out only when this many fast cores remain. */
+    private const val MIN_THREADS_WITHOUT_PRIME = 2
+
     /**
      * Returns the intra-op thread count for this device: its performance
      * cores, without a lone prime core ([threadsFor]). Always at least 1;
@@ -83,9 +86,12 @@ object CpuClusterDetector {
 
     /**
      * Intra-op threads for a device with [clusters]: the cores above the
-     * lowest frequency tier, minus a lone top-tier core when other fast
-     * cores exist (see the class comment). A single-tier device uses all
-     * its cores but one. Null when [clusters] is empty (sysfs unreadable).
+     * lowest frequency tier, minus a lone top-tier core when at least two
+     * other fast cores remain (see the class comment). With fewer, the
+     * prime core stays: on a 1 + 1 + 6 (Snapdragon 765G: Pixel 5, 4a 5G)
+     * dropping it would halve the threads, while two threads with one on a
+     * little core still beat one. A single-tier device uses all its cores
+     * but one. Null when [clusters] is empty (sysfs unreadable).
      */
     fun threadsFor(clusters: List<Cluster>): Int? {
         if (clusters.isEmpty()) return null
@@ -99,7 +105,7 @@ object CpuClusterDetector {
         val perfCores = perf.sumOf { it.cpuCount }
         val topFreq = perf.maxOf { it.maxFreqKhz }
         val topCores = perf.filter { it.maxFreqKhz == topFreq }.sumOf { it.cpuCount }
-        return if (topCores == 1 && perfCores > 1) perfCores - 1 else perfCores
+        return if (topCores == 1 && perfCores - 1 >= MIN_THREADS_WITHOUT_PRIME) perfCores - 1 else perfCores
     }
 
     private fun fallbackEstimate(): Int {
