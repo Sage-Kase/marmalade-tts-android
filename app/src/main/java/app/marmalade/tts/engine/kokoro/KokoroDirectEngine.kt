@@ -79,10 +79,12 @@ import kotlinx.coroutines.withContext
 //   statistics from its `gn` input, computed per piece from the voice's small
 //   linear model ([KokoroGenStats]) and the planned durations; that makes it
 //   purely convolutional, so the slices join exactly. Sentences stay whole up
-//   to the 500-token cap: streaming replaces the short first piece. Pre-roll
-//   above 1× is decided up front from the last measured streamed RTF
-//   ([PrerollGate.prerollChunksFor]). Both graphs run on the CPU EP with
-//   intra-op spinning (#5: first sound median 1.81 s → 0.94 s on a Pixel 8a).
+//   to the 500-token cap, except a long first sentence whose plan would be
+//   heard, which gets an ~80-token head ([kokoroStreamCutFirst]). Pre-roll
+//   above 1× banks slices worth of audio, sized up front from the last
+//   measured streamed RTF ([PrerollGate.streamBankMs]). Both graphs run on
+//   the CPU EP with intra-op spinning (#5: first sound median 1.81 s →
+//   0.94 s on a Pixel 8a).
 //
 //   Whole: one call of the unsplit model per chunk, the short first piece
 //   (T9) and chunk-grain pre-roll ([PrerollGate]). A bundle without the
@@ -193,6 +195,32 @@ private const val DEFAULT_MS_PER_TOKEN = 30.0
  * measured: the #5 clean phone bench (Pixel 8a, Heart) measured 0.79–0.85.
  */
 private const val DEFAULT_STREAM_RTF = 0.85
+
+/** Audio per model token at speed 1 (Pixel 8a, Heart: 56 ms over 144 pieces). */
+private const val AUDIO_MS_PER_TOKEN = 56.0
+
+/**
+ * The streaming planner's cost per token, for deciding whether a first
+ * sentence's plan would be heard: 3.3–6.3 ms on the 8a (cool to warm).
+ */
+private const val STREAM_PLAN_MS_PER_TOKEN = 6.0
+
+/**
+ * First sentences up to this many tokens stay whole on the streaming path:
+ * their plan is ≤ ~0.8 s, and every cut is a prosody seam.
+ */
+private const val STREAM_CUT_MIN_TOKENS = 160
+
+/**
+ * Whether the streaming path cuts the request's first sentence of
+ * [firstTokens] tokens into a short head ([TextChunker.planByTokens] step
+ * 4, clause marks only). Only a long one, and only when its plan would be
+ * heard: nothing playing covers it ([aheadMs], the audio this engine sent
+ * that is still to play), or a pre-roll will be banked ([holding]), which
+ * then fills from the short head instead of the whole sentence.
+ */
+internal fun kokoroStreamCutFirst(firstTokens: Int, aheadMs: Long, holding: Boolean): Boolean =
+    firstTokens > STREAM_CUT_MIN_TOKENS && (holding || aheadMs < firstTokens * STREAM_PLAN_MS_PER_TOKEN)
 
 /** Samples per duration frame (25 ms at 24 kHz), the generator's grid. */
 private const val FRAME_SAMPLES = TailTrim.FRAME_SAMPLES
@@ -689,7 +717,7 @@ open class KokoroDirectEngine @Inject constructor(
         // chunks until the buffer covers the measured deficit; at 1.0×
         // it decides K=1 and this loop behaves exactly as before.
         val gate = PrerollGate<SynthAudio>(playbackRate, chunks.size)
-        val sender = AudioSender(this, streamStartNs, loadWaitMs, playbackRate) { gate.prerollChunks }
+        val sender = AudioSender(this, streamStartNs, loadWaitMs, playbackRate) { "K=${gate.prerollChunks}" }
         try {
             for ((idx, chunk) in chunks.withIndex()) {
                 // A cancelled stream (reader tap, Stop, skip) must stop HERE:
@@ -741,15 +769,16 @@ open class KokoroDirectEngine @Inject constructor(
 
     /**
      * Sends a stream's audio downstream: the TTFA line on the first send, an
-     * `emit` line per send (audio length, gap since the last send, pre-roll
-     * K) and the [horizon] bookkeeping, on the played clock.
+     * `emit` line per send (audio length, gap since the last send, the
+     * pre-roll: K chunks, or the streaming path's bank) and the [horizon]
+     * bookkeeping, on the played clock.
      */
     private inner class AudioSender(
         private val out: SendChannel<SynthAudio>,
         private val streamStartNs: Long,
         private val loadWaitMs: Long,
         private val playbackRate: Float,
-        private val preroll: () -> Int,
+        private val preroll: () -> String,
     ) {
         private var prevSendNs = 0L
         private var firstSent = false
@@ -759,10 +788,10 @@ open class KokoroDirectEngine @Inject constructor(
             if (!firstSent) {
                 firstSent = true
                 val ttfaMs = (System.nanoTime() - streamStartNs) / 1_000_000
-                Log.d(PERF_TAG, "kokoro TTFA=${ttfaMs}ms (loadWait=${loadWaitMs}ms) K=${preroll()} streaming=$streaming")
+                Log.d(PERF_TAG, "kokoro TTFA=${ttfaMs}ms (loadWait=${loadWaitMs}ms) ${preroll()} streaming=$streaming")
             }
             val audioMs = audio.pcm.size * 1000L / audio.sampleRate
-            Log.d(PERF_TAG, "kokoro emit audio=${audioMs}ms gap=${gapMs}ms K=${preroll()}")
+            Log.d(PERF_TAG, "kokoro emit audio=${audioMs}ms gap=${gapMs}ms ${preroll()}")
             out.send(audio)
             horizon.onEmitted(if (playbackRate > 0f) (audioMs / playbackRate).toLong() else audioMs)
             prevSendNs = System.nanoTime()
@@ -771,17 +800,20 @@ open class KokoroDirectEngine @Inject constructor(
 
     /**
      * The streaming path's request loop (see the file comment). Sentences
-     * stay whole up to the 500-token cap ([STREAM_TOKEN_BUDGET], no short
-     * first piece); each chunk's cap pieces ([tokenPieces]) are rendered by
-     * [renderSliced], and each slice goes out as its own [SynthAudio], a
-     * resume point only on a piece's first slice (issue #11).
+     * stay whole up to the 500-token cap ([STREAM_TOKEN_BUDGET]); each
+     * chunk's cap pieces ([tokenPieces]) are rendered by [renderSliced], and
+     * each slice goes out as its own [SynthAudio], a resume point only on a
+     * piece's first slice (issue #11).
      *
-     * Pre-roll: [PrerollGate] decides K after chunk 0 has rendered, but here
-     * chunk 0's slices are already out by then, so K is decided up front
-     * from the last measured streamed RTF ([DEFAULT_STREAM_RTF] before any).
-     * K = 1 sends every slice as rendered; K ≥ 2 holds every slice of chunks
-     * 0..K−2 and releases them when chunk K−1's first slice exists (or at the
-     * end of the text).
+     * The planner reads a whole piece before its first slice (~5 ms a
+     * token on the 8a), so a long first sentence is cut at a clause into a
+     * ~80-token head when that wait would be heard ([kokoroStreamCutFirst]:
+     * nothing playing to cover it, or a pre-roll to bank).
+     *
+     * Pre-roll is sized in audio, not chunks: slices are held until they
+     * hold [PrerollGate.streamBankMs] of played audio, worked out up front
+     * from the last measured streamed RTF ([DEFAULT_STREAM_RTF] before any)
+     * and the request's token count, then everything goes out as rendered.
      */
     private suspend fun SendChannel<SynthAudio>.streamSliced(
         text: String,
@@ -793,25 +825,37 @@ open class KokoroDirectEngine @Inject constructor(
         loadWaitMs: Long,
     ) {
         val planStartNs = System.nanoTime()
+        val rtf = measuredStreamRtf.takeUnless { it.isNaN() } ?: DEFAULT_STREAM_RTF
+        val aheadMs = horizon.remainingMs()
+        val holding = rtf * playbackRate > PrerollGate.REALTIME_MARGIN
+        var cutFirst = false
         val encoded = HashMap<String, IntArray>()
         val chunks = synthLock.withLock {
-            TextChunker.planByTokens(text, STREAM_TOKEN_BUDGET) { part ->
+            TextChunker.planByTokens(
+                text,
+                STREAM_TOKEN_BUDGET,
+                cutFirstSentence = { firstTokens ->
+                    cutFirst = kokoroStreamCutFirst(firstTokens, aheadMs, holding)
+                    cutFirst
+                },
+            ) { part ->
                 encoded.getOrPut(part) { encodeTextToTokens(part, lang) }.size
             }
         }
         if (chunks.isEmpty()) return
-        val rtf = measuredStreamRtf.takeUnless { it.isNaN() } ?: DEFAULT_STREAM_RTF
-        val preroll = PrerollGate.prerollChunksFor(playbackRate, chunks.size, rtf)
+        val audioMs = (chunks.sumOf { it.tokens } * AUDIO_MS_PER_TOKEN / speed.coerceAtLeast(0.1f)).toLong()
+        val bankMs = PrerollGate.streamBankMs(playbackRate, rtf, audioMs)
         Log.d(
             PERF_TAG,
             "kokoro plan chunks=${chunks.size} firstTokens=${chunks.first().tokens} " +
-                "maxTokens=${chunks.maxOf { it.tokens }} streaming K=$preroll rtf=${"%.2f".format(rtf)} " +
-                "planMs=${(System.nanoTime() - planStartNs) / 1_000_000}",
+                "maxTokens=${chunks.maxOf { it.tokens }} streaming cutFirst=$cutFirst aheadMs=$aheadMs " +
+                "bank=${bankMs}ms rtf=${"%.2f".format(rtf)} planMs=${(System.nanoTime() - planStartNs) / 1_000_000}",
         )
-        val sender = AudioSender(this, streamStartNs, loadWaitMs, playbackRate) { preroll }
+        val sender = AudioSender(this, streamStartNs, loadWaitMs, playbackRate) { "bank=${bankMs}ms" }
         val held = ArrayList<SynthAudio>()
+        var heldPlayedMs = 0.0
         try {
-            for ((idx, chunk) in chunks.withIndex()) {
+            for (chunk in chunks) {
                 // Cancellation checks between chunks, pieces and slices: a
                 // stopped stream must not keep rendering (see the whole path).
                 currentCoroutineContext().ensureActive()
@@ -819,18 +863,17 @@ open class KokoroDirectEngine @Inject constructor(
                 for (piece in pieces) {
                     currentCoroutineContext().ensureActive()
                     renderSliced(piece, voiceName, speed) { pcm, first ->
-                        val audio = SynthAudio(pcm = pcm, sampleRate = sampleRate, resumePoint = first)
-                        if (idx < preroll - 1) {
-                            held += audio
-                        } else {
-                            for (h in held) sender.send(h)
-                            held.clear()
-                            sender.send(audio)
+                        held += SynthAudio(pcm = pcm, sampleRate = sampleRate, resumePoint = first)
+                        if (heldPlayedMs < bankMs) {
+                            heldPlayedMs += pcm.size * 1000.0 / sampleRate / playbackRate
+                            if (heldPlayedMs < bankMs) return@renderSliced
                         }
+                        for (h in held) sender.send(h)
+                        held.clear()
                     }
                 }
             }
-            // Chunk K−1 (or everything after the held chunks) rendered nothing.
+            // The text ended before the bank filled.
             for (h in held) sender.send(h)
         } catch (t: Throwable) {
             // Cancelled or failed: the next request starts cold (whole path).
@@ -1520,16 +1563,21 @@ open class KokoroDirectEngine @Inject constructor(
 
         /**
          * Chunk sizes on the streaming path: the whole path's merge floor, but
-         * sentences stay whole up to the 500-token cap (1.35 × 360 = 486) and
-         * none is cut short — streaming makes the first sound independent of
-         * the chunk's length. Longer sentences are cut at clause marks into
-         * ~360-token pieces ([TextChunker.planByTokens]).
+         * sentences stay whole up to the 500-token cap (1.35 × 360 = 486).
+         * Longer sentences are cut at clause marks into ~360-token pieces
+         * ([TextChunker.planByTokens]). Streaming makes the first sound
+         * independent of the sentence's length except for its plan, so only
+         * a long first sentence is cut short ([kokoroStreamCutFirst]): into a
+         * head of about 80 tokens (40–120; ~0.4 s of planning), then the rest
+         * whole up to the target (growth 5).
          */
-        private val STREAM_TOKEN_BUDGET = TextChunker.TokenBudget(
+        internal val STREAM_TOKEN_BUDGET = TextChunker.TokenBudget(
             mergeFloor = 90,
             target = 360,
-            firstPiece = 40,
-            growth = 1.5,
+            firstPiece = 80,
+            growth = 5.0,
+            firstPieceMin = 40,
+            firstPieceMax = 120,
         )
 
         /**

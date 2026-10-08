@@ -107,9 +107,8 @@ class PrerollGate<T>(
          * [rtf] (render time ÷ audio time, on the engine's clock) and played
          * at [playbackRate]: the class comment's formula, capped at
          * [maxPreroll]. [onChunkRendered] decides with chunk 0's measured
-         * RTF; an engine that streams slices of a chunk before the chunk's
-         * render time is known (KokoroDirect, issue #13) decides up front
-         * with its last measured RTF instead.
+         * RTF. An engine that streams slices of a chunk sizes its pre-roll
+         * in audio instead ([streamBankMs]).
          */
         fun prerollChunksFor(
             playbackRate: Float,
@@ -122,6 +121,42 @@ class PrerollGate<T>(
             val shortfall = (totalChunks - 1) * deficitFraction
             return (1 + floor(shortfall + 0.5).toInt()).coerceIn(1, maxPreroll)
         }
+
+        /**
+         * Pre-roll for an engine that streams slices (KokoroDirect, issue
+         * #13): how many ms of PLAYED audio to bank before the first send,
+         * for a request of about [audioMs] of audio (engine clock) rendered
+         * at [rtf] and played at [playbackRate]. Holding is sized in audio,
+         * not whole chunks, so a long first sentence never has to render
+         * whole before the first sound.
+         *
+         * With played RTF `r = rtf × playbackRate`, banking B played ms
+         * takes `B × r` of render time, and the rest of the text plays
+         * stall-free when that covers its deficit:
+         * `B × r ≥ (audioMs / playbackRate) × (r − REALTIME_MARGIN)`. The
+         * hold's render time is capped at [capRenderMs]: past that, brief
+         * pauses later beat a long silence after a tap (Max, 2026-09-28,
+         * see [MAX_PREROLL_CHUNKS]). 0 at or under the margin, for an
+         * unknown RTF and without a playback rate.
+         */
+        fun streamBankMs(
+            playbackRate: Float,
+            rtf: Double,
+            audioMs: Long,
+            capRenderMs: Long = STREAM_BANK_CAP_RENDER_MS,
+        ): Long {
+            if (playbackRate <= 0f || !(rtf > 0.0) || audioMs <= 0) return 0
+            val played = rtf * playbackRate
+            if (played <= REALTIME_MARGIN) return 0
+            val holdRenderMs = minOf(audioMs / playbackRate * (played - REALTIME_MARGIN), capRenderMs.toDouble())
+            return (holdRenderMs / played).toLong()
+        }
+
+        /**
+         * Most render time [streamBankMs] holds the first sound for: about
+         * what the whole path's K = 2 cost with a short first piece.
+         */
+        const val STREAM_BANK_CAP_RENDER_MS = 2_000L
 
         /**
          * Required headroom before K stays at 1: a played RTF of 0.95

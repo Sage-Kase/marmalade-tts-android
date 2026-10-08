@@ -144,7 +144,7 @@ class PrerollGateTest {
         assertEquals(1, gate.prerollChunks)
     }
 
-    // -- prerollChunksFor: K decided up front (KokoroDirect streams, #13 E) --
+    // -- prerollChunksFor: the gate's K as a pure function (#13 E) --
 
     @Test
     fun `the up-front K uses the gate's formula`() {
@@ -157,12 +157,6 @@ class PrerollGateTest {
         assertEquals(2, k(1.0f, 2, 1.45))       // shortfall 0.55
         assertEquals(PrerollGate.MAX_PREROLL_CHUNKS, k(2.0f, 10, 2.0))
         assertEquals(3, PrerollGate.prerollChunksFor(2.0f, 5, 0.7, maxPreroll = 3))
-    }
-
-    @Test
-    fun `the streaming default RTF needs no pre-roll at 1x but banks a chunk at 2x`() {
-        assertEquals(1, PrerollGate.prerollChunksFor(1.0f, 20, 0.85))
-        assertEquals(2, PrerollGate.prerollChunksFor(2.0f, 5, 0.85))
     }
 
     @Test
@@ -188,4 +182,41 @@ class PrerollGateTest {
             }
         }
     }
+
+    // -- streamBankMs: pre-roll in banked audio (KokoroDirect streams, #13) --
+
+    @Test
+    fun `no bank at or under the realtime margin`() {
+        assertNear(0, PrerollGate.streamBankMs(1.0f, 0.85, 60_000))
+        assertNear(0, PrerollGate.streamBankMs(1.0f, 0.9, 60_000))
+        assertNear(0, PrerollGate.streamBankMs(1.5f, 0.55, 60_000)) // played 0.825
+    }
+
+    @Test
+    fun `the bank covers the deficit of a short text`() {
+        // 1.25x at RTF 0.85: played 1.0625; 4 s of audio plays in 3.2 s,
+        // deficit 3.2 s x 0.1625 = 520 ms of render = 489 ms played.
+        assertNear(489, PrerollGate.streamBankMs(1.25f, 0.85, 4_000))
+        // 2x at RTF 0.6: played 1.2; 10 s of audio, 5 s played x 0.3 = 1.5 s render = 1.25 s played.
+        assertNear(1_250, PrerollGate.streamBankMs(2.0f, 0.6, 10_000))
+    }
+
+    @Test
+    fun `a long text's bank is capped in render time`() {
+        // 1.5x at RTF 0.85: played 1.275. The cap renders 2 s = 1568 ms played,
+        // however long the text.
+        assertNear(1_568, PrerollGate.streamBankMs(1.5f, 0.85, 600_000))
+        assertNear(1_568, PrerollGate.streamBankMs(1.5f, 0.85, 60_000))
+        assertNear(784, PrerollGate.streamBankMs(1.5f, 0.85, 600_000, capRenderMs = 1_000))
+    }
+
+    @Test
+    fun `an unknown RTF, no playback rate or no audio never banks`() {
+        assertNear(0, PrerollGate.streamBankMs(2.0f, Double.NaN, 60_000))
+        assertNear(0, PrerollGate.streamBankMs(0f, 4.0, 60_000))
+        assertNear(0, PrerollGate.streamBankMs(2.0f, 4.0, 0))
+    }
+
+    private fun assertNear(expected: Long, actual: Long) =
+        assertEquals(expected.toDouble(), actual.toDouble(), 1.0)
 }
