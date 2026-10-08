@@ -195,7 +195,8 @@ When investigating **{concern}**, start at **{files}**:
   `bert_encoder` output, [1,128,T]) that Kitten's duration and F0/N
   predictors consume; everything else in `kitten.onnx` stays. On the 17 B1
   cases × 8 voices it keeps durations within 0.11 frames/token (90% exact)
-  and F0 within 5.3 Hz, Whisper WER equal. Cutting ALBERT's 12 shared-layer
+  and F0 within 5.3 Hz, Whisper WER equal (a width-192, 1.94M version is
+  as close). Cutting ALBERT's 12 shared-layer
   passes to 4/6/8 instead drifts ~1.5 frames and ~23 Hz. Using it means
   re-cutting `planner.onnx` with the student in ALBERT's place
   (`scripts/kitten-stream/split.py` input) and timing it on the phone; the
