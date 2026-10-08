@@ -143,4 +143,80 @@ class PrerollGateTest {
         gate.onChunkRendered(0, 100L, 0L)
         assertEquals(1, gate.prerollChunks)
     }
+
+    // -- prerollChunksFor: the gate's K as a pure function (#13 E) --
+
+    @Test
+    fun `the up-front K uses the gate's formula`() {
+        fun k(rate: Float, chunks: Int, rtf: Double) = PrerollGate.prerollChunksFor(rate, chunks, rtf)
+        assertEquals(1, k(1.0f, 4, 0.55))       // the 8a warm case at 1×
+        assertEquals(1, k(1.5f, 3, 0.55))       // played 0.825, under the margin
+        assertEquals(1, k(2.0f, 3, 0.56))       // shortfall 0.44
+        assertEquals(2, k(2.0f, 4, 0.56))       // shortfall 0.66
+        assertEquals(1, k(1.0f, 2, 1.35))       // shortfall 0.45
+        assertEquals(2, k(1.0f, 2, 1.45))       // shortfall 0.55
+        assertEquals(PrerollGate.MAX_PREROLL_CHUNKS, k(2.0f, 10, 2.0))
+        assertEquals(3, PrerollGate.prerollChunksFor(2.0f, 5, 0.7, maxPreroll = 3))
+    }
+
+    @Test
+    fun `a single chunk, an unknown RTF or no playback rate never waits`() {
+        assertEquals(1, PrerollGate.prerollChunksFor(2.0f, 1, 4.0))
+        assertEquals(1, PrerollGate.prerollChunksFor(2.0f, 5, Double.NaN))
+        assertEquals(1, PrerollGate.prerollChunksFor(0f, 5, 4.0))
+    }
+
+    @Test
+    fun `the gate decides the same K from chunk 0 as the function from its RTF`() {
+        for (rate in listOf(0.5f, 1.0f, 1.25f, 1.5f, 2.0f, 3.0f)) {
+            for (chunks in 1..8) {
+                for (renderMs in listOf(200L, 450L, 550L, 700L, 900L, 1120L, 1450L, 4000L)) {
+                    val gate = PrerollGate<Int>(rate, chunks)
+                    gate.onChunkRendered(0, renderMs, 1000L)
+                    assertEquals(
+                        "rate=$rate chunks=$chunks render=$renderMs",
+                        PrerollGate.prerollChunksFor(rate, chunks, renderMs / 1000.0),
+                        gate.prerollChunks,
+                    )
+                }
+            }
+        }
+    }
+
+    // -- streamBankMs: pre-roll in banked audio (KokoroDirect streams, #13) --
+
+    @Test
+    fun `no bank at or under the realtime margin`() {
+        assertNear(0, PrerollGate.streamBankMs(1.0f, 0.85, 60_000))
+        assertNear(0, PrerollGate.streamBankMs(1.0f, 0.9, 60_000))
+        assertNear(0, PrerollGate.streamBankMs(1.5f, 0.55, 60_000)) // played 0.825
+    }
+
+    @Test
+    fun `the bank covers the deficit of a short text`() {
+        // 1.25x at RTF 0.85: played 1.0625; 4 s of audio plays in 3.2 s,
+        // deficit 3.2 s x 0.1625 = 520 ms of render = 489 ms played.
+        assertNear(489, PrerollGate.streamBankMs(1.25f, 0.85, 4_000))
+        // 2x at RTF 0.6: played 1.2; 10 s of audio, 5 s played x 0.3 = 1.5 s render = 1.25 s played.
+        assertNear(1_250, PrerollGate.streamBankMs(2.0f, 0.6, 10_000))
+    }
+
+    @Test
+    fun `a long text's bank is capped in render time`() {
+        // 1.5x at RTF 0.85: played 1.275. The cap renders 2 s = 1568 ms played,
+        // however long the text.
+        assertNear(1_568, PrerollGate.streamBankMs(1.5f, 0.85, 600_000))
+        assertNear(1_568, PrerollGate.streamBankMs(1.5f, 0.85, 60_000))
+        assertNear(784, PrerollGate.streamBankMs(1.5f, 0.85, 600_000, capRenderMs = 1_000))
+    }
+
+    @Test
+    fun `an unknown RTF, no playback rate or no audio never banks`() {
+        assertNear(0, PrerollGate.streamBankMs(2.0f, Double.NaN, 60_000))
+        assertNear(0, PrerollGate.streamBankMs(0f, 4.0, 60_000))
+        assertNear(0, PrerollGate.streamBankMs(2.0f, 4.0, 0))
+    }
+
+    private fun assertNear(expected: Long, actual: Long) =
+        assertEquals(expected.toDouble(), actual.toDouble(), 1.0)
 }

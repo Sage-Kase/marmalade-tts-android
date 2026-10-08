@@ -1,6 +1,7 @@
 package app.marmalade.tts.install
 
 import app.marmalade.tts.R
+import app.marmalade.tts.data.KokoroDirectVoiceCatalog
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -268,6 +269,41 @@ class EngineInstallerTest {
         File(dir, "gen.onnx").writeText("too small") // < 1 MB
 
         assertEquals(InstallState.Corrupt, installer.verifyAgainst(descriptor))
+    }
+
+    @Test
+    fun verifyAcceptsEitherKokoroModelLayout() = runTest {
+        // Issue #13 "E": the unsplit model.onnx (v23 and older) or the
+        // streaming planner + gen + every voice's genstats (either graph may be .ort).
+        val descriptor = engineDescriptor(
+            name = "kokoro-direct-v1_0",
+            url = "https://test/kokoro-direct.tar.bz2",
+            archiveBytes = ByteArray(0),
+        )
+        val dir = File(filesDir, "engines/${descriptor.name}").apply { mkdirs() }
+        val big = ByteArray(2 * 1024 * 1024) { 0x42 }
+        File(dir, "voices.bin").writeText("voices")
+        File(dir, "tokens.txt").writeText("tokens")
+        File(dir, "lexicon-zh.txt").writeText("lexicon")
+        File(dir, "openjtalk_dic").mkdirs()
+        File(dir, "openjtalk_dic/sys.dic").writeText("dic")
+        assertEquals("no model at all", InstallState.Corrupt, installer.verifyAgainst(descriptor))
+
+        File(dir, "planner.onnx").writeBytes(big)
+        File(dir, "gen.ort").writeBytes(big)
+        assertEquals("no genstats/", InstallState.Corrupt, installer.verifyAgainst(descriptor))
+        File(dir, "genstats").mkdirs()
+        assertEquals("empty genstats/", InstallState.Corrupt, installer.verifyAgainst(descriptor))
+        val keys = KokoroDirectVoiceCatalog.voices.map { it.id.substringAfter(':') }
+        for (key in keys.drop(1)) File(dir, "genstats/$key.bin").writeText("stats")
+        assertEquals("one voice missing", InstallState.Corrupt, installer.verifyAgainst(descriptor))
+        File(dir, "genstats/${keys.first()}.bin").writeText("stats")
+        assertEquals(InstallState.Installed, installer.verifyAgainst(descriptor))
+
+        File(dir, "gen.ort").writeText("too small")
+        assertEquals(InstallState.Corrupt, installer.verifyAgainst(descriptor))
+        File(dir, "model.onnx").writeBytes(big)
+        assertEquals("the unsplit model still installs", InstallState.Installed, installer.verifyAgainst(descriptor))
     }
 
     /** Write a complete KittenDirect on-disk layout into [dir]. */

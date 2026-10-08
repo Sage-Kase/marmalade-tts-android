@@ -22,9 +22,19 @@ interface RunAbort : AutoCloseable {
     fun terminate()
 }
 
-/** [RunAbort] over ORT's `RunOptions` — pass [options] to `session.run`. */
-class OrtRunAbort : RunAbort {
-    val options = OrtSession.RunOptions()
+/**
+ * [RunAbort] over ORT's `RunOptions` — pass [options] to `session.run`.
+ *
+ * [shrinkArena] hands the CPU arena's unused blocks back to the OS when the
+ * run ends (issue #13 "B"). Without it a session keeps the high-water mark of
+ * every run it has done: a long sentence's buffers stay resident for the life
+ * of the engine. The #12 "X1" phone bench halved Kitten's generator and
+ * Kokoro's peak memory with it, at the same speed.
+ */
+class OrtRunAbort(shrinkArena: Boolean = false) : RunAbort {
+    val options = OrtSession.RunOptions().apply {
+        if (shrinkArena) addRunConfigEntry("memory.enable_memory_arena_shrinkage", "cpu:0")
+    }
     override fun terminate() = options.setTerminate(true)
     override fun close() = options.close()
 }

@@ -129,35 +129,20 @@ When investigating **{concern}**, start at **{files}**:
   tied espeak → `EspeakToMisaki`, a port of misaki's own EspeakFallback.
   **A small student is only as good as the front end it was distilled on**:
   check that before blaming the model.
-  Issue #3 "D1a" prototyped streaming Kitten as a dev engine here; since
-  issue #10 that is how **KittenDirect itself renders** (see "Kitten
-  streams" below) and the dev engine is gone. Phone protocol and the
-  original sweeps: `~/coding/scratch/kitten-stream-d1a/`.
-  `KokoroStreamDevEngine` (issue #5 "D1c", same rules) is the same cut of the
-  shipped int8 Kokoro v23 model. Its 48 generator norms can't use one fixed
-  table per voice (~2.9 dB off); `genstats/<voice>.bin` is a small per-voice
-  linear model, and `KokoroGenStats` turns it into each chunk's table from the
-  pause share and length,
-  English voices only. It keeps sentences whole up to the 500-token cap (no
-  short first piece; streaming replaces it), and its slices never cut inside
-  the trailing pause, so KokoroDirect's tail trim applies to the last slice
-  alone. QDQ graph → CPU EP only, like KokoroDirect. Bundle sideloaded into
-  `filesDir/engines/kokoro-stream-dev/`; voices.bin comes from the installed
-  KokoroDirect bundle. Scripts: `~/coding/scratch/kokoro-stream-d1c/`. It
-  reads `dev.properties` knobs (`first`/`slice`/`context`
-  frames, `whole`, `profile`, `spin`, `mempattern`). On the phone each
-  generator call carries ~120 ms of fixed overhead, so small slices cost real
-  CPU (issue #5). Since issue #9 the slices are 0.5 s, 1 s, then doubling to
-  4 s (`max` knob; `max=40` restores the fixed 1 s schedule the #3/#5 tables
-  were measured with). **Intra-op spinning helps the split path only** (#5
-  clean phone bench, 2026-10-07, Heart, B1 set; first audio median/worst, RTF):
-  - today's KokoroDirect: 1.81 s / 5.6 s, RTF 0.70;
-  - streamed: 1.36 s / 2.3 s, RTF 0.85;
-  - streamed with `spin=true`: 0.94 s / 1.38 s, RTF 0.79;
-  - the unsplit model with spin: RTF 0.78 vs 0.75 without.
-  The planner and every slice are many short ORT calls, and sleeping pool
-  threads pay a wake-up on each. Weigh spinning's idle-CPU and battery cost
-  before adopting it.
+  Streaming was prototyped here as dev engines: Kitten (issue #3 "D1a",
+  `~/coding/scratch/kitten-stream-d1a/`) and Kokoro (#5 "D1c",
+  `~/coding/scratch/kokoro-stream-d1c/`). Both are gone: since #10 and #13
+  "E" that is how **KittenDirect and KokoroDirect themselves render** (see
+  "Kitten streams" and "Kokoro streams" below). On the phone each generator
+  call carries ~120 ms of fixed overhead, which is why slices double up to
+  4 s instead of staying at 1 s (#5, #9). **Intra-op spinning helps the split
+  path only** (#5 clean phone bench, 2026-10-07, Heart, B1 set; first audio
+  median/worst, RTF): unsplit Kokoro 1.81 s / 5.6 s, RTF 0.70; streamed
+  1.36 s / 2.3 s, RTF 0.85; streamed + spin 0.94 s / 1.38 s, RTF 0.79; the
+  unsplit model with spin RTF 0.78 vs 0.75 without. The planner and every
+  slice are many short ORT calls, and sleeping pool threads pay a wake-up on
+  each. #13 measured spinning's cost in process CPU time over a 6-minute
+  screen-off read: +2.5% (within run-to-run noise), so it stays on.
 - **Debug-only model timing (`devbench/OnnxBenchService`, issue #12 "X1")**:
   times ANY `.onnx`/`.ort` file with no engine around it, silently (outputs
   are dropped). One adb start = one line of `files/x1/specs.txt` = one
@@ -182,13 +167,30 @@ When investigating **{concern}**, start at **{files}**:
   - XNNPACK keeps a separate weight copy per reuse of a shared layer:
     ALBERT on XNNPACK is +280 MB against +35 MB on the plain CPU EP, which
     is most of Kitten's 364 MB. XNNPACK was also slower than the CPU EP for
-    all 21 models tried.
+    all 21 models tried. **Applied in #13 "A"**: Kitten's planner left
+    XNNPACK.
   - With prepacking off, the XNNPACK planner SIGSEGVs in ORT 1.26.
   - 4 intra-op threads ran Kitten's generator 1.8× faster than the 5 that
-    `CpuClusterDetector` picks.
+    `CpuClusterDetector` picked. **Why (#13 "C")**: a screen-off reader is a
+    foreground service, and the 8a's `foreground` cpuset is CPUs 0–7 (the
+    prime core, CPU 8, is only in `top-app`), so the 5th thread ran on a
+    little core. The autodetect now leaves out a lone prime core when at
+    least two other fast cores remain (`CpuClusterDetector.threadsFor`; a
+    1 + 1 + 6 Snapdragon 765G keeps it, or it would drop to one thread);
+    apps can't read `/dev/cpuset` (SELinux), so the rule is general, not a
+    lookup.
   - A fresh or idle process's first ~1 s of calls costs +40–85 ms each.
   - An arena shrink after each run halves the generator's and Kokoro's
-    peak RAM.
+    peak RAM. **Applied in #13 "B"** (`OrtRunAbort(shrinkArena)`, Kitten's
+    generator and every Kokoro run).
+  - **A/B in one APK (#13)**: debug builds read session knobs from
+    `files/dev/engine-knobs.properties` at engine load (`EngineDevKnobs`;
+    the release twin returns null): `threads`, `shrink=false`,
+    `kitten.plannerXnnpack=true`, `kokoro.stream=false`, `kokoro.spin`.
+    `EngineBenchService --ez exit true` gives each run a fresh process and
+    logs peak PSS, VmHWM, process CPU time and battery charge per run;
+    `--es dumpTokens` writes phone-exact Kokoro token ids. Driver:
+    `~/coding/scratch/lean-engines/bench.py`.
 - **Kitten's ALBERT has a trained drop-in replacement, not yet in the app**
   (issue #14 "X2", desktop only): a 4-layer width-256 encoder (3.4M weights,
   X1's `te-d256` shape) maps the same token ids to the same `d_en` (ALBERT +
@@ -203,22 +205,26 @@ When investigating **{concern}**, start at **{files}**:
   student must see exactly the app's Kitten token ids (it was trained on
   them). Weights, ONNX export and scripts: `~/coding/scratch/x2-encoder/`
   (lab `tts-training-research/x2-encoder-lab.html`).
-- **Debug-only pickable engines (`BuildTypeEngines`, issue #9)**: the
-  Kokoro stream dev engine is selectable like any other voice in the DEBUG
-  build (aliases, the picker, the primary alias that system TTS uses), as
-  "Kokoro (streaming)" (Heart, Michael: the voices with a genstats model;
-  "Kitten Nano (streaming)" was retired in #10). The seam is
+- **Debug-only pickable engines (`BuildTypeEngines`, issue #9)**: a
+  prototype engine can be made selectable like any other voice in the DEBUG
+  build (aliases, the picker, the primary alias that system TTS uses). None
+  is listed today: "Kitten Nano (streaming)" retired in #10 and "Kokoro
+  (streaming)" (`kokoro-stream-dev`) in #13 "E". The seam is
   `engine/BuildTypeEngines.kt`, one file per build type: `src/debug/` lists
   the engines, their voice rows, labels and an on-disk check, and binds the
   instances into `EngineRegistry`'s `Set<TtsEngine>` (Hilt `@ElementsIntoSet`);
   `src/release/` is an empty twin with the same signatures, so release builds
-  list, route to and load nothing extra. Main code consults it in
-  `EngineRegistry` (`ENGINE_NAMES`, never `warmable`, `displayName`),
-  `MarmaladeTtsApplication` (rows upserted on every start, outside
-  CATALOG_VERSION), `EngineInstaller.verify` + `probeInstalledVoiceAssets`
-  (sideloaded = installed), `VoicePath` and the alias editor's engine list.
-  The bundles stay sideloaded (no catalog entry); a debug-only engine like
-  this goes through the seam, never into `EngineCatalog`.
+  list, route to and load nothing extra. `retiredEngines` (retired engine →
+  replacement with the same voice keys; debug: `kokoro-stream-dev` →
+  KokoroDirect) is applied at every start by `data/RetiredEngines.kt`
+  (`migrateRetiredEngines`): aliases and the default voice move, the retired
+  voice rows go; idempotent, a no-op in release. Main code consults the seam
+  in `EngineRegistry` (`ENGINE_NAMES`, never `warmable`, `displayName`),
+  `MarmaladeTtsApplication` (retirements, then rows upserted on every start,
+  outside CATALOG_VERSION), `EngineInstaller.verify` +
+  `probeInstalledVoiceAssets` (sideloaded = installed), `VoicePath` and the
+  alias editor's engine list. Bundles stay sideloaded (no catalog entry); a
+  debug-only engine goes through the seam, never into `EngineCatalog`.
 - **Kitten streams** (issue #10, `engine/kitten/KittenDirectEngine.kt`):
   the baked bundle is `planner.onnx` + `gen.onnx` + `genstats/<voice>.bin`
   + `voices/<voice>.bin`, cut from upstream's `kitten.onnx` by
@@ -239,6 +245,44 @@ When investigating **{concern}**, start at **{files}**:
   copies a baked engine from the APK (`SeedAssets`) instead of downloading
   — the v22 download still has the old layout. Only a piece's first slice
   is a `SynthAudio.resumePoint` (see the Narrator's resume points).
+- **Kokoro streams** (issue #13 "E", `engine/kokoro/KokoroDirectEngine.kt`,
+  prototyped in #5): a bundle with `planner.onnx` + `gen.onnx`
+  + `genstats/<voice>.bin` (a non-empty file for every catalog voice, or it
+  isn't the streaming layout: `hasAllGenStats`; an unknown voice key renders
+  with speaker 0's stats, `genStatsKeyFor`; the int8 v23 model cut in two,
+  weights unchanged; scripts `~/coding/scratch/kokoro-stream-d1c/`) plans
+  each piece ONCE and renders it in Kitten's slices (0.5 s, 1 s, doubling to
+  4 s, 4 frames of context; `KokoroStreamSlicing`, whose slices never cut
+  inside the trailing pause, so TailTrim + SilenceCompressor run on the last
+  slice alone). The generator's 48 norms can't use one fixed table per voice
+  (~2.9 dB off): `genstats/<voice>.bin` is a small per-voice linear model and
+  `KokoroGenStats` turns it into each piece's table from its pause share and
+  length. Sentences stay whole up to the 500-token cap (budget target 360);
+  over-cap chunks still re-split (`tokenPieces`). The planner reads a whole
+  piece before its first slice (~5 ms a token on the 8a), so a first
+  sentence over 160 tokens is cut at a clause into an ~80-token head when
+  its plan would be heard: nothing playing covers it, or a pre-roll is due
+  (`kokoroStreamCutFirst`; #13 review, the long-article set waited up to
+  5.5 s without it). Pre-roll above 1× banks SLICES, not chunks
+  (`PrerollGate.streamBankMs`): played audio enough to cover the request's
+  estimated deficit, from the last measured streamed RTF (0.85 before any),
+  with the hold's render time capped at 2 s. Holding whole chunks made a
+  sped-up listener wait for a full sentence plus the next one's plan.
+  Both graphs: CPU EP (QDQ),
+  intra-op spinning ON (#5 clean phone bench, Heart: first sound median /
+  worst 1.81 s / 5.6 s unsplit → 0.94 s / 1.38 s streamed + spinning). A
+  bundle without the layout (v23 and older, the German engine, the debug 7M;
+  no published download has the layout yet) renders exactly as before
+  through `model.onnx` (the whole path: short first
+  piece, chunk-grain `PrerollGate`, spinning off). `isInstalled` and the
+  installer's layout check accept either; `modelFile()` prefers a `.ort` of
+  any graph. Debug knobs (`EngineDevKnobs`): `kokoro.stream=false` forces the
+  whole path when model.onnx is present, `kokoro.spin=false|true`. The
+  `render path:` log line at load names the path, threads, spin and shrink;
+  `StreamPerf` has one plan line per request (`cutFirst`, `bank`), then per
+  piece `kokoro plan=…`, per slice `kokoro slice=i/n`, and `kokoro piece …
+  rtf=`. `lexicon-zh.txt` (68k entries, 0.6–0.8 s) loads on the first text
+  with a CJK run (`mandarinLexicon()`), not at load (#13 "D2").
 - `engine/SherpaEngine.kt` — abstract base (loadLock, ensureModelLoaded,
   synthesize, release, floatToPcm16, sampleRate)
 - `engine/KittenEngine.kt`, `engine/KokoroEngine.kt` — subclasses,
@@ -255,8 +299,9 @@ When investigating **{concern}**, start at **{files}**:
   engine): sentences split at `.!?;:` + space, newlines and 。！？；：; tiny
   sentences merge up to 90 tokens (never past 200, never the request's
   first); a sentence over 270 is cut at `,;:`/—/、，；： to ≤ 200, then
-  word level (spaces; Japanese kana→kanji/katakana steps), then hard.
-  Every piece of a cut sentence uses the WHOLE sentence's style row
+  word level (spaces; Japanese kana→kanji/katakana steps), then hard. (The
+  streaming path uses target 360 and never the short first piece below; see
+  "Kokoro streams".) Every piece of a cut sentence uses the WHOLE sentence's style row
   (`TokenChunk.rowTokens` → `kokoroStyleRow`) — Kokoro picks its row by
   token count, and a short piece's own row sounds like a sentence end.
   **Short first piece** (Max's blind A/B, `docs/release/first-piece-lab.html`):
@@ -326,7 +371,7 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   track) goes through `Session.listenerChunk()`, which steps back to the
   last chunk flagged `SynthAudio.resumePoint`. Engines that render whole
   pieces leave it true; streaming ones flag only a piece's first slice
-  (KittenDirect, the Kokoro stream dev engine), so on-device voices resume
+  (KittenDirect, KokoroDirect streaming), so on-device voices resume
   at the sentence (or clause) start, never mid-word. The cloud engine flags
   a request's first network buffer: a cloud resume restarts the interrupted
   REQUEST (≤ 1000 chars, usually the paragraph; the MP3 path is one buffer

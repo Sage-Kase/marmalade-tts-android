@@ -11,6 +11,7 @@ import app.marmalade.tts.audio.TailTrim
 import app.marmalade.tts.audio.TextChunker
 import app.marmalade.tts.data.KokoroDirectVoiceCatalog
 import app.marmalade.tts.data.SettingsRepository
+import app.marmalade.tts.engine.EngineDevKnobs
 import app.marmalade.tts.engine.EngineNotInstalledException
 import app.marmalade.tts.engine.OrtRunAbort
 import app.marmalade.tts.engine.PlaybackHorizon
@@ -18,6 +19,7 @@ import app.marmalade.tts.engine.PrerollGate
 import app.marmalade.tts.engine.abortableInference
 import app.marmalade.tts.engine.SynthAudio
 import app.marmalade.tts.engine.TtsEngine
+import app.marmalade.tts.engine.kitten.KittenStreamSlicing
 import app.marmalade.tts.engine.kitten.PAD_TOKEN
 import app.marmalade.tts.engine.kitten.encodePhonemes
 import app.marmalade.tts.lang.LangDetector
@@ -40,6 +42,8 @@ import java.nio.channels.FileChannel
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.SendChannel
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
@@ -54,20 +58,53 @@ import kotlinx.coroutines.withContext
 // KokoroDirectEngine — Kokoro v1.0 without sherpa-onnx
 // -----------------------------------------------------------------------------
 //
-// Runs the upstream `kokoro-multi-lang-v1_0` ONNX (~325 MB fp32) directly
-// on `com.microsoft.onnxruntime:onnxruntime-android`, sharing the same
-// Pocket-style perf stack as KittenDirect (XNNPACK EP, direct ByteBuffers,
-// thread autodetect). Espeak-ng (GPL-3.0-or-later) is compiled from source
+// Runs Kokoro-82M v1.0 (upstream's `kokoro-multi-lang-v1_0`, static QDQ int8
+// since bundle v23) directly on `com.microsoft.onnxruntime:onnxruntime-android`,
+// with KittenDirect's perf habits (direct ByteBuffers, thread autodetect,
+// warm-up after load). Espeak-ng (GPL-3.0-or-later) is compiled from source
 // into the APK as libespeak-ng.so and dlopen'd by the JNI shim — same
 // pattern as KittenDirect; see phonemizer/EspeakPhonemizer.kt.
 //
+// Two render paths, picked once per load from the bundle's files
+// ([renderPathFor]); the `render path:` line logged at load names the one in
+// use and its session settings:
+//
+//   Streaming (issue #13 "E", prototyped in #5): the model ships cut in two,
+//   weights unchanged. Each piece is planned ONCE by the planner graph (text
+//   model, durations, pitch/energy, the decoder's frame-rate front and the
+//   harmonic source, with the sentence's one style row), and the generator
+//   graph (iSTFTNet) renders the planned frames in slices of 0.5 s, 1 s, then
+//   doubling to 4 s with 4 frames of context ([KokoroStreamSlicing]), each
+//   sent the moment it exists. The generator's 48 InstanceNorms take their
+//   statistics from its `gn` input, computed per piece from the voice's small
+//   linear model ([KokoroGenStats]) and the planned durations; that makes it
+//   purely convolutional, so the slices join exactly. Sentences stay whole up
+//   to the 500-token cap, except a long first sentence whose plan would be
+//   heard, which gets an ~80-token head ([kokoroStreamCutFirst]). Pre-roll
+//   above 1× banks slices worth of audio, sized up front from the last
+//   measured streamed RTF ([PrerollGate.streamBankMs]). Both graphs run on
+//   the CPU EP with intra-op spinning (#5: first sound median 1.81 s →
+//   0.94 s on a Pixel 8a).
+//
+//   Whole: one call of the unsplit model per chunk, the short first piece
+//   (T9) and chunk-grain pre-roll ([PrerollGate]). A bundle without the
+//   streaming files renders this way: v23 and older, the German engine, the
+//   debug 7M student. Debug builds can force it while model.onnx is present
+//   (`kokoro.stream=false`, [EngineDevKnobs]) for an A/B.
+//
 // Bundle layout (`${filesDir}/engines/kokoro-direct-v1_0/`):
-//   model.onnx                          — acoustic model (~325 MB)
+//   planner.onnx, gen.onnx              — the streaming pair
+//   genstats/<voice>.bin                — float32 [9, S] generator-stats model,
+//                                         one per voice (all 53)
+//   model.onnx                          — the unsplit model (v23 and older)
 //   voices.bin                          — float32 [53, 510, 256] style table
 //   tokens.txt                          — phoneme→ID lookup (114 entries)
+//   model-format.txt                    — `qdq…` marks the int8 model (CPU EP)
+//   lexicon-zh.txt, openjtalk_dic/      — Mandarin and Japanese frontends
 //   phonemizer/                         — legacy (espeak data + older .so);
 //                                         ignored — the APK carries both the
 //                                         lib and the shared data
+// Any graph may ship as a `.ort` instead; [modelFile] prefers it.
 //
 // Differences from KittenDirect (each verified against sherpa-onnx
 // `csrc/offline-tts-kokoro-*` source — see [[compare-at-model-boundary]]):
@@ -152,6 +189,41 @@ private const val MEASURE_MIN_TOKENS = 20
 
 /** Assumed ms per token before any chunk was measured (between cool 24 and hot 52). */
 private const val DEFAULT_MS_PER_TOKEN = 30.0
+
+/**
+ * Streamed RTF assumed for the up-front pre-roll before any piece was
+ * measured: the #5 clean phone bench (Pixel 8a, Heart) measured 0.79–0.85.
+ */
+private const val DEFAULT_STREAM_RTF = 0.85
+
+/** Audio per model token at speed 1 (Pixel 8a, Heart: 56 ms over 144 pieces). */
+private const val AUDIO_MS_PER_TOKEN = 56.0
+
+/**
+ * The streaming planner's cost per token, for deciding whether a first
+ * sentence's plan would be heard: 3.3–6.3 ms on the 8a (cool to warm).
+ */
+private const val STREAM_PLAN_MS_PER_TOKEN = 6.0
+
+/**
+ * First sentences up to this many tokens stay whole on the streaming path:
+ * their plan is ≤ ~0.8 s, and every cut is a prosody seam.
+ */
+private const val STREAM_CUT_MIN_TOKENS = 160
+
+/**
+ * Whether the streaming path cuts the request's first sentence of
+ * [firstTokens] tokens into a short head ([TextChunker.planByTokens] step
+ * 4, clause marks only). Only a long one, and only when its plan would be
+ * heard: nothing playing covers it ([aheadMs], the audio this engine sent
+ * that is still to play), or a pre-roll will be banked ([holding]), which
+ * then fills from the short head instead of the whole sentence.
+ */
+internal fun kokoroStreamCutFirst(firstTokens: Int, aheadMs: Long, holding: Boolean): Boolean =
+    firstTokens > STREAM_CUT_MIN_TOKENS && (holding || aheadMs < firstTokens * STREAM_PLAN_MS_PER_TOKEN)
+
+/** Samples per duration frame (25 ms at 24 kHz), the generator's grid. */
+private const val FRAME_SAMPLES = TailTrim.FRAME_SAMPLES
 
 /**
  * [base] with the short-first-piece sizes adapted to the measured speed
@@ -246,26 +318,45 @@ open class KokoroDirectEngine @Inject constructor(
         phon.phonemize(text, lang)
 
     private val engineDir: File get() = File(ctx.filesDir, "engines/$engineName")
-    private val acousticModelFile: File get() = File(engineDir, MODEL_FILE)
     private val voicesFile: File get() = File(engineDir, VOICES_FILE)
-    private val tokensFile: File get() = File(engineDir, TOKENS_FILE)
 
     private val loadLock = Mutex()
     private val synthLock = Mutex()
 
+    /** Shrink the CPU arena after each generator run ([OrtRunAbort]); debug A/B knob `shrink=false`. */
+    @Volatile private var shrinkArena = true
+
     // -- live state (null while not loaded) -----------------------------------
 
     @Volatile private var env: OrtEnvironment? = null
+
+    /** Which render path this load uses (see the file comment); set before [env] is published. */
+    @Volatile private var streaming = false
+
+    /** The unsplit model (whole path). */
     private var acousticSession: OrtSession? = null
+
+    /** The streaming pair: planner and generator. */
+    private var plannerSession: OrtSession? = null
+    private var genSession: OrtSession? = null
+
+    /** Generator-stats models ([KokoroGenStats]) per voice key, loaded on first use. Guarded by [synthLock]. */
+    private val genStatsModels = HashMap<String, FloatArray>()
+
     private var phonemizer: EspeakPhonemizer? = null
 
     /**
-     * Mandarin lexicon, loaded from the bundle's `lexicon-zh.txt`. Null when
-     * the installed bundle predates zh support (graceful degradation — CJK
-     * then falls back to the espeak path, which is broken for Mandarin but
-     * doesn't crash). Bundles from v17 onward ship it.
+     * Mandarin lexicon from the bundle's `lexicon-zh.txt`, loaded the first
+     * time a text has Han characters ([mandarinLexicon]), not at engine load:
+     * building its 68k entries took 0.6–0.8 s of every load on a Pixel 8a
+     * (issue #13 "D2"), almost always for text that has none. Null when the
+     * installed bundle predates zh support (graceful degradation — CJK then
+     * falls back to the espeak path, which is broken for Mandarin but doesn't
+     * crash). Bundles from v17 onward ship it. Guarded by [synthLock], like
+     * every encode.
      */
     private var lexiconZh: LexiconZh? = null
+    private var lexiconZhTried = false
 
     /**
      * Japanese frontend (Open JTalk), loaded from the bundle's `openjtalk_dic`.
@@ -326,13 +417,14 @@ open class KokoroDirectEngine @Inject constructor(
     @Volatile private var measuredMsPerToken = Double.NaN
     @Volatile private var measuredRtf = Double.NaN
 
-    override fun isInstalled(): Boolean {
-        if (!engineDir.isDirectory) return false
-        if (!acousticModelFile.isFile) return false
-        if (!voicesFile.isFile) return false
-        if (!tokensFile.isFile) return false
-        return true
-    }
+    /**
+     * Real-time factor (plan + generator time ÷ audio) of the last streamed
+     * piece of ≥ [MEASURE_MIN_TOKENS] tokens — NaN until the first. Decides
+     * the next request's up-front pre-roll on the streaming path.
+     */
+    @Volatile private var measuredStreamRtf = Double.NaN
+
+    override fun isInstalled(): Boolean = isInstalledIn(engineDir)
 
     /**
      * [env] is the publish-last marker `doLoad` writes only after every
@@ -353,7 +445,8 @@ open class KokoroDirectEngine @Inject constructor(
             if (env != null) return
             if (!isInstalled()) throw EngineNotInstalledException(engineName)
             val manualThreads = settings.intraOpThreads.firstOrNull()
-            val threadCount = manualThreads ?: CpuClusterDetector.detectPerfCoreCount()
+            val threadCount = EngineDevKnobs.get(ctx.filesDir, "threads")?.toIntOrNull()
+                ?: manualThreads ?: CpuClusterDetector.detectPerfCoreCount()
             val t0 = System.currentTimeMillis()
             try {
                 doLoad(threadCount)
@@ -372,9 +465,33 @@ open class KokoroDirectEngine @Inject constructor(
         val ort = OrtEnvironment.getEnvironment()
         // ORT copies the options into the native session; close them after
         // so keepalive evict/reload cycles don't leak native memory.
-        acousticSession = buildSessionOptions(intraOpThreads).use {
-            createSession(ort, it, acousticModelFile)
+        shrinkArena = EngineDevKnobs.get(ctx.filesDir, "shrink") != "false"
+        val path = renderPathFor(engineDir, EngineDevKnobs.get(ctx.filesDir, "kokoro.stream"))
+        val sessionsStart = System.currentTimeMillis()
+        if (path == RenderPath.STREAMING) {
+            val spin = streamSpinning(EngineDevKnobs.get(ctx.filesDir, "kokoro.spin"))
+            val planner = modelFile(engineDir, PLANNER_GRAPH)
+            val gen = modelFile(engineDir, GEN_GRAPH)
+            plannerSession = streamSessionOptions(intraOpThreads, spin).use { createSession(ort, it, planner) }
+            genSession = streamSessionOptions(intraOpThreads, spin).use { createSession(ort, it, gen) }
+            Log.i(
+                TAG,
+                "render path: streaming (${planner.name} + ${gen.name}, CPU EP), " +
+                    "sessions in ${System.currentTimeMillis() - sessionsStart} ms, threads=$intraOpThreads " +
+                    "spin=$spin shrink=$shrinkArena, slices ${KittenStreamSlicing.FIRST_SLICE_FRAMES}, " +
+                    "${KittenStreamSlicing.SLICE_FRAMES}, doubling to ${KittenStreamSlicing.MAX_SLICE_FRAMES} " +
+                    "frames, context ${KittenStreamSlicing.CONTEXT_FRAMES}",
+            )
+        } else {
+            val model = modelFile(engineDir, MODEL_GRAPH)
+            acousticSession = buildSessionOptions(intraOpThreads).use { createSession(ort, it, model) }
+            Log.i(
+                TAG,
+                "render path: whole (${model.name}), session in ${System.currentTimeMillis() - sessionsStart} ms, " +
+                    "threads=$intraOpThreads spin=false shrink=$shrinkArena",
+            )
         }
+        streaming = path == RenderPath.STREAMING
         voicesFloatView = mmapVoicesAsFloatBuffer(voicesFile)
         Log.i(TAG, "mmap'd voices.bin (${voicesFloatView?.limit() ?: 0} floats)")
 
@@ -401,18 +518,6 @@ open class KokoroDirectEngine @Inject constructor(
         phonemizer = espeak
         Log.i(TAG, "espeak version=${espeak.version()}")
 
-        // Mandarin lexicon (sherpa-style Han→IPA token lookup). Optional —
-        // older bundles don't ship it, in which case zh degrades to espeak.
-        val lexFile = File(engineDir, LEXICON_ZH_FILE)
-        if (lexFile.isFile) {
-            val t1 = System.currentTimeMillis()
-            val lex = LexiconZh(lexFile)
-            lexiconZh = lex
-            Log.i(TAG, "loaded lexicon-zh (${lex.size()} entries) in ${System.currentTimeMillis() - t1} ms")
-        } else {
-            Log.w(TAG, "lexicon-zh.txt absent — Mandarin falls back to espeak (degraded)")
-        }
-
         // Japanese frontend (Open JTalk). Optional — older bundles don't ship
         // the dict, in which case ja degrades to espeak.
         val ojtDictDir = File(engineDir, OPENJTALK_DICT_DIR)
@@ -434,10 +539,26 @@ open class KokoroDirectEngine @Inject constructor(
         env = ort
 
         // P-D: warmup runs async — see KittenDirectEngine for details.
-        warmupJob = warmupScope.launch {
-            synthLock.withLock { warmupSynth() }
-        }
+        warmupJob = warmupScope.launch { warmupSynth() }
     }
+
+    /**
+     * The streaming pair's sessions: the plain CPU EP (the int8 QDQ graph
+     * SIGSEGVs under XNNPACK, see [buildSessionOptions]), with intra-op
+     * spinning unless [spin] is off. The planner and every slice are many
+     * short ORT calls, and pool threads that sleep between them pay a wake-up
+     * on each: #5's clean phone bench (Pixel 8a, Heart, B1 set) measured first
+     * sound median / worst 1.36 s / 2.3 s without spinning and 0.94 s / 1.38 s
+     * with it, RTF 0.85 → 0.79. The whole path keeps spinning off (RTF 0.75
+     * vs 0.78 with it).
+     */
+    private fun streamSessionOptions(intraOpThreads: Int, spin: Boolean): OrtSession.SessionOptions =
+        OrtSession.SessionOptions().apply {
+            setIntraOpNumThreads(intraOpThreads)
+            setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+            setMemoryPatternOptimization(true)
+            addConfigEntry("session.intra_op.allow_spinning", if (spin) "1" else "0")
+        }
 
     private fun buildSessionOptions(intraOpThreads: Int): OrtSession.SessionOptions {
         return OrtSession.SessionOptions().apply {
@@ -469,16 +590,23 @@ open class KokoroDirectEngine @Inject constructor(
             .getOrDefault(false)
 
     /**
-     * Touch the session with a 1-character synth so ORT's first-call
-     * kernel compilation costs fold into engine load. Mirrors the Pocket
-     * and KittenDirect warmup strategy.
+     * Touch the sessions (the streaming pair, or the unsplit model) with a
+     * one-word synth whose audio is dropped, so ORT's first-call kernel
+     * compilation costs fold into engine load. Mirrors the Pocket and
+     * KittenDirect warmup strategy. Takes [synthLock] per ORT call, like any
+     * synth.
      */
     private suspend fun warmupSynth() {
         val t0 = System.currentTimeMillis()
         try {
             val voiceKey = warmupVoiceKey
-            for (piece in tokenPieces("Hi.", espeakVoiceFor(voiceKey))) {
-                inferTokens(piece.text, piece.ids, voiceKey, speed = 1.0f, piece.styleRow)
+            val pieces = synthLock.withLock { tokenPieces("Hi.", espeakVoiceFor(voiceKey)) }
+            for (piece in pieces) {
+                if (streaming) {
+                    renderSliced(piece, voiceKey, speed = 1.0f) { _, _ -> }
+                } else {
+                    synthLock.withLock { inferTokens(piece.text, piece.ids, voiceKey, speed = 1.0f, piece.styleRow) }
+                }
             }
             Log.i(TAG, "warmup synth done in ${System.currentTimeMillis() - t0} ms")
         } catch (t: Throwable) {
@@ -534,6 +662,12 @@ open class KokoroDirectEngine @Inject constructor(
         val effectiveLang = phonemizationLanguage?.takeIf { it != LangDetector.AUTO }
             ?: espeakVoiceFor(voiceName)
         phonemizer?.setVoice(effectiveLang)
+        if (streaming) {
+            streamSliced(text, voiceName, effectiveLang, speed, playbackRate, streamStartNs, loadWaitMs)
+            return@channelFlow
+        }
+        // Whole path (see the file comment).
+        //
         // Chunks are sized in the model's own tokens (TextChunker.planByTokens):
         // Kokoro's cost is linear in tokens, and a character is ≈1.1 tokens in
         // English but ≈3.4 in Chinese. Counting encodes each sentence once;
@@ -583,21 +717,7 @@ open class KokoroDirectEngine @Inject constructor(
         // chunks until the buffer covers the measured deficit; at 1.0×
         // it decides K=1 and this loop behaves exactly as before.
         val gate = PrerollGate<SynthAudio>(playbackRate, chunks.size)
-        var prevSendNs = 0L
-        var firstSent = false
-        suspend fun emitAudio(audio: SynthAudio) {
-            val gapMs = if (prevSendNs == 0L) -1L else (System.nanoTime() - prevSendNs) / 1_000_000
-            if (!firstSent) {
-                firstSent = true
-                val ttfaMs = (System.nanoTime() - streamStartNs) / 1_000_000
-                Log.d(PERF_TAG, "kokoro TTFA=${ttfaMs}ms (loadWait=${loadWaitMs}ms) K=${gate.prerollChunks}")
-            }
-            val audioMs = audio.pcm.size * 1000L / audio.sampleRate
-            Log.d(PERF_TAG, "kokoro emit audio=${audioMs}ms gap=${gapMs}ms K=${gate.prerollChunks}")
-            send(audio)
-            horizon.onEmitted(if (playbackRate > 0f) (audioMs / playbackRate).toLong() else audioMs)
-            prevSendNs = System.nanoTime()
-        }
+        val sender = AudioSender(this, streamStartNs, loadWaitMs, playbackRate) { "K=${gate.prerollChunks}" }
         try {
             for ((idx, chunk) in chunks.withIndex()) {
                 // A cancelled stream (reader tap, Stop, skip) must stop HERE:
@@ -633,12 +753,12 @@ open class KokoroDirectEngine @Inject constructor(
                         renderMs = inferMs,
                         audioMs = audioMs,
                     )
-                    for (audio in release) emitAudio(audio)
+                    for (audio in release) sender.send(audio)
                 }
             }
             // Anything the gate still holds (e.g. the nominal last chunk
             // phonemized to nothing, so the flush never triggered).
-            for (audio in gate.drain()) emitAudio(audio)
+            for (audio in gate.drain()) sender.send(audio)
         } catch (t: Throwable) {
             // Cancelled (Stop, reader tap) or failed: what this stream was
             // feeding has been cut off, so the next request starts cold.
@@ -646,6 +766,301 @@ open class KokoroDirectEngine @Inject constructor(
             throw t
         }
     }.flowOn(Dispatchers.Default)
+
+    /**
+     * Sends a stream's audio downstream: the TTFA line on the first send, an
+     * `emit` line per send (audio length, gap since the last send, the
+     * pre-roll: K chunks, or the streaming path's bank) and the [horizon]
+     * bookkeeping, on the played clock.
+     */
+    private inner class AudioSender(
+        private val out: SendChannel<SynthAudio>,
+        private val streamStartNs: Long,
+        private val loadWaitMs: Long,
+        private val playbackRate: Float,
+        private val preroll: () -> String,
+    ) {
+        private var prevSendNs = 0L
+        private var firstSent = false
+
+        suspend fun send(audio: SynthAudio) {
+            val gapMs = if (prevSendNs == 0L) -1L else (System.nanoTime() - prevSendNs) / 1_000_000
+            if (!firstSent) {
+                firstSent = true
+                val ttfaMs = (System.nanoTime() - streamStartNs) / 1_000_000
+                Log.d(PERF_TAG, "kokoro TTFA=${ttfaMs}ms (loadWait=${loadWaitMs}ms) ${preroll()} streaming=$streaming")
+            }
+            val audioMs = audio.pcm.size * 1000L / audio.sampleRate
+            Log.d(PERF_TAG, "kokoro emit audio=${audioMs}ms gap=${gapMs}ms ${preroll()}")
+            out.send(audio)
+            horizon.onEmitted(if (playbackRate > 0f) (audioMs / playbackRate).toLong() else audioMs)
+            prevSendNs = System.nanoTime()
+        }
+    }
+
+    /**
+     * The streaming path's request loop (see the file comment). Sentences
+     * stay whole up to the 500-token cap ([STREAM_TOKEN_BUDGET]); each
+     * chunk's cap pieces ([tokenPieces]) are rendered by [renderSliced], and
+     * each slice goes out as its own [SynthAudio], a resume point only on a
+     * piece's first slice (issue #11).
+     *
+     * The planner reads a whole piece before its first slice (~5 ms a
+     * token on the 8a), so a long first sentence is cut at a clause into a
+     * ~80-token head when that wait would be heard ([kokoroStreamCutFirst]:
+     * nothing playing to cover it, or a pre-roll to bank).
+     *
+     * Pre-roll is sized in audio, not chunks: slices are held until they
+     * hold [PrerollGate.streamBankMs] of played audio, worked out up front
+     * from the last measured streamed RTF ([DEFAULT_STREAM_RTF] before any)
+     * and the request's token count, then everything goes out as rendered.
+     */
+    private suspend fun SendChannel<SynthAudio>.streamSliced(
+        text: String,
+        voiceName: String,
+        lang: String,
+        speed: Float,
+        playbackRate: Float,
+        streamStartNs: Long,
+        loadWaitMs: Long,
+    ) {
+        val planStartNs = System.nanoTime()
+        val rtf = measuredStreamRtf.takeUnless { it.isNaN() } ?: DEFAULT_STREAM_RTF
+        val aheadMs = horizon.remainingMs()
+        val holding = rtf * playbackRate > PrerollGate.REALTIME_MARGIN
+        var cutFirst = false
+        val encoded = HashMap<String, IntArray>()
+        val chunks = synthLock.withLock {
+            TextChunker.planByTokens(
+                text,
+                STREAM_TOKEN_BUDGET,
+                cutFirstSentence = { firstTokens ->
+                    cutFirst = kokoroStreamCutFirst(firstTokens, aheadMs, holding)
+                    cutFirst
+                },
+            ) { part ->
+                encoded.getOrPut(part) { encodeTextToTokens(part, lang) }.size
+            }
+        }
+        if (chunks.isEmpty()) return
+        val audioMs = (chunks.sumOf { it.tokens } * AUDIO_MS_PER_TOKEN / speed.coerceAtLeast(0.1f)).toLong()
+        val bankMs = PrerollGate.streamBankMs(playbackRate, rtf, audioMs)
+        Log.d(
+            PERF_TAG,
+            "kokoro plan chunks=${chunks.size} firstTokens=${chunks.first().tokens} " +
+                "maxTokens=${chunks.maxOf { it.tokens }} streaming cutFirst=$cutFirst aheadMs=$aheadMs " +
+                "bank=${bankMs}ms rtf=${"%.2f".format(rtf)} planMs=${(System.nanoTime() - planStartNs) / 1_000_000}",
+        )
+        val sender = AudioSender(this, streamStartNs, loadWaitMs, playbackRate) { "bank=${bankMs}ms" }
+        val held = ArrayList<SynthAudio>()
+        var heldPlayedMs = 0.0
+        try {
+            for (chunk in chunks) {
+                // Cancellation checks between chunks, pieces and slices: a
+                // stopped stream must not keep rendering (see the whole path).
+                currentCoroutineContext().ensureActive()
+                val pieces = synthLock.withLock { tokenPieces(chunk.text, lang, encoded[chunk.text], chunk.rowTokens) }
+                for (piece in pieces) {
+                    currentCoroutineContext().ensureActive()
+                    renderSliced(piece, voiceName, speed) { pcm, first ->
+                        held += SynthAudio(pcm = pcm, sampleRate = sampleRate, resumePoint = first)
+                        if (heldPlayedMs < bankMs) {
+                            heldPlayedMs += pcm.size * 1000.0 / sampleRate / playbackRate
+                            if (heldPlayedMs < bankMs) return@renderSliced
+                        }
+                        for (h in held) sender.send(h)
+                        held.clear()
+                    }
+                }
+            }
+            // The text ended before the bank filled.
+            for (h in held) sender.send(h)
+        } catch (t: Throwable) {
+            // Cancelled or failed: the next request starts cold (whole path).
+            horizon.clear()
+            throw t
+        }
+    }
+
+    /**
+     * Render one ≤ [MAX_PHONEMES_PER_CHUNK]-token piece on the streaming
+     * path: plan it once, then generate its frames slice by slice, handing
+     * each slice's PCM to [emit] (flagged when it is the piece's first sound)
+     * as soon as it exists. [synthLock] is held per ORT call, never across
+     * [emit]. Logs the piece's plan line, one line per slice and its RTF, and
+     * keeps [measuredStreamRtf] current.
+     */
+    private suspend fun renderSliced(
+        piece: TokenPiece,
+        voiceName: String,
+        speed: Float,
+        emit: suspend (pcm: ShortArray, first: Boolean) -> Unit,
+    ) {
+        if (piece.ids.isEmpty()) return
+        val ids = wrapForKokoro(piece.ids)
+        val t0 = System.nanoTime()
+        val plan = synthLock.withLock { planPiece(piece.text, ids, voiceName, speed, piece.styleRow) }
+        val planMs = (System.nanoTime() - t0) / 1_000_000
+        val slices = KokoroStreamSlicing.slices(plan.totalFrames, plan.tailStart, max = KittenStreamSlicing.MAX_SLICE_FRAMES)
+        Log.d(PERF_TAG, "kokoro plan=${planMs}ms tokens=${ids.size} frames=${plan.totalFrames} tail=${plan.tailStart} slices=${slices.size}")
+        var genMs = 0L
+        var samples = 0L
+        var started = false
+        for ((i, slice) in slices.withIndex()) {
+            currentCoroutineContext().ensureActive()
+            val tGen = System.nanoTime()
+            val pcm = synthLock.withLock { generateSlice(plan, slice, last = i == slices.size - 1) }
+            val sliceMs = (System.nanoTime() - tGen) / 1_000_000
+            genMs += sliceMs
+            samples += pcm.size
+            Log.d(PERF_TAG, "kokoro slice=$i/${slices.size} frames=${slice.render.count()} gen=${sliceMs}ms")
+            if (pcm.isEmpty()) continue
+            emit(pcm, !started)
+            started = true
+        }
+        val audioMs = samples * 1000L / sampleRate
+        val rtf = if (audioMs > 0) (planMs + genMs).toDouble() / audioMs else Double.NaN
+        // Tiny pieces are mostly fixed per-call cost: they'd overstate the RTF.
+        if (piece.ids.size >= MEASURE_MIN_TOKENS && audioMs > 0) measuredStreamRtf = rtf
+        Log.d(
+            PERF_TAG,
+            "kokoro piece tokens=${ids.size} row=${piece.styleRow} plan=${planMs}ms gen=${genMs}ms " +
+                "slices=${slices.size} audio=${audioMs}ms rtf=${"%.2f".format(rtf)}",
+        )
+    }
+
+    /**
+     * One planned piece: what the generator needs, copied out of the
+     * planner's results so the session is free between slices. [x] is the
+     * decoder front's `[channels, 2 × totalFrames]` output, row-major; [har]
+     * the harmonic source, `totalFrames × FRAME_SAMPLES` samples; [gn] the
+     * piece's generator norm table; [tailStart] the first frame of the
+     * trailing pause ([KokoroStreamSlicing.tailStart]).
+     */
+    private class StreamPlan(
+        val x: FloatArray,
+        val channels: Int,
+        val totalFrames: Int,
+        val s: FloatArray,
+        val har: FloatArray,
+        val gn: FloatArray,
+        val tailStart: Int,
+    )
+
+    /** The planner run for one piece of wrapped token [ids]. Caller holds [synthLock]. */
+    private suspend fun planPiece(
+        text: String,
+        ids: IntArray,
+        voiceName: String,
+        speed: Float,
+        styleRow: Int,
+    ): StreamPlan {
+        val ort = env ?: error("engine not loaded")
+        val session = plannerSession ?: error("planner session missing")
+        // Before the run, so a failed read costs no plan.
+        val stats = genStatsModel(voiceName)
+        val inputs = tokenInputs(ort, text, ids, voiceName, speed, styleRow)
+        try {
+            return abortableInference(engineName, { OrtRunAbort(shrinkArena) }) { abort ->
+                session.run(inputs, abort.options).use { results ->
+                    val xTensor = results.get(PLAN_X).get() as OnnxTensor
+                    val xLen = xTensor.info.shape[2].toInt()
+                    val x = floatsOf(xTensor)
+                    val har = floatsOf(results.get(PLAN_HAR).get() as OnnxTensor)
+                    val dur = (results.get(PLAN_DURATION).get() as OnnxTensor).longBuffer
+                        .let { b -> LongArray(b.remaining()).also { b.get(it) } }
+                    val totalFrames = xLen / 2
+                    check(totalFrames > 0 && dur.sum() == totalFrames.toLong() && har.size == totalFrames * FRAME_SAMPLES) {
+                        "planner outputs disagree: Σdur=${dur.sum()} x=$xLen values, har=${har.size} samples"
+                    }
+                    val tail = KokoroStreamSlicing.tailStart(ids, dur)
+                        ?: error("planner returned ${dur.size} durations for ${ids.size} tokens")
+                    val pause = KokoroGenStats.pauseFrames(ids, dur).toDouble() / totalFrames
+                    StreamPlan(
+                        x = x,
+                        channels = x.size / xLen,
+                        totalFrames = totalFrames,
+                        s = floatsOf(results.get(PLAN_S).get() as OnnxTensor),
+                        har = har,
+                        gn = KokoroGenStats.normTable(stats, pause, totalFrames),
+                        tailStart = tail,
+                    )
+                }
+            }
+        } finally {
+            inputs.values.forEach { it.close() }
+        }
+    }
+
+    /**
+     * One generator slice of [plan]: its kept PCM. The [last] slice holds the
+     * whole trailing pause, so it alone gets the whole path's tail treatment
+     * ([finishTail]). Caller holds [synthLock].
+     */
+    private suspend fun generateSlice(plan: StreamPlan, slice: KittenStreamSlicing.Slice, last: Boolean): ShortArray {
+        val ort = env ?: error("engine not loaded")
+        val session = genSession ?: error("generator session missing")
+        val first = slice.render.first
+        val frames = slice.render.count()
+        val xLen = 2 * plan.totalFrames
+        val xTensor = directFloatTensor(ort, longArrayOf(1, plan.channels.toLong(), 2L * frames)) { buf ->
+            for (c in 0 until plan.channels) buf.put(plan.x, c * xLen + 2 * first, 2 * frames)
+        }
+        val harTensor = directFloatTensor(ort, longArrayOf(1, frames.toLong() * FRAME_SAMPLES, 1)) { buf ->
+            buf.put(plan.har, first * FRAME_SAMPLES, frames * FRAME_SAMPLES)
+        }
+        val sTensor = directFloatTensor(ort, longArrayOf(1, plan.s.size.toLong())) { it.put(plan.s) }
+        val gnTensor = directFloatTensor(ort, longArrayOf(2, plan.gn.size / 2L)) { it.put(plan.gn) }
+        try {
+            return abortableInference(engineName, { OrtRunAbort(shrinkArena) }) { abort ->
+                session.run(
+                    mapOf(GEN_X to xTensor, GEN_S to sTensor, GEN_HAR to harTensor, GEN_NORMS to gnTensor),
+                    abort.options,
+                ).use { results ->
+                    val wav = extractWaveform(results[0].value)
+                    check(wav.size >= slice.keepOffsetSamples + slice.keepSamples) {
+                        "generator returned ${wav.size} samples for $frames frames"
+                    }
+                    if (last) {
+                        finishTail(wav.copyOfRange(slice.keepOffsetSamples, slice.keepOffsetSamples + slice.keepSamples))
+                    } else {
+                        floatToPcm16(wav, slice.keepOffsetSamples, slice.keepSamples)
+                    }
+                }
+            }
+        } finally {
+            xTensor.close()
+            harTensor.close()
+            sTensor.close()
+            gnTensor.close()
+        }
+    }
+
+    /**
+     * [voiceKey]'s generator-stats model, float32 [[KokoroGenStats.MODEL_ROWS], S],
+     * read on first use. A streaming bundle ships one for every voice, so a
+     * missing file is a broken bundle, not a fallback. Caller holds [synthLock].
+     */
+    private fun genStatsModel(voiceKey: String): FloatArray = genStatsModels.getOrPut(genStatsKeyFor(voiceKey)) {
+        // The streaming layout check ([hasStreamingLayout]) found every catalog voice's file.
+        val bytes = File(engineDir, "$GENSTATS_DIR/${genStatsKeyFor(voiceKey)}.bin").readBytes()
+        FloatArray(bytes.size / 4).also { ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer().get(it) }
+    }
+
+    private fun floatsOf(tensor: OnnxTensor): FloatArray =
+        tensor.floatBuffer.let { buf -> FloatArray(buf.remaining()).also { buf.get(it) } }
+
+    /**
+     * The token ids [text] encodes to for voice [voiceKey] ([lang] overrides
+     * the voice's language, as in [synthesizeStream]). For the debug bench's
+     * token dump only (issue #13: phone-exact training text for the
+     * per-voice generator statistics).
+     */
+    internal suspend fun benchTokens(text: String, voiceKey: String, lang: String?): IntArray {
+        ensureLoadedSuspending()
+        val effectiveLang = lang ?: espeakVoiceFor(voiceKey)
+        return synthLock.withLock { encodeTextToTokens(text, effectiveLang) }
+    }
 
     /**
      * One model call's worth of text: [text], its ≤ [MAX_PHONEMES_PER_CHUNK]
@@ -701,8 +1116,35 @@ open class KokoroDirectEngine @Inject constructor(
         if (phonemeIds.isEmpty()) return ShortArray(0)
         val ort = env ?: error("engine not loaded")
         val session = acousticSession ?: error("acoustic session missing")
-        val inputIds = wrapForKokoro(phonemeIds)
+        val inputs = tokenInputs(ort, text, wrapForKokoro(phonemeIds), voiceName, speed, styleRow)
+        try {
+            // Abortable: a cancelled stream (reader tap, Stop) stops this run
+            // between graph nodes instead of finishing an unwanted chunk.
+            return abortableInference(engineName, { OrtRunAbort(shrinkArena) }) { abort ->
+                session.run(inputs, abort.options).use { results ->
+                    finishTail(extractWaveform(results[0].value))
+                }
+            }
+        } finally {
+            inputs.values.forEach { it.close() }
+        }
+    }
 
+    /**
+     * The `tokens` / `style` / `speed` inputs the unsplit model and the
+     * planner both take, for wrapped token ids [inputIds] voiced as
+     * [voiceName] with style row [styleRow]. Style and speed fill the
+     * reusable scratch buffers, so the caller holds [synthLock] until it has
+     * closed the returned tensors.
+     */
+    private fun tokenInputs(
+        ort: OrtEnvironment,
+        text: String,
+        inputIds: IntArray,
+        voiceName: String,
+        speed: Float,
+        styleRow: Int,
+    ): Map<String, OnnxTensor> {
         val sid = speakerIdFor(voiceName)
         if (sid < 0) {
             Log.w(TAG, "unknown voice '$voiceName' — falling back to speaker 0")
@@ -718,7 +1160,7 @@ open class KokoroDirectEngine @Inject constructor(
         speedFloat.rewind()
 
         Log.d(TAG, "input='$text'")
-        Log.d(TAG, "voice='$voiceName' sid=$resolvedSid styleLen=$styleRow speed=$speed tokenCount=${phonemeIds.size}")
+        Log.d(TAG, "voice='$voiceName' sid=$resolvedSid styleLen=$styleRow speed=$speed tokenCount=${inputIds.size - 2}")
         Log.d(TAG, "tokens=${inputIds.toList()}")
 
         // Tokens vary in size per chunk (1 to ~500 longs); still per-call
@@ -726,32 +1168,19 @@ open class KokoroDirectEngine @Inject constructor(
         val inputIdTensor = directLongTensor(ort, longArrayOf(1, inputIds.size.toLong())) { buf ->
             for (id in inputIds) buf.put(id.toLong())
         }
-        val styleTensor = OnnxTensor.createTensor(ort, styleFloat, longArrayOf(1, STYLE_DIM.toLong()))
-        val speedTensor = OnnxTensor.createTensor(ort, speedFloat, longArrayOf(1))
-
-        try {
-            // Abortable: a cancelled stream (reader tap, Stop) stops this run
-            // between graph nodes instead of finishing an unwanted chunk.
-            return abortableInference(engineName, ::OrtRunAbort) { abort ->
-                session.run(
-                    mapOf(
-                        "tokens" to inputIdTensor,
-                        "style"  to styleTensor,
-                        "speed"  to speedTensor,
-                    ),
-                    abort.options,
-                ).use { results -> pcmFrom(results) }
-            }
-        } finally {
-            inputIdTensor.close()
-            styleTensor.close()
-            speedTensor.close()
-        }
+        return mapOf(
+            "tokens" to inputIdTensor,
+            "style" to OnnxTensor.createTensor(ort, styleFloat, longArrayOf(1, STYLE_DIM.toLong())),
+            "speed" to OnnxTensor.createTensor(ort, speedFloat, longArrayOf(1)),
+        )
     }
 
-    /** Waveform output of one Kokoro run → trimmed, compressed PCM16. */
-    private fun pcmFrom(results: OrtSession.Result): ShortArray {
-        val raw = extractWaveform(results[0].value)
+    /**
+     * The end of a rendered chunk (the unsplit model's whole output, or the
+     * streaming path's last slice, which holds the whole trailing pause) →
+     * trimmed, compressed PCM16.
+     */
+    private fun finishTail(raw: FloatArray): ShortArray {
         // Amplitude-aware tail trim (CLI kokoro-daemon `_last_loud_end`
         // + TAIL_KEEP port, see TailTrim): walk back across the
         // decoder's ring-out and keep ~75 ms of it as the natural gap.
@@ -765,6 +1194,23 @@ open class KokoroDirectEngine @Inject constructor(
         // otherwise accumulate into draggy playback across many chunks.
         val pcm16 = floatToPcm16(trimmed)
         return SilenceCompressor.compress(pcm16)
+    }
+
+    /** The Mandarin lexicon, loaded on first use (see the field). Caller holds [synthLock]. */
+    private fun mandarinLexicon(): LexiconZh? {
+        if (!lexiconZhTried) {
+            lexiconZhTried = true
+            val lexFile = File(engineDir, LEXICON_ZH_FILE)
+            if (lexFile.isFile) {
+                val t1 = System.currentTimeMillis()
+                lexiconZh = LexiconZh(lexFile).also {
+                    Log.i(TAG, "loaded lexicon-zh (${it.size()} entries) in ${System.currentTimeMillis() - t1} ms")
+                }
+            } else {
+                Log.w(TAG, "lexicon-zh.txt absent — Mandarin falls back to espeak (degraded)")
+            }
+        }
+        return lexiconZh
     }
 
     /**
@@ -799,10 +1245,8 @@ open class KokoroDirectEngine @Inject constructor(
             return encodePhonemesKokoro(ipa)
         }
 
-        val lex = lexiconZh
-        if (lex == null || !LexiconZh.CJK_RUN_PATTERN.containsMatchIn(text)) {
-            return encodePhonemesKokoro(espeakPhonemes(phon, text, lang))
-        }
+        val lex = if (LexiconZh.CJK_RUN_PATTERN.containsMatchIn(text)) mandarinLexicon() else null
+        if (lex == null) return encodePhonemesKokoro(espeakPhonemes(phon, text, lang))
 
         Log.d(TAG, "zh-aware encode for '$text'")
         var out = IntArray(text.length * 8)
@@ -946,10 +1390,10 @@ open class KokoroDirectEngine @Inject constructor(
         else -> FloatArray(0)
     }
 
-    private fun floatToPcm16(samples: FloatArray): ShortArray {
-        val out = ShortArray(samples.size)
-        for (i in samples.indices) {
-            val clamped = samples[i].coerceIn(-1.0f, 1.0f)
+    private fun floatToPcm16(samples: FloatArray, offset: Int = 0, count: Int = samples.size): ShortArray {
+        val out = ShortArray(count)
+        for (i in 0 until count) {
+            val clamped = samples[offset + i].coerceIn(-1.0f, 1.0f)
             out[i] = (clamped * 32767.0f).toInt().toShort()
         }
         return out
@@ -1031,12 +1475,18 @@ open class KokoroDirectEngine @Inject constructor(
         warmupJob?.cancel()
         warmupJob = null
         try { acousticSession?.close() } catch (_: Throwable) {}
+        try { plannerSession?.close() } catch (_: Throwable) {}
+        try { genSession?.close() } catch (_: Throwable) {}
         try { phonemizer?.close() } catch (_: Throwable) {}
         try { openJtalk?.close() } catch (_: Throwable) {}
         acousticSession = null
+        plannerSession = null
+        genSession = null
+        genStatsModels.clear()
         phonemizer = null
         openJtalk = null
         lexiconZh = null
+        lexiconZhTried = false
         voicesFloatView = null
         styleScratchBuf = null
         styleScratchFloat = null
@@ -1045,16 +1495,109 @@ open class KokoroDirectEngine @Inject constructor(
         env = null  // process-scoped; do not close
     }
 
+    /** How a load renders (see the file comment). */
+    internal enum class RenderPath { STREAMING, WHOLE }
+
     companion object {
         const val ENGINE_NAME = "kokoro-direct-v1_0"
-        private const val MODEL_FILE = "model.onnx"
+
+        /** Graph base names; [modelFile] adds the extension. */
+        private const val MODEL_GRAPH = "model"
+        private const val PLANNER_GRAPH = "planner"
+        private const val GEN_GRAPH = "gen"
+        private const val GENSTATS_DIR = "genstats"
         private const val VOICES_FILE = "voices.bin"
         private const val TOKENS_FILE = "tokens.txt"
         private const val LEXICON_ZH_FILE = "lexicon-zh.txt"
         private const val OPENJTALK_DICT_DIR = "openjtalk_dic"
 
+        // The cut's graph boundary (scripts in ~/coding/scratch/kokoro-stream-d1c/):
+        // planner outputs, then generator inputs. GEN_NORMS is the norm table.
+        private const val PLAN_X = "x"
+        private const val PLAN_S = "s"
+        private const val PLAN_HAR = "har"
+        private const val PLAN_DURATION = "duration"
+        private const val GEN_X = "x"
+        private const val GEN_S = "s"
+        private const val GEN_HAR = "har"
+        private const val GEN_NORMS = "gn"
+
         /** Token ID for ASCII space in the Kokoro vocab. */
         private const val SPACE_TOKEN = 16
+
+        /**
+         * The file for [graph] in [dir]: `<graph>.ort` when the bundle ships
+         * one (ORT's own format, which skips graph parsing at load), else
+         * `<graph>.onnx`.
+         */
+        internal fun modelFile(dir: File, graph: String): File =
+            File(dir, "$graph.ort").takeIf { it.isFile } ?: File(dir, "$graph.onnx")
+
+        /** Whether [dir] holds the streaming pair and every voice's generator statistics. */
+        internal fun hasStreamingLayout(dir: File): Boolean =
+            modelFile(dir, PLANNER_GRAPH).isFile && modelFile(dir, GEN_GRAPH).isFile && hasAllGenStats(dir)
+
+        /**
+         * Whether [dir]'s genstats/ has a non-empty file for every catalog
+         * voice. An empty or partial directory is not a streaming layout: the
+         * bundle renders whole if it has model.onnx, and is not installed
+         * if it doesn't.
+         */
+        internal fun hasAllGenStats(dir: File): Boolean =
+            KokoroDirectVoiceCatalog.voices.all { v ->
+                File(dir, "$GENSTATS_DIR/${v.id.substringAfter(':')}.bin").let { it.isFile && it.length() > 0 }
+            }
+
+        /**
+         * The catalog voice whose generator statistics [voiceKey] renders
+         * with: itself when the catalog knows it, else speaker 0, the voice
+         * the style lookup falls back to as well. Never a raw key in a path.
+         */
+        internal fun genStatsKeyFor(voiceKey: String): String =
+            if (KokoroDirectVoiceCatalog.speakerIdFor(voiceKey) >= 0) {
+                voiceKey
+            } else {
+                KokoroDirectVoiceCatalog.voices.first().id.substringAfter(':')
+            }
+
+        /** A bundle either path can render: voices and tokens, plus the unsplit model or the streaming layout. */
+        internal fun isInstalledIn(dir: File): Boolean =
+            dir.isDirectory && File(dir, VOICES_FILE).isFile && File(dir, TOKENS_FILE).isFile &&
+                (modelFile(dir, MODEL_GRAPH).isFile || hasStreamingLayout(dir))
+
+        /**
+         * Streaming whenever [dir] has the streaming layout, unless the debug
+         * knob [streamKnob] (`kokoro.stream`) is `false` and the unsplit model
+         * is there to fall back on.
+         */
+        internal fun renderPathFor(dir: File, streamKnob: String?): RenderPath =
+            if (hasStreamingLayout(dir) && !(streamKnob == "false" && modelFile(dir, MODEL_GRAPH).isFile)) {
+                RenderPath.STREAMING
+            } else {
+                RenderPath.WHOLE
+            }
+
+        /** Intra-op spinning for the streaming pair: on, unless the debug knob `kokoro.spin` says `false`. */
+        internal fun streamSpinning(spinKnob: String?): Boolean = spinKnob?.toBooleanStrictOrNull() ?: true
+
+        /**
+         * Chunk sizes on the streaming path: the whole path's merge floor, but
+         * sentences stay whole up to the 500-token cap (1.35 × 360 = 486).
+         * Longer sentences are cut at clause marks into ~360-token pieces
+         * ([TextChunker.planByTokens]). Streaming makes the first sound
+         * independent of the sentence's length except for its plan, so only
+         * a long first sentence is cut short ([kokoroStreamCutFirst]): into a
+         * head of about 80 tokens (40–120; ~0.4 s of planning), then the rest
+         * whole up to the target (growth 5).
+         */
+        internal val STREAM_TOKEN_BUDGET = TextChunker.TokenBudget(
+            mergeFloor = 90,
+            target = 360,
+            firstPiece = 80,
+            growth = 5.0,
+            firstPieceMin = 40,
+            firstPieceMax = 120,
+        )
 
         /**
          * Chunk sizes in model tokens (see [TextChunker.planByTokens]).
