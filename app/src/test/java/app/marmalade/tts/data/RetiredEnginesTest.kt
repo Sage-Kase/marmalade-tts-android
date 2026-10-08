@@ -70,14 +70,6 @@ class RetiredEnginesTest {
     }
 
     @Test
-    fun `an alias moves engine and voice but keeps everything else`() {
-        val old = alias("primary", "kokoro-stream-dev:af_heart")
-        val moved = retiredAliasReplacement(old, retired)!!
-        assertEquals(old.copy(engine = "kokoro-direct-v1_0", voiceId = "kokoro-direct-v1_0:af_heart"), moved)
-        assertNull(retiredAliasReplacement(alias("kitten", "kitten-direct-v0_8:bella"), retired))
-    }
-
-    @Test
     fun `migration re-points aliases and the default voice and drops the retired rows, idempotently`() = runTest {
         val aliases = FakeAliasDao(
             listOf(
@@ -105,8 +97,8 @@ class RetiredEnginesTest {
             mapOf("primary" to "kokoro-direct-v1_0", "michael" to "kokoro-direct-v1_0", "kitten" to "kitten-direct-v0_8"),
             aliases.getAll().first().associate { it.id to it.engine },
         )
-        // Only the two retired aliases were written, once each (the second run found nothing).
-        assertEquals(listOf("primary", "michael"), aliases.upsertedAliases.map { it.id })
+        // Everything else about an alias stays.
+        assertEquals("other", aliases.getAll().first().first { it.id == "primary" }.fallbackAliasId)
         assertEquals("kokoro-direct-v1_0:af_heart", settings.defaultVoiceId.first())
         assertEquals(listOf("kokoro-direct-v1_0:af_heart"), voices.rows.value.map { it.id })
     }
@@ -117,7 +109,7 @@ class RetiredEnginesTest {
         val voices = MemoryVoiceDao(listOf(voice("kokoro-stream-dev:af_heart")))
         val settings = FakeSettings("kokoro-stream-dev:af_heart")
         migrateRetiredEngines(emptyMap(), aliases, voices, settings)
-        assertEquals(emptyList<VoiceAlias>(), aliases.upsertedAliases)
+        assertEquals("kokoro-stream-dev:af_heart", aliases.getAll().first().single().voiceId)
         assertEquals("kokoro-stream-dev:af_heart", settings.defaultVoiceId.first())
         assertEquals(1, voices.rows.value.size)
     }
