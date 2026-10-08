@@ -26,6 +26,8 @@ import app.marmalade.tts.engine.pocket.PocketStatesSnapshot
 import app.marmalade.tts.engine.pocket.PocketCacheShapes
 import app.marmalade.tts.engine.pocket.PocketMimiBatch
 import app.marmalade.tts.engine.pocket.PocketSessionPlan
+import app.marmalade.tts.engine.pocket.PocketSliceBank
+import app.marmalade.tts.engine.pocket.PocketStreamPlan
 import app.marmalade.tts.engine.pocket.PocketStateCarry
 import app.marmalade.tts.engine.pocket.StateFrame
 import app.marmalade.tts.engine.pocket.PocketTimes
@@ -48,6 +50,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.ProducerScope
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
@@ -231,6 +235,20 @@ open class PocketEngine @Inject constructor(
     private var decodeBatch = 0
     private var decodePal = false
 
+    /**
+     * #15 "E": decode and send audio in slices while the AR loop runs
+     * ([streamChunks]). [STREAM_OVERLAP] decodes on a second thread, so the
+     * decoder's time hides behind the next frames' AR steps. Debug knob
+     * `pocket.stream` = `off` | `inline` | `overlap`.
+     */
+    private var streamMode = STREAM_OFF
+
+    /** Last chunks' render time per audio time (EWMA), for the slice bank; NaN before any. */
+    @Volatile private var streamRtf = Double.NaN
+
+    /** Audio per text token (EWMA), to estimate a request's length for the bank. */
+    @Volatile private var streamMsPerToken = DEFAULT_MS_PER_TOKEN
+
     /** Debug knob `pocket.ortProfile`: requests left before ORT's profiler is closed. */
     private var profileRequestsLeft = 0
 
@@ -375,6 +393,11 @@ open class PocketEngine @Inject constructor(
             ?.let { PocketCacheShapes.flowLm(bundle!!.flowLmStateManifest, it) } ?: bundle!!.flowLmStateManifest
         mimiManifest = knob("pocket.mimiCap")?.toIntOrNull()
             ?.let { PocketCacheShapes.mimi(bundle!!.mimiStateManifest, it) } ?: bundle!!.mimiStateManifest
+        streamMode = when (knob("pocket.stream")) {
+            "inline" -> STREAM_INLINE
+            "overlap" -> STREAM_OVERLAP
+            else -> STREAM_OFF
+        }
         val decodeKnob = knob("pocket.decode")
         decodePal = decodeKnob == "pal"
         val exact = PocketMimiBatch.maxExactBatch(PocketMimiBatch.ringCapacity(mimiManifest))
@@ -389,7 +412,7 @@ open class PocketEngine @Inject constructor(
             "$g=${c.threads}t${if (c.xnnpack) "+xnn" else ""}${if (c.spin) "+spin" else ""}"
         } + (if (profileDir != null) " ortProfile=$profileRequestsLeft" else "") +
             (seed?.let { " seed=$it" } ?: "") + " carry=${if (zeroCopyState) "zero" else "copy"}" +
-            " voiceCache=$voicePromptCache decode=${if (decodePal) "pal" else "$decodeBatch"}" +
+            " voiceCache=$voicePromptCache decode=${if (decodePal) "pal" else "$decodeBatch"} stream=$streamMode" +
             " cacheLen=${flowManifest.first { it.shape.size == 5 }.shape[2]}" +
             " mimiCap=${PocketMimiBatch.ringCapacity(mimiManifest)}")
         fun session(graph: String, fileName: String): OrtSession {
@@ -763,6 +786,11 @@ open class PocketEngine @Inject constructor(
             // Under the lock: a first-use voice encodes through mimi_encoder.
             val voiceEmb = embeddingForVoice(voiceName)
             seed?.let { random.setSeed(it) }
+            if (streamMode != STREAM_OFF && !decodePal) {
+                streamChunks(this@channelFlow, bundle, voiceEmb, miniChunks, playbackRate, streamStartNs, loadWaitMs)
+                if (profileRequestsLeft > 0 && --profileRequestsLeft == 0) endOrtProfiling()
+                return@coroutineScope
+            }
             var prerollChunks = 1
             val buffered = ArrayList<SynthAudio>(MAX_PREROLL_CHUNKS)
             // Pipelining: when sub-realtime (K > 1), kick off chunk N's mimi
@@ -925,6 +953,158 @@ open class PocketEngine @Inject constructor(
         } }
     }.flowOn(Dispatchers.Default)
 
+    /** One slice of latent frames for the decoder. */
+    private class DecodeJob(
+        val chunk: Int,
+        val slice: Int,
+        val latents: FloatArray,
+        val frames: Int,
+        val last: Boolean,
+        val chunkStartNs: Long,
+    )
+
+    /**
+     * The decoder side of [streamChunks]: one mimi state per chunk, decoded
+     * a slice at a time (exact: every slice is within the ring limit,
+     * [PocketMimiBatch]). Used by one thread at a time.
+     */
+    private inner class SliceDecoder(private val bundle: PocketBundle, private val onAudio: suspend (SynthAudio, DecodeJob) -> Unit) {
+        private val init = mimiState ?: error("mimi state missing — engine not loaded?")
+        private var carry: PocketStateCarry? = null
+        private var times = PocketTimes()
+        private var chunkDecodeNs = 0L
+
+        suspend fun decode(job: DecodeJob) {
+            if (job.slice == 0) {
+                close()
+                if (zeroCopyState) {
+                    carry = PocketStateCarry(PocketStateCarry.bindSlots(env ?: error("ORT env missing"), bundle.mimiStateManifest, init))
+                } else {
+                    resetStatesToInit(init, bundle.mimiStateManifest)
+                }
+                times = PocketTimes()
+                chunkDecodeNs = 0L
+            }
+            val t0 = System.nanoTime()
+            val pcm = decodeMimiChunk(bundle, job.latents, job.frames, init, carry, times)
+            val decodeNs = System.nanoTime() - t0
+            chunkDecodeNs += decodeNs
+            times.decodedFrames += job.frames
+            Log.d(PERF_TAG, "pocket slice chunk=${job.chunk} slice=${job.slice} frames=${job.frames} decode=${decodeNs / 1_000_000}ms")
+            if (job.last) {
+                Log.d(PERF_TAG, times.decodeLine(job.chunk, chunkDecodeNs / 1_000_000))
+                close()
+            }
+            onAudio(SynthAudio(floatToPcm16(pcm), bundle.sampleRate, resumePoint = job.slice == 0), job)
+        }
+
+        fun close() {
+            carry?.close()
+            carry = null
+        }
+    }
+
+    /**
+     * #15 "E" — streamed render. Each chunk's latent frames go to the
+     * decoder in slices ([PocketStreamPlan.sliceFrames]: 6, 12, 24, then
+     * 46 frames) as the AR loop produces them, and each decoded slice is
+     * sent at once, or held in a [PocketSliceBank] until enough audio is
+     * banked for a slower-than-real-time render not to run dry. With
+     * [STREAM_OVERLAP] the decoder runs on its own coroutine, overlapping
+     * the AR steps; the decoder's coroutine is a child of this scope, so a
+     * cancelled render still waits for a decode in flight before [synthLock]
+     * is released (same rule as the whole-chunk pipeline).
+     */
+    private suspend fun streamChunks(
+        out: ProducerScope<SynthAudio>,
+        bundle: PocketBundle,
+        voiceEmb: FloatArray,
+        miniChunks: List<String>,
+        playbackRate: Float,
+        streamStartNs: Long,
+        loadWaitMs: Long,
+    ) = coroutineScope {
+        val tokenizer = tokenizer ?: error("tokenizer missing")
+        val chunkTokens = miniChunks.map { tokenizer.encode(preprocessForPocket(it, bundle)).size }
+        val estAudioMs = (chunkTokens.sum() * streamMsPerToken).toLong()
+        val bank = PocketSliceBank<SynthAudio>(playbackRate)
+        val frameMs = 1000.0 / bundle.frameRate
+        var firstSent = false
+        suspend fun send(audio: List<SynthAudio>) {
+            for (a in audio) {
+                if (!firstSent) {
+                    firstSent = true
+                    val ttfa = (System.nanoTime() - streamStartNs) / 1_000_000
+                    Log.d(PERF_TAG, "pocket TTFA=${ttfa}ms (loadWait=${loadWaitMs}ms + producePath=${ttfa - loadWaitMs}ms) stream=$streamMode")
+                }
+                Log.d(PERF_TAG, "pocket send audio=${a.pcm.size * 1000L / a.sampleRate}ms")
+                out.send(a)
+            }
+        }
+        val decoder = SliceDecoder(bundle) { audio, job ->
+            val audioMs = job.frames * frameMs
+            if (bank.targetPlayedMs == null) {
+                // First slice of the request: judge the render speed (the last
+                // chunks' measured RTF, else this slice's own) and set the bank.
+                val renderMs = (System.nanoTime() - streamStartNs) / 1e6 - loadWaitMs
+                val rtf = streamRtf.takeIf { !it.isNaN() } ?: (renderMs / audioMs)
+                bank.targetPlayedMs = PrerollGate.streamBankMs(playbackRate, rtf, estAudioMs)
+                Log.d(PERF_TAG, "pocket bank=${bank.targetPlayedMs}ms rtf=${"%.2f".format(rtf)} estAudio=${estAudioMs}ms rate=$playbackRate")
+            }
+            if (job.last) {
+                val chunkFrames = job.slice.let { s -> (0 until s).sumOf { PocketStreamPlan.sliceFrames(it, decodeBatch) } } + job.frames
+                val rtf = (System.nanoTime() - job.chunkStartNs) / 1e6 / (chunkFrames * frameMs)
+                streamRtf = if (streamRtf.isNaN()) rtf else 0.5 * streamRtf + 0.5 * rtf
+                streamMsPerToken = 0.5 * streamMsPerToken + 0.5 * (chunkFrames * frameMs / chunkTokens[job.chunk].coerceAtLeast(1))
+                Log.d(PERF_TAG, "pocket chunk=${job.chunk} rtf=${"%.2f".format(rtf)} audio=${(chunkFrames * frameMs).toLong()}ms")
+            }
+            send(bank.offer(audio, audioMs.toLong()))
+        }
+        val jobs = Channel<DecodeJob>(Channel.UNLIMITED)
+        val worker = if (streamMode == STREAM_OVERLAP) {
+            launch(Dispatchers.Default) {
+                try {
+                    for (job in jobs) decoder.decode(job)
+                } finally {
+                    decoder.close()
+                }
+            }
+        } else {
+            null
+        }
+        suspend fun submit(job: DecodeJob) = if (worker != null) jobs.send(job) else decoder.decode(job)
+        try {
+            for ((idx, miniChunk) in miniChunks.withIndex()) {
+                val chunkStartNs = System.nanoTime()
+                var slice = 0
+                val pending = ArrayList<FloatArray>(decodeBatch + 1)
+                fun take(n: Int): FloatArray {
+                    val flat = FloatArray(n * bundle.latentDim)
+                    for (i in 0 until n) System.arraycopy(pending[i], 0, flat, i * bundle.latentDim, bundle.latentDim)
+                    pending.subList(0, n).clear()
+                    return flat
+                }
+                // A slice goes once MORE than its size is pending, so the
+                // chunk's final slice always has a frame and carries `last`.
+                generateChunkLatents(bundle, voiceEmb, miniChunk, frameTimes = null, chunkIdx = idx) { latent ->
+                    pending.add(latent)
+                    val n = PocketStreamPlan.sliceFrames(slice, decodeBatch)
+                    if (pending.size > n) submit(DecodeJob(idx, slice++, take(n), n, last = false, chunkStartNs))
+                }
+                if (pending.isNotEmpty()) {
+                    val n = pending.size
+                    submit(DecodeJob(idx, slice, take(n), n, last = true, chunkStartNs))
+                }
+            }
+            jobs.close()
+            worker?.join()
+            send(bank.flush())
+        } finally {
+            jobs.close()
+            if (worker == null) decoder.close()
+        }
+    }
+
     /**
      * AR loop for one mini-chunk. Returns the flat latent buffer (frames
      * concatenated along time) or `null` if the chunk produced no frames.
@@ -946,6 +1126,7 @@ open class PocketEngine @Inject constructor(
         miniChunk: String,
         frameTimes: MutableList<Long>?,
         chunkIdx: Int = -1,
+        onLatent: (suspend (FloatArray) -> Unit)? = null,
     ): FloatArray? {
         val tokenizer = tokenizer ?: error("tokenizer missing")
         val preprocessed = preprocessForPocket(miniChunk, bundle)
@@ -966,7 +1147,7 @@ open class PocketEngine @Inject constructor(
             Log.d(PERF_TAG, "pocket chunk=$chunkIdx prefill ${p.name}=${p.ms}ms${p.detail?.let { " ($it)" } ?: ""}")
         }
         try {
-            return arLoop(ar, bundle, miniChunk, frameTimes, chunkIdx)
+            return arLoop(ar, bundle, miniChunk, frameTimes, chunkIdx, onLatent)
         } finally {
             ar.carry?.close()
         }
@@ -979,6 +1160,7 @@ open class PocketEngine @Inject constructor(
         miniChunk: String,
         frameTimes: MutableList<Long>?,
         chunkIdx: Int,
+        onLatent: (suspend (FloatArray) -> Unit)?,
     ): FloatArray? {
         val latents = ArrayList<FloatArray>(ar.maxFrames)
         // P-AD diagnostics: track latent magnitude + EOS so a glitchy chunk's
@@ -1008,6 +1190,7 @@ open class PocketEngine @Inject constructor(
                 if (a > peakLatentAbs) peakLatentAbs = a
             }
             latents.add(step.latent)
+            onLatent?.invoke(step.latent)
         }
 
         Log.d(PERF_TAG, ar.times.arLine(chunkIdx, (System.nanoTime() - loopStartNs) / 1_000_000))
@@ -2533,6 +2716,13 @@ open class PocketEngine @Inject constructor(
          * disable the clamp without removing the code path.
          */
         private const val NOISE_CLAMP_ABS = 3.0f
+
+        const val STREAM_OFF = "off"
+        const val STREAM_INLINE = "inline"
+        const val STREAM_OVERLAP = "overlap"
+
+        /** Starting guess for audio per Pocket token (#15 "E"); refined per chunk. */
+        private const val DEFAULT_MS_PER_TOKEN = 110.0
 
         /** Raw eos_logit threshold from the export wrapper. */
         private const val EOS_THRESHOLD = -4.0f
