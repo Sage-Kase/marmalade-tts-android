@@ -303,9 +303,12 @@ open class PocketEngine @Inject constructor(
         //   intra-op=1:  ~155 ms/frame
         //   intra-op=4:  ~99 ms/frame
         //   intra-op=6:  ~80 ms/frame  (NekoSpeak default for Tensor G3)
-        // Tensor G3 = 1×X3 + 4×A715 + 4×A510. Filling X3 + 4×A715 (= 5)
-        // is the autodetect default. Snapdragon Gen 2/3 and Exynos 2400
-        // have different topologies — the detector handles each.
+        // Tensor G3 = 1×X3 + 4×A715 + 4×A510. The autodetect picks the 4
+        // A715s: a screen-off reader can't use the X3 (see
+        // CpuClusterDetector; #13 "C"). Pocket on the 8a, B1 set, screen
+        // off: RTF 2.12 with 4 threads vs 2.22 with 5. Snapdragon Gen 2/3
+        // and Exynos 2400 have different topologies — the detector
+        // handles each.
         // Users can override via Settings → Performance → Thread count.
         Log.i(TAG, "ORT intraOpNumThreads=$intraOpThreads (manual setting or autodetect)")
         // P-Q: flow_lm_flow is a 1-frame Euler net — over-parallelising it
