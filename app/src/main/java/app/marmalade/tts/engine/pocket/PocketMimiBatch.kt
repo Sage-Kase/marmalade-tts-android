@@ -47,6 +47,24 @@ object PocketMimiBatch {
  */
 object PocketCacheShapes {
 
+    /**
+     * Ring capacity for a decoder with a symbolic ring axis: 249 + 16·4, so
+     * 4-frame runs stay exact. Small runs keep the first audio quick, and on
+     * the 6a they decoded as fast per frame as 46-frame runs on the 1000 ring.
+     */
+    const val DYNAMIC_MIMI_CAPACITY = 320
+
+    /**
+     * Rows flow_lm_main's cache needs for a chunk: the voice prompt (BOS +
+     * voice frames), the chunk's text tokens and its frame cap, rounded up to
+     * 64 and never past the export's 1000-row position tables. Bundled
+     * voices with a full 50-token chunk need 410–446 rows (448).
+     */
+    fun flowLenFor(promptRows: Int, tokens: Int, maxFrames: Int): Int =
+        minOf(MAX_FLOW_CACHE, (promptRows + tokens + maxFrames + 63) / 64 * 64)
+
+    const val MAX_FLOW_CACHE = 1000
+
     private fun isCache(spec: PocketBundle.StateSpec) =
         spec.dtype == PocketBundle.StateDtype.FLOAT32 && spec.shape.size == 5
 

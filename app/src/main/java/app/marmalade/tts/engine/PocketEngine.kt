@@ -206,15 +206,27 @@ open class PocketEngine @Inject constructor(
     private var zeroCopyState = false
 
     /**
-     * State shapes to initialise from: the bundle's manifests, unless the
-     * debug knobs `pocket.cacheLen` / `pocket.mimiCap` resize the caches for
-     * a `*_dyncache` graph (#15 "F", picked with `pocket.file.<graph>`).
+     * mimi state shapes to initialise from: the bundle's manifest, or ring
+     * buffers resized for a decoder with a symbolic ring axis (#15 "F"; debug
+     * knob `pocket.mimiCap`).
      */
-    private var flowManifest: List<PocketBundle.StateSpec> = emptyList()
     private var mimiManifest: List<PocketBundle.StateSpec> = emptyList()
 
-    /** Zero-copy path only: the flow_lm init state every chunk starts from (read-only). */
-    private var flowInitState: PocketStates? = null
+    /**
+     * Zero-copy path only: the flow_lm init states chunks start from
+     * (read-only), by KV-cache length: one entry for the shipped graph, one
+     * per voice-sized length for a graph with a symbolic cache axis.
+     */
+    private val flowInitStates = HashMap<Int, PocketStates>()
+
+    /**
+     * #15 "F": flow_lm_main's cache axis is symbolic (a `*_dyncache`
+     * export), so each voice gets a cache just long enough for its prompt
+     * plus one chunk ([PocketCacheShapes.flowLenFor]) instead of 1000 rows
+     * that every AR step copies. The shipped graph is fixed at 1000.
+     */
+    private var flowCacheDynamic = false
+    private var flowCacheLenKnob: Int? = null
 
     /**
      * #15 "C": flow_lm's state right after the voice prompt (phase 1), for
@@ -223,7 +235,9 @@ open class PocketEngine @Inject constructor(
      * (~49 MB native); zero-copy path only; debug knob
      * `pocket.voiceCache=false` turns it off. Touched under [synthLock].
      */
-    private var voicePrompt: Pair<FloatArray, StateFrame>? = null
+    private var voicePrompt: VoicePrompt? = null
+
+    private class VoicePrompt(val embedding: FloatArray, val cacheLen: Int?, val frame: StateFrame)
     private var voicePromptCache = false
 
     /**
@@ -389,10 +403,8 @@ open class PocketEngine @Inject constructor(
         seed = knob("pocket.seed")?.toLongOrNull()
         zeroCopyState = knob("pocket.carry") != "copy"
         voicePromptCache = zeroCopyState && knob("pocket.voiceCache") != "false"
-        flowManifest = knob("pocket.cacheLen")?.toIntOrNull()
-            ?.let { PocketCacheShapes.flowLm(bundle!!.flowLmStateManifest, it) } ?: bundle!!.flowLmStateManifest
-        mimiManifest = knob("pocket.mimiCap")?.toIntOrNull()
-            ?.let { PocketCacheShapes.mimi(bundle!!.mimiStateManifest, it) } ?: bundle!!.mimiStateManifest
+        flowCacheLenKnob = knob("pocket.cacheLen")?.toIntOrNull()
+        val mimiCapKnob = knob("pocket.mimiCap")?.toIntOrNull()
         streamMode = when (knob("pocket.stream")) {
             "inline" -> STREAM_INLINE
             "overlap" -> STREAM_OVERLAP
@@ -400,20 +412,18 @@ open class PocketEngine @Inject constructor(
         }
         val decodeKnob = knob("pocket.decode")
         decodePal = decodeKnob == "pal"
-        val exact = PocketMimiBatch.maxExactBatch(PocketMimiBatch.ringCapacity(mimiManifest))
-        decodeBatch = (decodeKnob?.toIntOrNull() ?: exact).coerceIn(1, exact)
 
         val files = bundle!!.onnxFiles
         Log.i(TAG, "Loading Pocket bundle (quantization=${bundle!!.quantizationVariant}): " +
             "text_cond=${files.textConditioner}, mimi_enc=${files.mimiEncoder}, " +
             "mimi_dec=${files.mimiDecoder}, flow_main=${files.flowLmMain}, " +
             "flow_flow=${files.flowLmFlow}")
-        Log.i(TAG, "session plan: " + plan.entries.joinToString(" ") { (g, c) ->
+        fun logPlan() = Log.i(TAG, "session plan: " + plan.entries.joinToString(" ") { (g, c) ->
             "$g=${c.threads}t${if (c.xnnpack) "+xnn" else ""}${if (c.spin) "+spin" else ""}"
         } + (if (profileDir != null) " ortProfile=$profileRequestsLeft" else "") +
             (seed?.let { " seed=$it" } ?: "") + " carry=${if (zeroCopyState) "zero" else "copy"}" +
             " voiceCache=$voicePromptCache decode=${if (decodePal) "pal" else "$decodeBatch"} stream=$streamMode" +
-            " cacheLen=${flowManifest.first { it.shape.size == 5 }.shape[2]}" +
+            " cacheLen=${flowCacheLenKnob ?: if (flowCacheDynamic) "per-voice" else "1000"}" +
             " mimiCap=${PocketMimiBatch.ringCapacity(mimiManifest)}")
         fun session(graph: String, fileName: String): OrtSession {
             // ORT copies the options into the native session at creation, so
@@ -433,11 +443,24 @@ open class PocketEngine @Inject constructor(
         introspectFlowMainOutputs(bundle!!, flowLmMainSession!!)
         flowLmFlowSession = session("flow", file("flow", files.flowLmFlow))
 
+        // #15 "F": graphs exported with a symbolic cache axis take shorter
+        // caches (a cache's declared shape has -1 there; the shipped ones say 1000).
+        fun dynamic(session: OrtSession, manifest: List<PocketBundle.StateSpec>, axis: Int) =
+            manifest.firstOrNull { it.shape.size == 5 && !it.path.startsWith("encoder") }?.let { spec ->
+                ((session.inputInfo[spec.inputName]?.info as? ai.onnxruntime.TensorInfo)?.shape?.getOrNull(axis) ?: 0L) < 0L
+            } ?: false
+        flowCacheDynamic = dynamic(flowLmMainSession!!, bundle!!.flowLmStateManifest, 2)
+        val mimiCap = mimiCapKnob
+            ?: if (dynamic(mimiDecoderSession!!, bundle!!.mimiStateManifest, 3)) PocketCacheShapes.DYNAMIC_MIMI_CAPACITY else null
+        mimiManifest = mimiCap?.let { PocketCacheShapes.mimi(bundle!!.mimiStateManifest, it) } ?: bundle!!.mimiStateManifest
+        val exact = PocketMimiBatch.maxExactBatch(PocketMimiBatch.ringCapacity(mimiManifest))
+        decodeBatch = (decodeKnob?.toIntOrNull() ?: exact).coerceIn(1, exact)
+        logPlan()
+
         // P-Y — engine-level mimi state map. Allocated once, reset per
         // synth. (flow_lm state is built fresh per chunk in
         // startArSession — the P-Y bisect reverted its engine-level half.)
         mimiState = initStates(mimiManifest)
-        flowInitState = if (zeroCopyState) initStates(flowManifest) else null
 
         // Publish only after every field a sibling caller's synth path
         // touches is non-null. Warmup launches after the publish because
@@ -1414,9 +1437,9 @@ open class PocketEngine @Inject constructor(
         // here is what actually frees the native memory after uninstall
         // (this @Singleton outlives the engine's files).
         mimiState = null
-        voicePrompt?.second?.release()
+        voicePrompt?.frame?.release()
         voicePrompt = null
-        flowInitState = null
+        flowInitStates.clear()
         voiceEmbeddings.clear()
         // OrtEnvironment is process-scoped; don't close it.
         env = null
@@ -1734,14 +1757,27 @@ open class PocketEngine @Inject constructor(
         // Zero-copy (#15 "A"): every chunk starts from the engine-level init
         // state, which ORT only ever reads, so it is never refilled.
         // The voice prompt's state is cached by embedding identity (#15 "C").
-        val cachedPrompt = voicePrompt?.takeIf { voicePromptCache && it.first === voiceEmbedding }?.second
+        // A symbolic cache axis (#15 "F") is sized for the voice prompt plus
+        // the largest normal chunk, so one cached prompt serves every chunk.
+        val promptRows = voiceEmbedding.size / bundle.conditioningDim + if (bundle.insertBosBeforeVoice) 1 else 0
+        val sizingTokens = maxOf(tokens.size, bundle.maxTokenPerChunk)
+        val cacheLen = flowCacheLenKnob ?: if (flowCacheDynamic) {
+            PocketCacheShapes.flowLenFor(promptRows, sizingTokens, estimateMaxFrames(bundle, sizingTokens))
+        } else {
+            null
+        }
+        val manifest = cacheLen?.let { PocketCacheShapes.flowLm(bundle.flowLmStateManifest, it) } ?: bundle.flowLmStateManifest
+        val cachedPrompt = voicePrompt
+            ?.takeIf { voicePromptCache && it.embedding === voiceEmbedding && it.cacheLen == cacheLen }?.frame
         val carry = when {
             cachedPrompt != null -> PocketStateCarry(cachedPrompt.retain())
-            else -> flowInitState?.let {
-                PocketStateCarry(PocketStateCarry.bindSlots(ort, bundle.flowLmStateManifest, it))
+            zeroCopyState -> {
+                val init = flowInitStates.getOrPut(cacheLen ?: 0) { initStates(manifest) }
+                PocketStateCarry(PocketStateCarry.bindSlots(ort, bundle.flowLmStateManifest, init))
             }
+            else -> null
         }
-        val state = if (carry != null) null else initStates(flowManifest)
+        val state = if (carry != null) null else initStates(manifest)
         if (state != null && FLOW_MAIN_PINNED_OUTPUTS && flowMainPinnableSpecs.isNotEmpty()) {
             enableStatePinning(state, flowMainPinnableSpecs)
         }
@@ -1775,8 +1811,8 @@ open class PocketEngine @Inject constructor(
                     captureConditioning = false,
                 )
                 if (voicePromptCache && carry != null) {
-                    voicePrompt?.second?.release()
-                    voicePrompt = voiceEmbedding to carry.snapshot()
+                    voicePrompt?.frame?.release()
+                    voicePrompt = VoicePrompt(voiceEmbedding, cacheLen, carry.snapshot())
                 }
             }
             phases?.add(

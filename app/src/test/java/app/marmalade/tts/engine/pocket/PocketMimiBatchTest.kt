@@ -50,4 +50,15 @@ class PocketMimiBatchTest {
         assertEquals(listOf(1L, 512, 6), m[2].shape.toList())
         assertEquals(4, PocketMimiBatch.maxExactBatch(PocketMimiBatch.ringCapacity(m)))
     }
+
+    @Test
+    fun `flow cache length covers prompt, tokens and frames, rounded to 64, capped at 1000`() {
+        // alba: BOS + 125 voice frames, a full 50-token chunk, 234-frame cap.
+        assertEquals(448, PocketCacheShapes.flowLenFor(126, 50, 234))
+        // azelma, the longest bundled voice (161 frames).
+        assertEquals(448, PocketCacheShapes.flowLenFor(162, 50, 234))
+        assertEquals(64, PocketCacheShapes.flowLenFor(1, 0, 63))
+        assertEquals(1000, PocketCacheShapes.flowLenFor(800, 50, 234))
+        assertEquals(4, PocketMimiBatch.maxExactBatch(PocketCacheShapes.DYNAMIC_MIMI_CAPACITY))
+    }
 }
