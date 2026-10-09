@@ -316,6 +316,12 @@ When investigating **{concern}**, start at **{files}**:
     (`PocketStreamPlan.holdMs`, capped 3 s) is only set when the render
     can't keep up (slow phone, high speed); the decoder's cost per slice is
     fitted live (`PocketDecodeCost`, ~60 ms + 24 ms/frame on the 6a).
+  - **Threads** ("B", `PocketSessionPlan`): the flow head and the decoder get
+    half the threads (at least 2): with the decoder alongside the AR loop, two
+    full pools oversubscribed the 6a (2 decoder threads: same RTF, −11% CPU,
+    audio within 1 LSB). XNNPACK stays on everywhere (off: −4% RTF, +10% CPU);
+    intra-op spinning stays off (on: RTF 0.61 → 0.84, CPU ×2.4, because
+    spinning threads starve the decoder running alongside).
   - **Symbolic cache axes** ("F", `PocketCacheShapes`): if a bundle ships
     `*_dyncache` graphs (cache axis −1 in the declared shape), flow_lm's caches
     are sized per voice (`roundUp64(promptRows + tokens + maxFrames)`, ≤ 1000)
