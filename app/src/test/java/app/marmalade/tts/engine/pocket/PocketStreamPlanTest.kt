@@ -85,6 +85,18 @@ class PocketStreamPlanTest {
     }
 
     @Test
+    fun `decode cost does not fit a line through slices of nearly the same size`() {
+        // The 6a's first two slices of a paragraph: the line through them predicted ~0 ms for 25 frames.
+        val cost = PocketDecodeCost()
+        cost.add(6, 257.0)
+        cost.add(7, 244.0)
+        assertEquals(25 * 250.5 / 6.5, cost.ms(25), 1e-9)
+        // A line that tilts the wrong way over a wide spread is not trusted either.
+        cost.add(20, 240.0)
+        assertEquals(20 * 247.0 / 11.0, cost.ms(20), 1e-9)
+    }
+
+    @Test
     fun `the bank holds until its release time, then sends everything in order`() {
         val bank = PocketSliceBank<String>()
         assertEquals(emptyList<String>(), bank.offer("a", nowMs = 0))
