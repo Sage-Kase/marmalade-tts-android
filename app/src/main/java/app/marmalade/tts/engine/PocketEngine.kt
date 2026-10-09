@@ -4,8 +4,6 @@ import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtLoggingLevel
 import ai.onnxruntime.OrtSession
-import java.nio.FloatBuffer
-import java.nio.LongBuffer
 import android.content.Context
 import android.os.Build
 import android.util.Log
