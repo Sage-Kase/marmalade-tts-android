@@ -11,7 +11,8 @@ The nano engine is **baked into the APK** as a seed
 (`assets/engines-seed/kitten-direct-v0_8/`: model + 8 voices,
 Apache-2.0) so the app speaks offline from first launch, with no
 download. Since 1.2 the baked model is the upstream `kitten.onnx` cut
-into two graphs so it can stream (see section 1); the downloadable
+into two graphs so it can stream, and since issue #17 its text encoder
+is a smaller one trained by Marmalade (see section 1); the downloadable
 bundle still carries the unmodified `kitten.onnx`.
 
 ## License posture — APK vs bundle
@@ -38,15 +39,28 @@ the pinned `third_party/espeak-ng` submodule. See
   from upstream's `voices.npz` and saved as per-voice little-endian
   float32 binaries.
 - **Modifications (APK, since 1.2):** `planner.onnx` and `gen.onnx` are
-  upstream's `kitten.onnx` cut into two graphs, weights unchanged and
-  nothing retrained: the planner holds the text model, durations, pitch,
-  the decoder's front and the harmonic source; the generator holds the
-  iSTFTNet vocoder, with its InstanceNormalization layers replaced by a
-  per-channel scale and shift read from an input. `genstats/<voice>.bin`
-  holds those scales and shifts per voice, computed from the generator's
-  activations on 17 test sentences. Each graph's `doc_string` states the
-  change. Made by `scripts/kitten-stream/split.py`; the source model's
-  and the outputs' SHA-256 sums are in that folder.
+  upstream's `kitten.onnx` cut into two graphs: the planner holds the
+  text model, durations, pitch, the decoder's front and the harmonic
+  source; the generator holds the iSTFTNet vocoder, with its
+  InstanceNormalization layers replaced by a per-channel scale and shift
+  read from an input. `genstats/<voice>.bin` holds those scales and
+  shifts per voice, computed from the generator's activations on 17 test
+  sentences. Kitten's own weights are unchanged and none was retrained.
+- **Replaced text encoder (APK, issue #17):** in `planner.onnx`, Kitten's
+  text encoder (ALBERT + `bert_encoder`, 5.8M weights) is replaced by the
+  "X2 student", a 4-layer encoder (3.4M weights) that Marmalade trained
+  to produce the same output from the same phoneme token ids. Its
+  training data was Kitten's own ALBERT outputs on public-domain text
+  (PG-19, books published before 1919) and CC0 sentences (Common Voice
+  sentence collector, release v1.60.0), turned into token ids by
+  espeak-ng run as a separate program; no audio and no other model was
+  used. The student only works together with Kitten's duration, pitch
+  and vocoder weights. Copyright (c) 2026 marmalade-tts contributors;
+  distributed under Apache-2.0 as part of the modified `planner.onnx`.
+  `genstats/` was recomputed with the new planner.
+- Each graph's `doc_string` states the change. Made by
+  `scripts/kitten-stream/split.py`; the source models' SHA-256 sums are
+  pinned in it, and the outputs' sums are in the seed's own `SHA256SUMS`.
 
 ## 2. Phonemizer — espeak-ng
 

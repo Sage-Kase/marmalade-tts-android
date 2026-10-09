@@ -369,11 +369,16 @@ object LicenseCatalog {
             name = "KittenTTS (nano)", role = "Neural voice model",
             shipsIn = "APK (baked-in) and engine bundle",
             licenseId = "Apache-2.0",
-            copyright = listOf("Copyright (c) KittenML contributors"),
+            copyright = listOf(
+                "Copyright (c) KittenML contributors",
+                "Replacement text encoder: Copyright (c) 2026 marmalade-tts contributors",
+            ),
             note = "Modified: the APK's copy is the model cut into two graphs " +
-                "so it can stream (weights unchanged, nothing retrained), with " +
-                "the vocoder's normalization layers replaced by fixed per-voice " +
-                "values computed from the model itself.",
+                "so it can stream, with the vocoder's normalization layers " +
+                "replaced by fixed per-voice values computed from the model " +
+                "itself. Its text encoder (ALBERT) is replaced by a smaller one " +
+                "Marmalade trained to give the same output, on public-domain " +
+                "and CC0 text; Kitten's other weights are unchanged.",
         ),
         Component(
             key = "vits-jenny-dioco",
