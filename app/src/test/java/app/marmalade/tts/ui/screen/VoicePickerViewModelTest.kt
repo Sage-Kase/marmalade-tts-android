@@ -10,6 +10,7 @@ import app.marmalade.tts.data.VoicePathResolver
 import app.marmalade.tts.data.db.VoiceMeta
 import app.marmalade.tts.install.EngineInstaller
 import app.marmalade.tts.install.InstallState
+import app.marmalade.tts.install.VoicePackCatalog
 import app.marmalade.tts.util.MainDispatcherRule
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
@@ -76,28 +77,34 @@ class VoicePickerViewModelTest {
         // The promotion blocker this closes: the engine verifies as installed
         // from ONE pack, so an engine-level filter offered all 26 voices and
         // picking an absent one failed at synthesis.
+        // The installed pack is the released one, so this holds in both
+        // flavors. Developer mode is on so that, in F-Droid, the release gate
+        // isn't what hides the other packs' voices: only the disk check is.
         val settings = FakeSettings(initialId = KittenDirectVoiceCatalog.DEFAULT_VOICE_ID)
-        // VITS Marmalade is developerOnly, so the picker hides it otherwise.
         settings.setShowDeveloperEngines(true)
         val vm = newViewModel(
             settings = settings,
             voices = VitsVoiceCatalog.voices,
             installer = PickerFakeInstaller(
                 installedEngines = setOf(VitsVoiceCatalog.ENGINE),
-                installedPacks = setOf("is-salka-medium"),
+                installedPacks = setOf(RELEASED_PACK),
             ),
         )
 
         val listed = vm.voices.first { it.isNotEmpty() }
 
         assertEquals(
-            listOf(VitsVoiceCatalog.voiceId("is-salka-medium")),
+            listOf(VitsVoiceCatalog.voiceId(RELEASED_PACK)),
             listed.map { it.id },
         )
     }
 
     @Test
     fun `installing a multi-speaker pack lists every one of its speakers`() = runTest {
+        // Every multi-speaker pack is still unreleased, which the Play build
+        // never lists, developer mode or not. The released pack installed
+        // beside it gives the list something to show in both flavors, so the
+        // test can wait for the probe and then check the flavor's rule.
         val settings = FakeSettings(initialId = KittenDirectVoiceCatalog.DEFAULT_VOICE_ID)
         settings.setShowDeveloperEngines(true)
         val vm = newViewModel(
@@ -105,14 +112,16 @@ class VoicePickerViewModelTest {
             voices = VitsVoiceCatalog.voices,
             installer = PickerFakeInstaller(
                 installedEngines = setOf(VitsVoiceCatalog.ENGINE),
-                installedPacks = setOf("kk-issai-high"),
+                installedPacks = setOf(RELEASED_PACK, "kk-issai-high"),
             ),
         )
 
         val listed = vm.voices.first { it.isNotEmpty() }
 
-        assertEquals(6, listed.size)
-        assertTrue(listed.all { VitsVoiceCatalog.packIdOf(it.id) == "kk-issai-high" })
+        val kazakh = listed.filter { VitsVoiceCatalog.packIdOf(it.id) == "kk-issai-high" }
+        val expectedKazakh = if (VoicePackCatalog.showsUnreleased(showDeveloper = true)) 6 else 0
+        assertEquals(expectedKazakh, kazakh.size)
+        assertEquals(1 + expectedKazakh, listed.size)
     }
 
     @Test
@@ -208,6 +217,11 @@ class VoicePickerViewModelTest {
 
         assertEquals("", vm.pickerState.value.query)
         assertEquals(source.name, vm.pickerState.value.source)
+    }
+
+    private companion object {
+        /** The one pack every flavor lists, developer mode or not. */
+        val RELEASED_PACK = VoicePackCatalog.EN_JENNY_DIOCO_MEDIUM.id
     }
 }
 

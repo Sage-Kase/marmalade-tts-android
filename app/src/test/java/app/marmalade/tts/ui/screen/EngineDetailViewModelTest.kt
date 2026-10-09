@@ -143,24 +143,21 @@ class EngineDetailViewModelTest {
     // -- Voice packs ----------------------------------------------------------
 
     @Test
-    fun packGroups_listEveryCatalogPackBeforeAnyProbe() = runTest {
-        // The section must render its full list immediately; waiting for ten
+    fun packGroups_listEveryVisiblePackBeforeAnyProbe() = runTest {
+        // The section must render its full list immediately; waiting for the
         // disk probes would flash an empty "Voice packs" heading.
         val vm = newViewModel(engineName = VoicePackCatalog.VITS_MARMALADE_ENGINE)
 
         val groups = vm.packGroups.value
 
-        assertEquals(
-            VoicePackCatalog.forEngine(VoicePackCatalog.VITS_MARMALADE_ENGINE).size,
-            groups.sumOf { it.rows.size },
-        )
+        assertEquals(visiblePacks().size, groups.sumOf { it.rows.size })
         assertTrue(groups.all { group -> group.rows.none { it.isUsable } })
         assertEquals(0, vm.packSummary.value.installedCount)
     }
 
     @Test
     fun refreshPacks_marksTheOnesOnDiskInstalled() = runTest {
-        val installer = FakeInstaller(installedPacks = setOf("sv-nst-medium"))
+        val installer = FakeInstaller(installedPacks = setOf(RELEASED_PACK))
         val vm = newViewModel(
             engineName = VoicePackCatalog.VITS_MARMALADE_ENGINE,
             installer = installer,
@@ -169,14 +166,14 @@ class EngineDetailViewModelTest {
         vm.refreshPacks()
 
         val summary = vm.packSummary.first { it.installedCount == 1 }
-        assertEquals(10, summary.packCount)
+        assertEquals(visiblePacks().size, summary.packCount)
         // Read through the flow, not `.value`: these StateFlows are
         // WhileSubscribed, so an unsubscribed `.value` is still the initial
         // (all-NotInstalled) snapshot.
         val installed = vm.packGroups
             .map { groups -> groups.flatMap { it.rows }.filter { it.isUsable } }
             .first { it.isNotEmpty() }
-        assertEquals(listOf("sv-nst-medium"), installed.map { it.pack.id })
+        assertEquals(listOf(RELEASED_PACK), installed.map { it.pack.id })
     }
 
     @Test
@@ -187,14 +184,14 @@ class EngineDetailViewModelTest {
             installer = installer,
         )
 
-        vm.installPack("is-ugla-medium")
+        vm.installPack(RELEASED_PACK)
 
         val row = vm.packGroups
-            .map { groups -> groups.flatMap { it.rows }.first { it.pack.id == "is-ugla-medium" } }
+            .map { groups -> groups.flatMap { it.rows }.first { it.pack.id == RELEASED_PACK } }
             .first { it.state is InstallState.Installed }
         assertEquals(VoicePackAction.UNINSTALL, row.action)
-        assertTrue(installer.installedPacks.contains("is-ugla-medium"))
         // Exactly one pack moved — the whole point of per-pack installs.
+        assertEquals(setOf(RELEASED_PACK), installer.installedPacks)
         assertEquals(1, vm.packSummary.first { it.installedCount > 0 }.installedCount)
     }
 
@@ -208,10 +205,10 @@ class EngineDetailViewModelTest {
             installer = installer,
         )
 
-        vm.installPack("is-ugla-medium")
+        vm.installPack(RELEASED_PACK)
 
         val row = vm.packGroups
-            .map { groups -> groups.flatMap { it.rows }.first { it.pack.id == "is-ugla-medium" } }
+            .map { groups -> groups.flatMap { it.rows }.first { it.pack.id == RELEASED_PACK } }
             .first { it.state is InstallState.Failed }
         assertEquals("sha256 mismatch", row.failure?.reason)
         assertEquals(VoicePackAction.RETRY, row.action)
@@ -220,7 +217,7 @@ class EngineDetailViewModelTest {
 
     @Test
     fun uninstallPack_returnsTheRowToInstallable() = runTest {
-        val installer = FakeInstaller(installedPacks = setOf("sv-nst-medium"))
+        val installer = FakeInstaller(installedPacks = setOf(RELEASED_PACK))
         val vm = newViewModel(
             engineName = VoicePackCatalog.VITS_MARMALADE_ENGINE,
             installer = installer,
@@ -228,13 +225,13 @@ class EngineDetailViewModelTest {
         vm.refreshPacks()
         vm.packSummary.first { it.installedCount == 1 }
 
-        vm.uninstallPack("sv-nst-medium")
+        vm.uninstallPack(RELEASED_PACK)
 
         val row = vm.packGroups
-            .map { groups -> groups.flatMap { it.rows }.first { it.pack.id == "sv-nst-medium" } }
+            .map { groups -> groups.flatMap { it.rows }.first { it.pack.id == RELEASED_PACK } }
             .first { it.state is InstallState.NotInstalled }
         assertEquals(VoicePackAction.INSTALL, row.action)
-        assertFalse(installer.installedPacks.contains("sv-nst-medium"))
+        assertFalse(installer.installedPacks.contains(RELEASED_PACK))
     }
 
     @Test
@@ -244,7 +241,7 @@ class EngineDetailViewModelTest {
         // queue a second download) — even after the screen re-probes the disk.
         val gate = java.util.concurrent.CountDownLatch(1)
         val installer = BlockedDownloadInstaller(gate)
-        val packId = "is-ugla-medium"
+        val packId = RELEASED_PACK
         val firstVisit = newViewModel(VoicePackCatalog.VITS_MARMALADE_ENGINE, installer = installer)
         firstVisit.installPack(packId)
         installer.packState(packId).first { it is InstallState.Downloading }
@@ -284,7 +281,7 @@ class EngineDetailViewModelTest {
         val rows = vm.packGroups
             .map { groups -> groups.flatMap { it.rows } }
             .first { it.size == 1 }
-        assertEquals(listOf("en-jenny_dioco-medium"), rows.map { it.pack.id })
+        assertEquals(listOf(RELEASED_PACK), rows.map { it.pack.id })
         assertEquals(1, vm.packSummary.first { it.packCount == 1 }.packCount)
     }
 
@@ -311,14 +308,22 @@ class EngineDetailViewModelTest {
 
     // -- helpers --------------------------------------------------------------
 
+    /**
+     * The packs the VITS section lists in developer mode under this build's
+     * flavor: the whole catalog on F-Droid, released packs only on Play.
+     */
+    private fun visiblePacks() =
+        VoicePackCatalog.forEngine(VoicePackCatalog.VITS_MARMALADE_ENGINE)
+            .filter { it.released || VoicePackCatalog.showsUnreleased(showDeveloper = true) }
+
     private fun newViewModel(
         engineName: String,
         settings: FakeSettings = FakeSettings(initialId = KittenDirectVoiceCatalog.DEFAULT_VOICE_ID),
         installer: EngineInstaller = FakeInstaller(),
-        // The pack-mechanics cases exercise the STAGED (unreleased) packs —
-        // Icelandic, Swedish, etc. — which are developer-only after the v1.1
-        // release gate. Run them in developer mode so the full catalog is
-        // visible; the release gate itself is covered in VoicePackRowsTest.
+        // Developer mode on, so the F-Droid build lists the staged packs too.
+        // The Play build never lists them, so the pack-mechanics cases use
+        // the released pack ([RELEASED_PACK]) to pass under both flavors; the
+        // release gate itself is covered in VoicePackRowsTest.
         developerEngines: Boolean = true,
     ): EngineDetailViewModel {
         if (developerEngines) {
@@ -330,6 +335,11 @@ class EngineDetailViewModelTest {
             installer = installer,
             savedStateHandle = savedState,
         )
+    }
+
+    private companion object {
+        /** The one pack every flavor lists, developer mode or not. */
+        val RELEASED_PACK = VoicePackCatalog.EN_JENNY_DIOCO_MEDIUM.id
     }
 }
 

@@ -35,6 +35,13 @@ cd /home/max/coding/marmalade-tts-android
 `applicationIdSuffix = ".debug"` so the installed package is
 `app.marmalade.tts.debug`. Debug-signed releases only through v0.1.x.
 
+Unit tests run per flavor: `testFdroidDebugUnitTest` and
+`testPlayDebugUnitTest` must both pass. A fresh worktree has no
+`local.properties` and no espeak-ng checkout: build with
+`ANDROID_HOME=$HOME/Android/Sdk` and run
+`git -c protocol.file.allow=always submodule update --init third_party/espeak-ng`
+first (the shared submodule URL points at the main checkout's copy).
+
 ## Module structure
 
 Single Gradle module `:app`. No multi-module split (yet).
@@ -979,6 +986,11 @@ write Marmalade code.
   hides unreleased packs (`VoicePackCatalog.showsUnreleased`, also used by
   the Engines/EngineDetail pack lists). Shared by `VoicePickerViewModel`, the alias
   editor and onboarding's alias step.
+  Tests that need a pack listed must use the released pack (Jenny,
+  `VoicePackCatalog.EN_JENNY_DIOCO_MEDIUM`) or expect
+  `showsUnreleased(...)`: Play hides staged packs even with developer mode
+  on, and a `flow.first { … }` waiting for one hangs into an
+  `UncompletedCoroutinesError` after a minute instead of failing fast.
 - **`kokoro-int8-multi-lang-v1_0` is an unblessed power-user export**
   — added to sherpa-onnx releases by PR #2137 but never included in
   the team's own APK build script (`scripts/apk/generate-tts-apk-script.py`).
