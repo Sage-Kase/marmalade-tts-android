@@ -26,7 +26,7 @@ states that it was modified and how (Apache-2.0 section 4(b)).
 Usage (onnx 1.23.1, onnxruntime 1.30.0, numpy):
     split.py graphs <kitten.onnx> <bundle>   writes planner.onnx + gen.onnx
     split.py stats  <kitten.onnx> <bundle>   writes genstats/*.bin (reads voices/)
-    split.py check  <bundle>                 compares the bundle with SHA256SUMS
+    split.py check  <bundle>                 compares the bundle with its SHA256SUMS
 <bundle> is app/src/main/assets/engines-seed/kitten-direct-v0_8. kitten.onnx is
 the file that directory held up to issue #10 (git show 993bf52:<bundle>/kitten.onnx),
 also in the v22 kitten-direct-v0_8.tar.gz engine bundle.
@@ -35,7 +35,9 @@ also in the v22 kitten-direct-v0_8.tar.gz engine bundle.
 harmonic source's two random nodes and runs single-threaded, so it reproduces
 the committed tables on the same onnxruntime version; float kernels can differ
 across CPUs and versions in the last bits, which is why the tables are
-committed data, not build outputs. Issue #10 (graph cut from issue #3).
+committed data, not build outputs. The bundle's SHA256SUMS (every file but
+itself) doubles as the seed's content fingerprint: EngineInstaller re-copies an
+installed Kitten whose copy of it differs, so it must change with any file. Issue #10 (graph cut from issue #3).
 """
 import hashlib
 import json
@@ -261,7 +263,7 @@ def stats(kitten, out):
 
 def check(d):
     bad = 0
-    for line in (HERE / "SHA256SUMS").read_text().splitlines():
+    for line in (d / "SHA256SUMS").read_text().splitlines():
         want, name = line.split()
         got = sha256(d / name) if (d / name).is_file() else "missing"
         if got != want:

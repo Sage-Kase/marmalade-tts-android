@@ -8,7 +8,11 @@ instantly and offline on first run (see `EngineInstaller.seedFromAssets`).
 upstream `kitten.onnx` cut in two so it can stream, weights unchanged),
 `genstats/*.bin` and `voices/*.bin`. They are committed data, not build
 outputs: `scripts/kitten-stream/split.py` re-derives them and checks them
-against `scripts/kitten-stream/SHA256SUMS`.
+against `kitten-direct-v0_8/SHA256SUMS`. That file is also the seed's
+content fingerprint: an installed Kitten whose copy of it differs is
+re-copied once at app start (`EngineInstaller.seedFromAssets`), so
+**regenerate it whenever any file here changes** (`EngineInstallerSeedTest`
+fails until you do).
 
 **Never commit `phonemizer/espeak-ng-data/` here.** That data is
 **GPL-3.0-or-later** and is generated at build time from the pinned
