@@ -217,6 +217,36 @@ When investigating **{concern}**, start at **{files}**:
   not shipped (#17 report). Weights, training, ONNX export:
   `~/coding/scratch/x2-encoder/`; #17 parity/WER/bench scripts:
   `~/coding/scratch/kitten-small-planner/`.
+- **Kokoro's planner is about half ALBERT on a slower phone** (issue #16,
+  nothing in the app yet). On the Pixel 6a (Tensor G1, the app's CPU EP,
+  4 threads, spin) the planner takes 209/435/830/1248 ms at 32/80/160/240
+  tokens and ALBERT + `bert_encoder` (fp32; the rest of the planner is
+  already int8 QDQ) is 44–52% of it; x86 desktop 27–32%; the 8a is
+  unmeasured. Two drop-ins for d_en (`/bert_encoder/Add_output_0`,
+  [1,T,512]), both verified on desktop only:
+  - **int8 ALBERT** needs ALBERT's Identity nodes folded before
+    `quantize_dynamic` (the shared layer's weights reach its MatMuls through
+    them: a plain call quantizes 8 of 74), and the int8 planner must be
+    re-joined from parts (quantizing the whole planner aborts ORT 1.26/1.30
+    at load). All-int8 fails Chinese (1.6 frames/token, 31 Hz); keeping the
+    FFN expansion MatMul fp32 ("int8f") passes all 8 languages tested and saves
+    ~half of ALBERT's time.
+  - **An English-only student** (#14's 4-layer width-256 encoder with a
+    512-wide output, distilled from Kokoro's ALBERT on half #14's corpus):
+    within the X2 lines on English (0.14 frames/token, 3.6 Hz, WER equal;
+    a width-192, 2.0M version passes too, 0.16 / 3.9 Hz, but saves only
+    ~14 ms more), NOT on ja/zh, so other languages keep ALBERT. On the 6a ALBERT alone is
+    645 ms at 240 tokens, the student 40 ms; the planner with it 245/645 ms
+    at 80/240 tokens (today's 433/1244).
+  - Every lighter planner (int8 or student ALBERT) on the 6a sometimes
+    starts a fresh bench process ~1.8× slow and flips fast mid-run; today's
+    planner never did (18 runs), nor did today's planner re-joined from its
+    parts the same way (so it's the graph's weight, not the surgery).
+    Pinning ORT's pool threads to the big cores ("6;7;8") cures the int8
+    planners, not the student's; unverified in the app's own process.
+  Scripts, parts and results: `~/coding/scratch/kokoro-planner-k16/`
+  (README.md; corpus, teacher store and checkpoints on chocolate, same path;
+  lab `tts-training-research/kokoro-planner-lab.html`).
 - **Debug-only pickable engines (`BuildTypeEngines`, issue #9)**: a
   prototype engine can be made selectable like any other voice in the DEBUG
   build (aliases, the picker, the primary alias that system TTS uses). None
