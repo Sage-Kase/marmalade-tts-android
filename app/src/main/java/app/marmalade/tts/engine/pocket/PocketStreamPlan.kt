@@ -15,6 +15,14 @@ package app.marmalade.tts.engine.pocket
  * playback is ahead (up to the decoder's exact limit), and stay small while
  * it is close.
  *
+ * The rule assumes a slice can take [DECODE_SAFETY] times its usual decode
+ * ("G"): on the 6a the app only gets the mid and little cores, and now and
+ * then the scheduler parks the decoder on a little core for a few seconds,
+ * so about one slice in 50 took 2.4–5.5× as long. With the bare estimate
+ * playback kept only ~0.1 s of decoded audio ahead, and each such slice was
+ * a pause; with the factor it keeps a few seconds ahead. Slices still grow
+ * to the limit, because the render is faster than playback.
+ *
  * The clock keeps the request's playback timeline: when each submitted
  * slice is (or is expected to be) decoded, and how long its audio plays.
  * The engine feeds it actual decode times as they happen ([decoded]); the
@@ -28,6 +36,8 @@ class PocketSliceClock(
     private val decodeMs: (Int) -> Double,
     /** The decoder runs on its own thread (else inline, blocking the AR loop). */
     private val overlap: Boolean,
+    /** How many times its usual decode a slice may take without a pause. */
+    private val safety: Double = DECODE_SAFETY,
     private val marginMs: Double = MARGIN_MS,
 ) {
     private val ready = ArrayList<Double>()
@@ -45,7 +55,7 @@ class PocketSliceClock(
         if (pending < MIN_SLICE_FRAMES) return false
         val next = nowMs + arMsPerFrame
         val start = if (overlap) maxOf(next, decoderFree) else next
-        return start + decodeMs(pending + 1) + marginMs > audioEndMs()
+        return start + safety * decodeMs(pending + 1) + marginMs > audioEndMs()
     }
 
     /**
@@ -104,8 +114,11 @@ class PocketSliceClock(
          */
         const val MIN_SLICE_FRAMES = 4
 
-        /** Safety margin for AR and decode jitter. */
+        /** Safety margin for AR jitter. */
         const val MARGIN_MS = 100.0
+
+        /** A slice may take this many times its usual decode without a pause ("G"). */
+        const val DECODE_SAFETY = 3.0
     }
 }
 
@@ -131,10 +144,11 @@ object PocketStreamPlan {
         decodeMs: (Int) -> Double,
         overlap: Boolean,
         playedFrameMs: Double,
+        safety: Double = PocketSliceClock.DECODE_SAFETY,
     ): Double {
         var hold = 0.0
         repeat(HOLD_PASSES) {
-            val stall = stallMs(chunkFrames, maxBatch, arMsPerFrame, prefillMs, decodeMs, overlap, playedFrameMs, hold)
+            val stall = stallMs(chunkFrames, maxBatch, arMsPerFrame, prefillMs, decodeMs, overlap, playedFrameMs, hold, safety)
             if (stall <= 0.0) return hold
             hold += stall
         }
@@ -151,8 +165,9 @@ object PocketStreamPlan {
         overlap: Boolean,
         playedFrameMs: Double,
         hold: Double,
+        safety: Double = PocketSliceClock.DECODE_SAFETY,
     ): Double {
-        val clock = PocketSliceClock(maxBatch, playedFrameMs, decodeMs, overlap)
+        val clock = PocketSliceClock(maxBatch, playedFrameMs, decodeMs, overlap, safety)
         clock.holdMs = hold
         var t = 0.0 // the AR thread's clock
         for ((c, frames) in chunkFrames.withIndex()) {

@@ -196,6 +196,9 @@ open class PocketEngine @Inject constructor(
      */
     private var streamMode = STREAM_OVERLAP
 
+    /** Debug knob `pocket.decodeSafety`: [PocketSliceClock]'s decode safety factor ("G"). */
+    private var decodeSafety = PocketSliceClock.DECODE_SAFETY
+
     /** The decoder's measured cost per slice size, for the first-sound hold (decoder thread only). */
     private val decodeCost = PocketDecodeCost()
 
@@ -345,6 +348,7 @@ open class PocketEngine @Inject constructor(
         flowCacheLenKnob = knob("pocket.cacheLen")?.toIntOrNull()
         val mimiCapKnob = knob("pocket.mimiCap")?.toIntOrNull()
         streamMode = if (knob("pocket.stream") == "inline") STREAM_INLINE else STREAM_OVERLAP
+        decodeSafety = knob("pocket.decodeSafety")?.toDoubleOrNull() ?: PocketSliceClock.DECODE_SAFETY
         val decodeKnob = knob("pocket.decode")
 
         val files = bundle!!.onnxFiles
@@ -355,7 +359,7 @@ open class PocketEngine @Inject constructor(
         fun logPlan() = Log.i(TAG, "session plan: " + plan.entries.joinToString(" ") { (g, c) ->
             "$g=${c.threads}t${if (c.xnnpack) "+xnn" else ""}${if (c.spin) "+spin" else ""}"
         } + (if (profileDir != null) " ortProfile=$profileRequestsLeft" else "") +
-            (seed?.let { " seed=$it" } ?: "") + " decode=$decodeBatch stream=$streamMode" +
+            (seed?.let { " seed=$it" } ?: "") + " decode=$decodeBatch stream=$streamMode safety=$decodeSafety" +
             " cacheLen=${flowCacheLenKnob ?: if (flowCacheDynamic) "per-voice" else "1000"}" +
             " mimiCap=${PocketMimiBatch.ringCapacity(mimiManifest)}")
         fun session(graph: String, fileName: String): OrtSession {
@@ -780,7 +784,7 @@ open class PocketEngine @Inject constructor(
         var stepsTimed = 0
         // Until a slice has been decoded, assume decoding costs what the AR step does.
         val decodeMs = { n: Int -> if (decodeCost.isEmpty) n * arMs else decodeCost.ms(n) }
-        val clock = PocketSliceClock(decodeBatch, playedFrameMs, decodeMs, overlap)
+        val clock = PocketSliceClock(decodeBatch, playedFrameMs, decodeMs, overlap, decodeSafety)
         var chunk0Frames = 0
         var holdTimer: Job? = null
         val decoder = SliceDecoder(bundle) { audio, job, ms ->
@@ -797,7 +801,7 @@ open class PocketEngine @Inject constructor(
                 }
                 val prefillMs = (firstFrameNs - job.chunkStartNs) / 1e6 - arMs
                 val holdMs = PocketStreamPlan.holdMs(
-                    estFrames, decodeBatch, arMs, prefillMs, decodeMs, overlap, playedFrameMs,
+                    estFrames, decodeBatch, arMs, prefillMs, decodeMs, overlap, playedFrameMs, decodeSafety,
                 ).coerceAtMost(STREAM_HOLD_CAP_MS)
                 clock.holdMs = holdMs
                 bank.releaseAtMs = nowMs.toLong() + holdMs.toLong()

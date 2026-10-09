@@ -315,7 +315,18 @@ When investigating **{concern}**, start at **{files}**:
     that (sentence lengths are only known to ±15%). A first-sound hold
     (`PocketStreamPlan.holdMs`, capped 3 s) is only set when the render
     can't keep up (slow phone, high speed); the decoder's cost per slice is
-    fitted live (`PocketDecodeCost`, ~60 ms + 24 ms/frame on the 6a).
+    fitted live (`PocketDecodeCost`, ~60 ms + 24 ms/frame on the 6a; no line
+    until sizes span 8 frames, or a 6- and a 7-frame slice tilt it to ~0 ms).
+  - **Decode safety factor** ("G", `PocketSliceClock.DECODE_SAFETY` = 3): the
+    deadline assumes a slice may take 3× its usual decode. A screen-off app
+    (even a foreground service) is in the `foreground` cpuset, cores 0–5 on
+    the 6a: no big cores. The AR loop and the decoder each keep a mid core
+    busy, and now and then the scheduler parks the decoder on a little core
+    for seconds (2.4–5.5× slower slices, ~1 in 50). With the bare estimate
+    70 of 91 slices arrived with < 0.5 s of audio left; with 3×: pauses
+    1.3 s → 0 per 3-paragraph run, 0.44 s → 0.01 s per 14 sentences, same
+    RTF, +3% CPU, audio within 1 LSB. Per-thread cores: `ps -T -p <pid> -o
+    TID,PSR,TIME+` (`~/coding/scratch/pocket-speed/psr.sh`).
   - **Threads** ("B", `PocketSessionPlan`): the flow head and the decoder get
     half the threads (at least 2): with the decoder alongside the AR loop, two
     full pools oversubscribed the 6a (2 decoder threads: same RTF, −11% CPU,
@@ -328,7 +339,7 @@ When investigating **{concern}**, start at **{files}**:
     and mimi's ring at 320 (batch ≤ 4). The published bundle doesn't have them.
   - Debug knobs (`EngineDevKnobs`): `pocket.xnnpack`, `pocket.spin`,
     `pocket.<text|enc|dec|main|flow>.threads` (`PocketSessionPlan`),
-    `pocket.stream=inline`, `pocket.decode=<frames>`, `pocket.seed` (bit-exact
+    `pocket.stream=inline`, `pocket.decode=<frames>`, `pocket.decodeSafety`, `pocket.seed` (bit-exact
     A/B), `pocket.ortProfile=<requests>`, `pocket.file.<graph>` (sideloaded
     graph), `pocket.cacheLen`, `pocket.mimiCap`. Logcat `StreamPerf`: per chunk
     `pocket chunk=i prof …` (AR split main/state/flow) and `… decode=…`, per

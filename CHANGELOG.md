@@ -40,7 +40,9 @@ This project follows [Semantic Versioning](https://semver.org/).
   Pixel 6a with the screen off, the wait before the first sound went from
   over a minute to about half a second, and a minute of speech takes
   about 36 s to render instead of about 22 minutes, almost never with a
-  gap inside a sentence (one half-second pause in 28 test sentences).
+  gap (one 0.02 s pause in 28 test sentences, none in six long
+  paragraphs): it keeps a few seconds of audio ready in case the phone
+  briefly slows the decoder down.
   Same model; the audio is unchanged apart from the fix
   below. Pocket also reads its voice sample once per voice instead of
   before every sentence.
