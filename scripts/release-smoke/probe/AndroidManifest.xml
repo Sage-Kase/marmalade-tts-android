@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The release gate's probe: a test-only APK, never distributed. It reaches the
+  app under test only through Android's public TextToSpeech API, so it works
+  against an R8-minified build (class names don't matter) and exercises the
+  same path every other app on the phone uses.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="app.marmalade.tts.smokeprobe">
+
+    <!-- Package visibility (Android 11+): see the TTS engines to bind them. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
+
+    <application
+        android:hasCode="true"
+        android:label="Marmalade release smoke probe" />
+
+    <!-- Self-targeting: runs in the probe's own process, never the app's. -->
+    <instrumentation
+        android:name=".SmokeProbe"
+        android:label="Marmalade release smoke probe"
+        android:targetPackage="app.marmalade.tts.smokeprobe" />
+</manifest>

@@ -1,0 +1,8 @@
+# Regexes (Python, searched in "L/Tag: message") for app log lines that match
+# the gate's error check but are harmless. One per line, each with a comment
+# saying why it is harmless. Keep this short: every entry is a blind spot.
+
+# ART, at the start of every process of a non-debuggable app (the rc build)
+# that the system starts with a debugger flag, e.g. a service restarted after
+# a crash. Process start bookkeeping, not an app error.
+Not starting debugger since process cannot load the jdwp agent

@@ -1,0 +1,13 @@
+# One short sentence per language the gate speaks, keyed by the voice
+# locale's language subtag. Plain everyday prose, written by hand: the gate
+# checks that audio comes out, not how it sounds. A language an engine
+# advertises with no line here fails the gate until one is added.
+en	Good morning. The sun is out today, and there is a light breeze.
+es	Buenos días. Hoy hace sol y sopla una brisa suave.
+fr	Bonjour. Aujourd'hui, il fait beau et le vent est léger.
+de	Guten Morgen. Heute scheint die Sonne, und es weht ein leichter Wind.
+it	Buongiorno. Oggi c'è il sole e soffia una brezza leggera.
+pt	Bom dia. Hoje está fazendo sol e soprando uma brisa leve.
+hi	सुप्रभात। आज धूप निकली है और हल्की हवा चल रही है।
+ja	おはようございます。今日は晴れていて、そよ風が吹いています。
+zh	早上好。今天阳光明媚，微风轻轻地吹着。
