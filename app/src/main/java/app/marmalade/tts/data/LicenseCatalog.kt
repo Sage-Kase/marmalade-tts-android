@@ -184,8 +184,8 @@ object LicenseCatalog {
             key = "espeak-ng",
             name = "espeak-ng", role = "Phonemizer (English / multi-language)",
             shipsIn = "APK (library and full espeak-ng-data, both built from " +
-                "source); Kitten and Kokoro engine bundles also carry a copy " +
-                "of espeak-ng-data",
+                "source); Kitten engine bundles and Kokoro bundles up to v23 " +
+                "also carry a copy of espeak-ng-data",
             licenseId = "GPL-3.0-or-later",
             // Holders and years as stated in the headers of the pinned
             // third_party/espeak-ng sources the APK compiles.

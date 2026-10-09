@@ -1499,9 +1499,9 @@ open class EngineInstaller @Inject constructor(
 
     /**
      * KokoroDirect layout: model.onnx + voices.bin + tokens.txt at top
-     * level. Bundles also carry phonemizer/espeak-ng-data (and older ones
-     * phonemizer/<abi>/libttsespeak.so) — harmless leftovers; the espeak
-     * library ships inside the APK (built from source) and the data is the
+     * level. Bundles up to v23 also carry phonemizer/espeak-ng-data (and
+     * older ones phonemizer/<abi>/libttsespeak.so) — harmless leftovers;
+     * the espeak library ships inside the APK (built from source) and the data is the
      * app-level shared tree (SharedEspeakData), so the installer no longer
      * requires or checks either.
      *
