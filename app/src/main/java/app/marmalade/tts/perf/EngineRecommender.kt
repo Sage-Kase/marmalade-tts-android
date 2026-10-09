@@ -86,19 +86,26 @@ object EngineRecommender {
      * | Kitten (Bella) | 0.256 | 0.251 | 0.253 | 1.23 |
      * | Jenny | 0.170 | 0.157 | 0.163 | 0.79 |
      * | Pocket (Alba, Javert) | 0.640, 0.619 | 0.529, 0.526 | 0.579 | 2.81 |
-     * | Kokoro (Heart, v23 whole-model render) | 0.866 | 0.800 | 0.833 | 4.04 |
+     * | Kokoro (Heart, v26 streaming render, see below) | | | | 4.17 |
      * | Kokoro German (Thorsten, German text) | 0.832 | 0.835 | 0.834 | 4.05 |
      *
      * Kitten costs more than 1: the probe runs in the app with setup on
      * screen, where Android lets it use the fast cores; the same sentence
-     * in the screen-off service reads 0.267. Kokoro is its published
-     * bundle's render; the streaming bundle (#13, unpublished) costs 4.66
-     * on this phone. Replaces the Pixel 8a-era ratios (Kokoro 1.5× Kitten,
-     * Pocket 2× Kokoro), which predate #13, #15 and #17.
+     * in the screen-off service reads 0.267. Replaces the Pixel 8a-era
+     * ratios (Kokoro 1.5× Kitten, Pocket 2× Kokoro), which predate #13,
+     * #15 and #17.
+     *
+     * Kokoro is its published bundle's render: v26 (issue #25, same phone,
+     * `~/coding/scratch/kokoro-v26/`, lab `kokoro-v26-lab.html`), which
+     * streams. That bench re-measured v23's whole-model render beside it,
+     * and v23 read 0.876 there (sentences 0.893, paragraphs 0.859) against
+     * #18's 0.833 (0.866, 0.800, cost 4.04), so v26's 0.904 (0.936, 0.872)
+     * is scaled by that session's ratio to stay comparable with the other
+     * engines: 4.04 × 0.904 / 0.876 = 4.17 (unscaled 4.39).
      */
     val REFERENCE_COST: Map<String, Double> = mapOf(
         KITTEN to 1.23,
-        KOKORO to 4.04,
+        KOKORO to 4.17,
         KOKORO_DE to 4.05,
         POCKET to 2.81,
         VITS to 0.79,

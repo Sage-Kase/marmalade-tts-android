@@ -28,6 +28,20 @@ This project follows [Semantic Versioning](https://semver.org/).
   550 ms), Kitten loads in about 0.6 s instead of 1.0 s, and it renders
   about 13% faster. An installed Kitten is updated from the copy inside
   the app the first time the new version starts, once (no download).
+- **Kokoro starts speaking much sooner**: Kokoro voices now stream each
+  sentence in short slices, the way Kitten does, instead of rendering a
+  whole sentence (or a short first piece of it) before any sound. Kokoro
+  also reads text with a lighter model: English with a small one trained
+  for Marmalade, the other languages with a lighter copy of Kokoro's own.
+  On a Pixel 6a, the wait before the first sound fell from about 2.1 s to
+  about 0.8 s on everyday English sentences (the slowest sentence from
+  about 8.5 s to under 4 s), from about 3.1 s to about 1 s at the start of
+  long paragraphs, and from about 3.7 s to about 1.5 s in Spanish. Kokoro
+  loads in about 1 s instead of 3 s and needs about 110–230 MB less memory
+  at its peak. In exchange it keeps the processor busier while speaking:
+  about 35–70% more processor time per minute of speech on that phone.
+  This needs the updated Kokoro download (v26): an installed Kokoro keeps
+  working as before and shows an update on the Engines screen.
 - **Kitten uses much less memory**: about 230 MB less once loaded (on a
   Pixel 8a, about 110 MB instead of 340 MB), at the same speed.
 - **Kokoro gives memory back between sentences**: about 180 MB less is
