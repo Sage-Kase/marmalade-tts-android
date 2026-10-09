@@ -721,6 +721,12 @@ and `MarmaladeSynthService` is its foreground host. System TTS
 - `preprocessing/EmojiProsody.kt` — detects emoji → emotion mapping
 - `preprocessing/ProsodyApplier.kt` — applies emotion to engine
   params (speed, energy)
+- Per-language text fixups that every engine needs live at the espeak
+  choke point, `phonemizer/EspeakPhonemizer.phonemize`, not in the rule
+  set: `EsTextFixups` (Spanish voices, before espeak: old spelling's
+  standalone á/é/ó/ú → a/e/o/u, else espeak says "a acentuada", #26) and
+  `EnPhonemeFixups` (English voices, after espeak: IPA repairs like
+  "yeah", per acoustic model).
 
 ### Persistence
 - `data/db/MarmaladeDb.kt` — RoomDatabase, schema v4. Migrations

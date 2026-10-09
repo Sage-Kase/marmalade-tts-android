@@ -126,16 +126,20 @@ class EspeakPhonemizer(
      * a French sentence with an English loanword comes back as
      * `(en)ˈʌpdeɪt(fr)`, and no acoustic model has a phoneme for the
      * flag's letters — Kitten encoded them as real vocab.
+     *
+     * Spanish text first goes through [EsTextFixups] (old spelling's
+     * standalone "á" otherwise reads as "a acentuada").
      */
     fun phonemize(text: String, voice: String, tie: Boolean = false): String {
         if (!opened.get()) {
             Log.w(TAG, "phonemize called on a closed phonemizer")
             return ""
         }
+        val input = if (voice.startsWith("es")) EsTextFixups.apply(text) else text
         val raw = stripLanguageFlags(
             synchronized(nativeLock) {
                 applyVoiceLocked(voice)
-                nativePhonemize(text, tie) ?: ""
+                nativePhonemize(input, tie) ?: ""
             },
         )
         // espeak's English LTS gets some common informal words wrong

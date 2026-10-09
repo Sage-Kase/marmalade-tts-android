@@ -56,6 +56,10 @@ This project follows [Semantic Versioning](https://semver.org/).
   before every sentence.
 
 ### Fixed
+- **Spanish no longer reads "á" as "a acentuada"**: older Spanish books
+  write the one-letter words "a", "e", "o" and "u" with an accent ("fué á
+  la casa ó al campo"). On-device voices now read them as the plain words
+  instead of naming the accented letter.
 - **Pocket no longer muddles part of long sentences**: in long sentences
   (the two test sentences of 7 seconds or more), about two seconds of
   audio starting half a second in was decoded slightly wrong, because
