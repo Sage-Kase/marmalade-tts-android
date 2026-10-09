@@ -27,6 +27,11 @@ and its own sessions, not here.
 
 ## Guardrails that have bitten before
 
+- **One Gradle build at a time on marmalade, across all sessions.** Wrap
+  every build as `flock ~/.cache/marmalade-gradle.lock ./gradlew ...` and
+  run `./gradlew --stop` after it. Parallel child builds ran marmalade
+  out of memory (2026-10-08 OOM; 2026-10-09: 3 builds, 1.2 GB free, 23 GB
+  swap).
 - **Benches and automated device tests run on the Pixel 6a** (agents'
   test phone, always connected; see global CLAUDE.md). The Pixel 8a is
   Max's daily phone: install there only builds Max is to test himself.
