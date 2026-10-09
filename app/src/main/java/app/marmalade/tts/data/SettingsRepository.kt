@@ -575,6 +575,14 @@ open class SettingsRepository @Inject constructor(
         }
     }
 
+    /** Forgets the device benchmark, so the next probe measures again. */
+    open suspend fun clearKittenRtfMeasurement() {
+        dataStore.edit { prefs ->
+            prefs.remove(KEY_KITTEN_RTF)
+            prefs.remove(KEY_KITTEN_RTF_AT)
+        }
+    }
+
     /**
      * Rolling measured warm RTF per engine name (rendered-audio seconds ÷
      * wall-clock render time), fed by the synth service on every completed
