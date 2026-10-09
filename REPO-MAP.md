@@ -343,6 +343,23 @@ When investigating **{concern}**, start at **{files}**:
   piece `kokoro plan=…`, per slice `kokoro slice=i/n`, and `kokoro piece …
   rtf=`. `lexicon-zh.txt` (68k entries, 0.6–0.8 s) loads on the first text
   with a CJK run (`mandarinLexicon()`), not at load (#13 "D2").
+  **The v26 planner** (issue #25): `planner-rest` (the planner minus ALBERT
+  + `bert_encoder`; extra input `/bert_encoder/Add_output_0`, [1,T,512]) fed
+  per piece by one of two text encoders (tokens → that tensor):
+  `textenc-en` (#16's d256 English student) when the piece's ids are English
+  (an `en*` language and no Han run, `textEncoderFor`; the student reads only
+  token ids, so the voice doesn't matter), else `textenc` (#16's "int8f"
+  ALBERT, every language). `hasSplitPlanner` = planner-rest + textenc
+  (textenc-en optional; without it English uses textenc) and it wins over a
+  whole `planner` when both are present. Encoder sessions open on first use
+  (`textEncoderSession`, ~50–90 ms / ~230 ms on the 6a) and stay open; the
+  warmup opens textenc too when the default voice is non-English. Two whole
+  planners were rejected: each carries the same 89 MB "rest", so the
+  download would grow ~80 MB and a language switch would reload 100 MB.
+  Debug knobs: `kokoro.planner=whole` (use a whole `planner` beside the
+  v26 files, for an A/B), `kokoro.affinity` (ORT
+  `session.intra_op_thread_affinities` for the streaming graphs). The plan
+  line names the encoder (`enc=`), the load line both files.
 - **Pocket streams** (issue #15, `engine/PocketEngine.kt` + `engine/pocket/`;
   F-Droid only). Five graphs: text_conditioner, mimi_encoder (voice prompt),
   flow_lm_main (the AR transformer, int8, 6 KV caches of 1000 rows), flow_lm_flow

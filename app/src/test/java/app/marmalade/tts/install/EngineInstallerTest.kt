@@ -306,6 +306,35 @@ class EngineInstallerTest {
         assertEquals("the unsplit model still installs", InstallState.Installed, installer.verifyAgainst(descriptor))
     }
 
+    @Test
+    fun verifyAcceptsTheV26KokoroPlanner() = runTest {
+        // Issue #25: planner-rest + the text encoder every language uses replace the whole planner.
+        val descriptor = engineDescriptor(
+            name = "kokoro-direct-v1_0",
+            url = "https://test/kokoro-direct.tar.bz2",
+            archiveBytes = ByteArray(0),
+        )
+        val dir = File(filesDir, "engines/${descriptor.name}").apply { mkdirs() }
+        val big = ByteArray(2 * 1024 * 1024) { 0x42 }
+        File(dir, "voices.bin").writeText("voices")
+        File(dir, "tokens.txt").writeText("tokens")
+        File(dir, "lexicon-zh.txt").writeText("lexicon")
+        File(dir, "openjtalk_dic").mkdirs()
+        File(dir, "openjtalk_dic/sys.dic").writeText("dic")
+        File(dir, "gen.ort").writeBytes(big)
+        File(dir, "genstats").mkdirs()
+        for (key in KokoroDirectVoiceCatalog.voices.map { it.id.substringAfter(':') }) {
+            File(dir, "genstats/$key.bin").writeText("stats")
+        }
+        File(dir, "planner-rest.ort").writeBytes(big)
+        File(dir, "textenc-en.ort").writeBytes(big)
+        assertEquals("no int8 ALBERT encoder", InstallState.Corrupt, installer.verifyAgainst(descriptor))
+        File(dir, "textenc.ort").writeText("too small")
+        assertEquals(InstallState.Corrupt, installer.verifyAgainst(descriptor))
+        File(dir, "textenc.ort").writeBytes(big)
+        assertEquals(InstallState.Installed, installer.verifyAgainst(descriptor))
+    }
+
     /** Write a complete KittenDirect on-disk layout into [dir]. */
     private fun stageKittenDirectLayout(dir: File) {
         File(dir, "planner.onnx").writeBytes(ByteArray(2 * 1024 * 1024) { 0x42 })

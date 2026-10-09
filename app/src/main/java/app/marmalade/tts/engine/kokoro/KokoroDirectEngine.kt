@@ -86,6 +86,13 @@ import kotlinx.coroutines.withContext
 //   the CPU EP with intra-op spinning (#5: first sound median 1.81 s →
 //   0.94 s on a Pixel 8a).
 //
+//   The planner is one graph (`planner`, v24 layout) or, since bundle v26
+//   (issue #25), a shared `planner-rest` fed by one of two small text
+//   encoders: `textenc-en` (Marmalade's trained English student, #16) for a
+//   piece of English phonemes, `textenc` (Kokoro's ALBERT with mixed int8
+//   weights, #16 "int8f") for every other piece ([textEncoderFor]). Each
+//   encoder session opens the first time a piece needs it and stays open.
+//
 //   Whole: one call of the unsplit model per chunk, the short first piece
 //   (T9) and chunk-grain pre-roll ([PrerollGate]). A bundle without the
 //   streaming files renders this way: v23 and older, the German engine, the
@@ -93,7 +100,11 @@ import kotlinx.coroutines.withContext
 //   (`kokoro.stream=false`, [EngineDevKnobs]) for an A/B.
 //
 // Bundle layout (`${filesDir}/engines/kokoro-direct-v1_0/`):
-//   planner.onnx, gen.onnx              — the streaming pair
+//   planner.onnx, gen.onnx              — the streaming pair (v24)
+//   planner-rest.onnx, textenc.onnx,    — the v26 planner: the planner minus
+//   textenc-en.onnx (optional)            ALBERT, and its text encoders
+//                                         (tokens → d_en); English uses
+//                                         textenc when textenc-en is absent
 //   genstats/<voice>.bin                — float32 [9, S] generator-stats model,
 //                                         one per voice (all 53)
 //   model.onnx                          — the unsplit model (v23 and older)
@@ -336,9 +347,26 @@ open class KokoroDirectEngine @Inject constructor(
     /** The unsplit model (whole path). */
     private var acousticSession: OrtSession? = null
 
-    /** The streaming pair: planner and generator. */
+    /** The streaming pair: planner (the whole planner, or planner-rest in the v26 layout) and generator. */
     private var plannerSession: OrtSession? = null
     private var genSession: OrtSession? = null
+
+    /** Whether [plannerSession] is planner-rest, fed by [textEncoders] (the v26 layout). */
+    @Volatile private var splitPlanner = false
+
+    /**
+     * The v26 layout's text encoder sessions by graph name, each opened the
+     * first time a piece needs it ([textEncoderSession]). Guarded by
+     * [synthLock].
+     */
+    private val textEncoders = HashMap<String, OrtSession>()
+
+    /** Session settings for the streaming graphs, kept for the encoders opened after load. */
+    private var streamThreads = 1
+    private var streamSpin = true
+
+    /** ORT `session.intra_op_thread_affinities` for the streaming graphs; debug knob `kokoro.affinity`, else none. */
+    private var streamAffinity: String? = null
 
     /** Generator-stats models ([KokoroGenStats]) per voice key, loaded on first use. Guarded by [synthLock]. */
     private val genStatsModels = HashMap<String, FloatArray>()
@@ -470,15 +498,26 @@ open class KokoroDirectEngine @Inject constructor(
         val sessionsStart = System.currentTimeMillis()
         if (path == RenderPath.STREAMING) {
             val spin = streamSpinning(EngineDevKnobs.get(ctx.filesDir, "kokoro.spin"))
-            val planner = modelFile(engineDir, PLANNER_GRAPH)
+            streamThreads = intraOpThreads
+            streamSpin = spin
+            streamAffinity = EngineDevKnobs.get(ctx.filesDir, "kokoro.affinity")
+            splitPlanner = usesSplitPlanner(engineDir, EngineDevKnobs.get(ctx.filesDir, "kokoro.planner"))
+            val planner = modelFile(engineDir, if (splitPlanner) PLANNER_REST_GRAPH else PLANNER_GRAPH)
             val gen = modelFile(engineDir, GEN_GRAPH)
-            plannerSession = streamSessionOptions(intraOpThreads, spin).use { createSession(ort, it, planner) }
-            genSession = streamSessionOptions(intraOpThreads, spin).use { createSession(ort, it, gen) }
+            plannerSession = streamSessionOptions().use { createSession(ort, it, planner) }
+            genSession = streamSessionOptions().use { createSession(ort, it, gen) }
+            val encoders = if (!splitPlanner) {
+                ""
+            } else {
+                listOf(TEXT_ENCODER_EN_GRAPH, TEXT_ENCODER_GRAPH)
+                    .map { modelFile(engineDir, it) }.filter { it.isFile }
+                    .joinToString(" | ", prefix = " fed by ", postfix = " (opened on first use)") { it.name }
+            }
             Log.i(
                 TAG,
-                "render path: streaming (${planner.name} + ${gen.name}, CPU EP), " +
+                "render path: streaming (${planner.name}$encoders + ${gen.name}, CPU EP), " +
                     "sessions in ${System.currentTimeMillis() - sessionsStart} ms, threads=$intraOpThreads " +
-                    "spin=$spin shrink=$shrinkArena, slices ${KittenStreamSlicing.FIRST_SLICE_FRAMES}, " +
+                    "spin=$spin affinity=${streamAffinity ?: "none"} shrink=$shrinkArena, slices ${KittenStreamSlicing.FIRST_SLICE_FRAMES}, " +
                     "${KittenStreamSlicing.SLICE_FRAMES}, doubling to ${KittenStreamSlicing.MAX_SLICE_FRAMES} " +
                     "frames, context ${KittenStreamSlicing.CONTEXT_FRAMES}",
             )
@@ -543,21 +582,23 @@ open class KokoroDirectEngine @Inject constructor(
     }
 
     /**
-     * The streaming pair's sessions: the plain CPU EP (the int8 QDQ graph
-     * SIGSEGVs under XNNPACK, see [buildSessionOptions]), with intra-op
-     * spinning unless [spin] is off. The planner and every slice are many
+     * The streaming graphs' sessions ([streamThreads] intra-op threads,
+     * pinned per [streamAffinity] when set): the plain CPU EP (the int8 QDQ
+     * graph SIGSEGVs under XNNPACK, see [buildSessionOptions]), with intra-op
+     * spinning unless [streamSpin] is off. The planner and every slice are many
      * short ORT calls, and pool threads that sleep between them pay a wake-up
      * on each: #5's clean phone bench (Pixel 8a, Heart, B1 set) measured first
      * sound median / worst 1.36 s / 2.3 s without spinning and 0.94 s / 1.38 s
      * with it, RTF 0.85 → 0.79. The whole path keeps spinning off (RTF 0.75
      * vs 0.78 with it).
      */
-    private fun streamSessionOptions(intraOpThreads: Int, spin: Boolean): OrtSession.SessionOptions =
+    private fun streamSessionOptions(): OrtSession.SessionOptions =
         OrtSession.SessionOptions().apply {
-            setIntraOpNumThreads(intraOpThreads)
+            setIntraOpNumThreads(streamThreads)
             setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
             setMemoryPatternOptimization(true)
-            addConfigEntry("session.intra_op.allow_spinning", if (spin) "1" else "0")
+            addConfigEntry("session.intra_op.allow_spinning", if (streamSpin) "1" else "0")
+            streamAffinity?.let { addConfigEntry("session.intra_op_thread_affinities", it) }
         }
 
     private fun buildSessionOptions(intraOpThreads: Int): OrtSession.SessionOptions {
@@ -594,16 +635,29 @@ open class KokoroDirectEngine @Inject constructor(
      * one-word synth whose audio is dropped, so ORT's first-call kernel
      * compilation costs fold into engine load. Mirrors the Pocket and
      * KittenDirect warmup strategy. Takes [synthLock] per ORT call, like any
-     * synth.
+     * synth. The one word is English, so with the v26 planner it opens the
+     * English encoder; when the default voice is one of this engine's
+     * non-English voices, the warmup opens the int8 ALBERT encoder too
+     * (~230 ms on a Pixel 6a), so that voice's first sentence doesn't wait
+     * for it.
      */
     private suspend fun warmupSynth() {
         val t0 = System.currentTimeMillis()
         try {
+            if (splitPlanner) {
+                val defaultKey = settings.defaultVoiceId.firstOrNull()
+                    ?.takeIf { it.startsWith("$engineName:") }?.substringAfter(':')
+                if (defaultKey?.let { KokoroDirectVoiceCatalog.languageFor(it) }?.startsWith("en") == false) {
+                    val ort = env ?: return
+                    synthLock.withLock { textEncoderSession(ort, TEXT_ENCODER_GRAPH) }
+                }
+            }
             val voiceKey = warmupVoiceKey
-            val pieces = synthLock.withLock { tokenPieces("Hi.", espeakVoiceFor(voiceKey)) }
+            val lang = espeakVoiceFor(voiceKey)
+            val pieces = synthLock.withLock { tokenPieces("Hi.", lang) }
             for (piece in pieces) {
                 if (streaming) {
-                    renderSliced(piece, voiceKey, speed = 1.0f) { _, _ -> }
+                    renderSliced(piece, voiceKey, lang, speed = 1.0f) { _, _ -> }
                 } else {
                     synthLock.withLock { inferTokens(piece.text, piece.ids, voiceKey, speed = 1.0f, piece.styleRow) }
                 }
@@ -862,7 +916,7 @@ open class KokoroDirectEngine @Inject constructor(
                 val pieces = synthLock.withLock { tokenPieces(chunk.text, lang, encoded[chunk.text], chunk.rowTokens) }
                 for (piece in pieces) {
                     currentCoroutineContext().ensureActive()
-                    renderSliced(piece, voiceName, speed) { pcm, first ->
+                    renderSliced(piece, voiceName, lang, speed) { pcm, first ->
                         held += SynthAudio(pcm = pcm, sampleRate = sampleRate, resumePoint = first)
                         if (heldPlayedMs < bankMs) {
                             heldPlayedMs += pcm.size * 1000.0 / sampleRate / playbackRate
@@ -893,16 +947,21 @@ open class KokoroDirectEngine @Inject constructor(
     private suspend fun renderSliced(
         piece: TokenPiece,
         voiceName: String,
+        lang: String,
         speed: Float,
         emit: suspend (pcm: ShortArray, first: Boolean) -> Unit,
     ) {
         if (piece.ids.isEmpty()) return
         val ids = wrapForKokoro(piece.ids)
         val t0 = System.nanoTime()
-        val plan = synthLock.withLock { planPiece(piece.text, ids, voiceName, speed, piece.styleRow) }
+        val plan = synthLock.withLock { planPiece(piece.text, ids, voiceName, lang, speed, piece.styleRow) }
         val planMs = (System.nanoTime() - t0) / 1_000_000
         val slices = KokoroStreamSlicing.slices(plan.totalFrames, plan.tailStart, max = KittenStreamSlicing.MAX_SLICE_FRAMES)
-        Log.d(PERF_TAG, "kokoro plan=${planMs}ms tokens=${ids.size} frames=${plan.totalFrames} tail=${plan.tailStart} slices=${slices.size}")
+        Log.d(
+            PERF_TAG,
+            "kokoro plan=${planMs}ms tokens=${ids.size} frames=${plan.totalFrames} tail=${plan.tailStart} " +
+                "slices=${slices.size} enc=${plan.encoder}",
+        )
         var genMs = 0L
         var samples = 0L
         var started = false
@@ -945,13 +1004,20 @@ open class KokoroDirectEngine @Inject constructor(
         val har: FloatArray,
         val gn: FloatArray,
         val tailStart: Int,
+        val encoder: String,
     )
 
-    /** The planner run for one piece of wrapped token [ids]. Caller holds [synthLock]. */
+    /**
+     * The planner run for one piece of wrapped token [ids] in phonemization
+     * language [lang]. In the v26 layout the piece's text encoder
+     * ([textEncoderFor]) runs first and planner-rest takes its d_en. Caller
+     * holds [synthLock].
+     */
     private suspend fun planPiece(
         text: String,
         ids: IntArray,
         voiceName: String,
+        lang: String,
         speed: Float,
         styleRow: Int,
     ): StreamPlan {
@@ -959,10 +1025,14 @@ open class KokoroDirectEngine @Inject constructor(
         val session = plannerSession ?: error("planner session missing")
         // Before the run, so a failed read costs no plan.
         val stats = genStatsModel(voiceName)
+        val encoderGraph = if (splitPlanner) textEncoderFor(engineDir, lang, text) else PLANNER_GRAPH
+        val encoder = if (splitPlanner) textEncoderSession(ort, encoderGraph) else null
         val inputs = tokenInputs(ort, text, ids, voiceName, speed, styleRow)
         try {
             return abortableInference(engineName, { OrtRunAbort(shrinkArena) }) { abort ->
-                session.run(inputs, abort.options).use { results ->
+                val dEn = encoder?.run(mapOf(PLAN_TOKENS to inputs.getValue(PLAN_TOKENS)), abort.options)
+                val planInputs = if (dEn == null) inputs else inputs + (PLAN_D_EN to (dEn.get(0) as OnnxTensor))
+                dEn.use { session.run(planInputs, abort.options) }.use { results ->
                     val xTensor = results.get(PLAN_X).get() as OnnxTensor
                     val xLen = xTensor.info.shape[2].toInt()
                     val x = floatsOf(xTensor)
@@ -984,6 +1054,7 @@ open class KokoroDirectEngine @Inject constructor(
                         har = har,
                         gn = KokoroGenStats.normTable(stats, pause, totalFrames),
                         tailStart = tail,
+                        encoder = encoderGraph,
                     )
                 }
             }
@@ -991,6 +1062,20 @@ open class KokoroDirectEngine @Inject constructor(
             inputs.values.forEach { it.close() }
         }
     }
+
+    /**
+     * The v26 text encoder [graph]'s session, opened on first use with the
+     * streaming graphs' settings and kept until release. Caller holds
+     * [synthLock].
+     */
+    private fun textEncoderSession(ort: OrtEnvironment, graph: String): OrtSession =
+        textEncoders.getOrPut(graph) {
+            val file = modelFile(engineDir, graph)
+            val t0 = System.currentTimeMillis()
+            streamSessionOptions().use { createSession(ort, it, file) }.also {
+                Log.i(TAG, "text encoder ${file.name} opened in ${System.currentTimeMillis() - t0} ms")
+            }
+        }
 
     /**
      * One generator slice of [plan]: its kept PCM. The [last] slice holds the
@@ -1477,11 +1562,14 @@ open class KokoroDirectEngine @Inject constructor(
         try { acousticSession?.close() } catch (_: Throwable) {}
         try { plannerSession?.close() } catch (_: Throwable) {}
         try { genSession?.close() } catch (_: Throwable) {}
+        textEncoders.values.forEach { try { it.close() } catch (_: Throwable) {} }
         try { phonemizer?.close() } catch (_: Throwable) {}
         try { openJtalk?.close() } catch (_: Throwable) {}
         acousticSession = null
         plannerSession = null
         genSession = null
+        textEncoders.clear()
+        splitPlanner = false
         genStatsModels.clear()
         phonemizer = null
         openJtalk = null
@@ -1505,6 +1593,11 @@ open class KokoroDirectEngine @Inject constructor(
         private const val MODEL_GRAPH = "model"
         private const val PLANNER_GRAPH = "planner"
         private const val GEN_GRAPH = "gen"
+
+        /** The v26 planner (issue #25): the planner minus ALBERT, and its two text encoders. */
+        internal const val PLANNER_REST_GRAPH = "planner-rest"
+        internal const val TEXT_ENCODER_GRAPH = "textenc"
+        internal const val TEXT_ENCODER_EN_GRAPH = "textenc-en"
         private const val GENSTATS_DIR = "genstats"
         private const val VOICES_FILE = "voices.bin"
         private const val TOKENS_FILE = "tokens.txt"
@@ -1513,10 +1606,14 @@ open class KokoroDirectEngine @Inject constructor(
 
         // The cut's graph boundary (scripts in ~/coding/scratch/kokoro-stream-d1c/):
         // planner outputs, then generator inputs. GEN_NORMS is the norm table.
+        private const val PLAN_TOKENS = "tokens"
         private const val PLAN_X = "x"
         private const val PLAN_S = "s"
         private const val PLAN_HAR = "har"
         private const val PLAN_DURATION = "duration"
+
+        /** The text encoders' output and planner-rest's input: ALBERT + bert_encoder's tensor, [1, T, 512]. */
+        private const val PLAN_D_EN = "/bert_encoder/Add_output_0"
         private const val GEN_X = "x"
         private const val GEN_S = "s"
         private const val GEN_HAR = "har"
@@ -1535,7 +1632,42 @@ open class KokoroDirectEngine @Inject constructor(
 
         /** Whether [dir] holds the streaming pair and every voice's generator statistics. */
         internal fun hasStreamingLayout(dir: File): Boolean =
-            modelFile(dir, PLANNER_GRAPH).isFile && modelFile(dir, GEN_GRAPH).isFile && hasAllGenStats(dir)
+            (modelFile(dir, PLANNER_GRAPH).isFile || hasSplitPlanner(dir)) &&
+                modelFile(dir, GEN_GRAPH).isFile && hasAllGenStats(dir)
+
+        /**
+         * Whether [dir] holds the v26 planner: planner-rest and the text
+         * encoder every language can use. Preferred over a whole planner.
+         */
+        internal fun hasSplitPlanner(dir: File): Boolean =
+            modelFile(dir, PLANNER_REST_GRAPH).isFile && modelFile(dir, TEXT_ENCODER_GRAPH).isFile
+
+        /**
+         * Whether a streaming load uses the v26 planner: whenever [dir] has
+         * it, unless the debug knob [plannerKnob] (`kokoro.planner`) is
+         * `whole` and a whole planner is there to fall back on (an A/B).
+         */
+        internal fun usesSplitPlanner(dir: File, plannerKnob: String?): Boolean =
+            hasSplitPlanner(dir) && !(plannerKnob == "whole" && modelFile(dir, PLANNER_GRAPH).isFile)
+
+        /**
+         * The v26 text encoder for a piece of [text] phonemized as [lang]:
+         * the English student (`textenc-en`, when [dir] has it) for English
+         * phonemes, else mixed-int8 ALBERT (`textenc`). The encoder reads
+         * only token ids, so the voice doesn't matter, only what the ids
+         * spell. English means an `en*` espeak language and no Han run:
+         * a Han run reads through the Mandarin lexicon whatever the
+         * language, and the student fails Chinese and Japanese (#16: 0.61
+         * and 0.52 frames/token; es/fr/it/pt-BR pass, hi is borderline).
+         */
+        internal fun textEncoderFor(dir: File, lang: String, text: String): String =
+            if (lang.startsWith("en") && !LexiconZh.CJK_RUN_PATTERN.containsMatchIn(text) &&
+                modelFile(dir, TEXT_ENCODER_EN_GRAPH).isFile
+            ) {
+                TEXT_ENCODER_EN_GRAPH
+            } else {
+                TEXT_ENCODER_GRAPH
+            }
 
         /**
          * Whether [dir]'s genstats/ has a non-empty file for every catalog
