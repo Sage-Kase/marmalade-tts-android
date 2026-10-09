@@ -65,6 +65,10 @@ This project follows [Semantic Versioning](https://semver.org/).
   long word, such as a web address of a few hundred characters, could
   stop Pocket partway through the text with a cloned voice made from a
   long recording. Pocket now reads such a word in pieces.
+- **Pocket no longer adds a stray period at line ends**: a line ending in
+  a comma, a colon or a closing quote got an extra "." added, so
+  `a,` then a new line read as "a,. b". Pocket now keeps the line's own
+  punctuation and only adds a sentence break where there is none.
 - After text you share interrupts an article, the article picks up again
   at the start of the sentence it was in (on-device voices), not partway
   through a word. With a cloud voice it picks up at the start of the

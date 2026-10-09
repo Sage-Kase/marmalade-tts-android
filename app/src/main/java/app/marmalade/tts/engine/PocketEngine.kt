@@ -15,6 +15,7 @@ import app.marmalade.tts.engine.pocket.PocketBundle
 import app.marmalade.tts.engine.pocket.PocketClonedVoice
 import app.marmalade.tts.engine.pocket.PocketClonedVoiceStore
 import app.marmalade.tts.engine.pocket.PocketClonedVoiceSummary
+import app.marmalade.tts.engine.pocket.PocketLineBreaks
 import app.marmalade.tts.engine.pocket.PocketStates
 import app.marmalade.tts.engine.pocket.PocketTokenSplit
 import app.marmalade.tts.engine.pocket.PocketTokenizer
@@ -1859,17 +1860,10 @@ open class PocketEngine @Inject constructor(
         // contractions tokenize via the real `'` piece. Correctly-typed
         // ASCII text is unaffected.
         s = normalizeSmartPunctuation(s)
-        // P-AM — treat line breaks as sentence boundaries. A blank line or a
-        // hard return in the input box separates thoughts, so it should read
-        // with a sentence pause instead of running together (e.g. a title line
-        // followed by a paragraph). Turn each newline run into ". " unless the
-        // line already ends in sentence punctuation (then just keep it + a
-        // space); the chunker then splits on it like any other sentence end.
+        // P-AM — line breaks read as sentence pauses (see [PocketLineBreaks]).
         // Android-input robustness — upstream `prepare_text_prompt` collapses
-        // newlines to spaces. TODO: mirror to the marmalade_tts CLI.
-        s = Regex("([.!?]?)[ \\t]*\\n[\\s]*").replace(s) { m ->
-            if (m.groupValues[1].isNotEmpty()) m.groupValues[1] + " " else ". "
-        }
+        // newlines to spaces.
+        s = PocketLineBreaks.apply(s)
         // Collapse remaining runs of whitespace (tabs/multi-spaces) to single spaces.
         s = s.replace(Regex("\\s+"), " ")
         if (bundle.removeSemicolons) s = s.replace(';', ',')
