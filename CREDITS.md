@@ -72,7 +72,10 @@ Full detail, including the MIT notice for the weights:
 
 ## Neural voice models
 
-- **Kokoro-82M** — Kokoro TTS model. Apache-2.0.
+- **Kokoro-82M** — Kokoro TTS model. Apache-2.0. From engine bundle
+  v26, English text is read by a smaller text encoder trained by
+  Marmalade to stand in for Kokoro's ALBERT, on public-domain books
+  (PG-19) and CC0 sentences (Common Voice sentence collector).
 - **Thorsten-Voice/Kokoro** — the native German engine (`kokoro-de-v1_0`)
   is a German fine-tune of Kokoro-82M by **Thorsten Müller** (the
   **Thorsten-Voice** project), trained on his own studio recordings —

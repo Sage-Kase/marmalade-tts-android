@@ -310,13 +310,21 @@ object LicenseCatalog {
             name = "Kokoro-82M", role = "Neural voice model",
             shipsIn = "Engine bundle",
             licenseId = "Apache-2.0",
-            copyright = listOf("Copyright (c) hexgrad and contributors"),
+            copyright = listOf(
+                "Copyright (c) hexgrad and contributors",
+                "English text encoder: Copyright (c) 2026 marmalade-tts contributors",
+            ),
             note = "The shipped model is Marmalade's selectively int8-" +
                 "quantized build of the ONNX export from " +
                 "github.com/thewh1teagle/kokoro-onnx, as packaged for " +
                 "multilingual use by k2-fsa/sherpa-onnx. The per-node " +
                 "quantization-sensitivity method follows Adrian Lyjak's " +
-                "Kokoro quantization write-up (adrianlyjak.com).",
+                "Kokoro quantization write-up (adrianlyjak.com). From " +
+                "download v26 the model is cut into parts so it can " +
+                "stream, its text encoder (ALBERT) is stored mostly as " +
+                "8-bit integers, and English text is read by a smaller " +
+                "encoder Marmalade trained to give the same output, on " +
+                "public-domain and CC0 text.",
         ),
         Component(
             key = "kokoro-de",
