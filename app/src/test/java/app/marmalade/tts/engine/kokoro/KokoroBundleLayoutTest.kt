@@ -10,7 +10,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Issue #13 "E": which bundles KokoroDirect accepts, and which path renders them. */
+/** Issues #13 "E" and #25: which bundles KokoroDirect accepts, and which path and planner render them. */
 class KokoroBundleLayoutTest {
 
     private val dir: File = Files.createTempDirectory("kokoro-layout").toFile()
@@ -139,6 +139,65 @@ class KokoroBundleLayoutTest {
         assertEquals("zf_xiaobei", KokoroDirectEngine.genStatsKeyFor("zf_xiaobei"))
         assertEquals(voiceKeys.first(), KokoroDirectEngine.genStatsKeyFor("no_such_voice"))
         assertEquals(voiceKeys.first(), KokoroDirectEngine.genStatsKeyFor("../../shared_prefs/x"))
+    }
+
+    @Test
+    fun `the v26 planner is planner-rest plus the text encoder every language can use`() {
+        stageCommon()
+        file("gen.ort")
+        stageGenStats()
+        file("planner-rest.ort")
+        assertFalse("no text encoder", KokoroDirectEngine.hasSplitPlanner(dir))
+        assertFalse(KokoroDirectEngine.isInstalledIn(dir))
+        file("textenc-en.ort")
+        assertFalse("the English student alone can't voice other languages", KokoroDirectEngine.hasSplitPlanner(dir))
+        file("textenc.ort")
+        assertTrue(KokoroDirectEngine.hasSplitPlanner(dir))
+        assertTrue(KokoroDirectEngine.hasStreamingLayout(dir))
+        assertTrue(KokoroDirectEngine.isInstalledIn(dir))
+        assertEquals(RenderPath.STREAMING, KokoroDirectEngine.renderPathFor(dir, streamKnob = null))
+    }
+
+    @Test
+    fun `a v24 planner is not a split planner`() {
+        stageCommon()
+        stageStreaming()
+        assertTrue(KokoroDirectEngine.hasStreamingLayout(dir))
+        assertFalse(KokoroDirectEngine.hasSplitPlanner(dir))
+    }
+
+    @Test
+    fun `the v26 planner is used unless the debug knob asks for a whole planner that is there`() {
+        file("planner-rest.ort")
+        file("textenc.ort")
+        assertTrue(KokoroDirectEngine.usesSplitPlanner(dir, plannerKnob = null))
+        assertTrue("nothing to fall back on", KokoroDirectEngine.usesSplitPlanner(dir, plannerKnob = "whole"))
+        file("planner.ort")
+        assertTrue(KokoroDirectEngine.usesSplitPlanner(dir, plannerKnob = null))
+        assertFalse(KokoroDirectEngine.usesSplitPlanner(dir, plannerKnob = "whole"))
+        File(dir, "textenc.ort").delete()
+        assertFalse(KokoroDirectEngine.usesSplitPlanner(dir, plannerKnob = null))
+    }
+
+    @Test
+    fun `English phonemes go to the student, everything else to int8 ALBERT`() {
+        file("planner-rest.ort")
+        file("textenc.ort")
+        file("textenc-en.ort")
+        val en = KokoroDirectEngine.TEXT_ENCODER_EN_GRAPH
+        val all = KokoroDirectEngine.TEXT_ENCODER_GRAPH
+        assertEquals(en, KokoroDirectEngine.textEncoderFor(dir, "en-us", "Hello there."))
+        assertEquals(en, KokoroDirectEngine.textEncoderFor(dir, "en-gb", "Hello there."))
+        // Mandarin voices phonemize their Latin runs as en-us: still English ids.
+        assertEquals(en, KokoroDirectEngine.textEncoderFor(dir, "en-us", "iPhone 15"))
+        assertEquals("a Han run reads through the Mandarin lexicon", all,
+            KokoroDirectEngine.textEncoderFor(dir, "en-us", "我们走吧 OK"))
+        for (lang in listOf("es", "fr-fr", "hi", "it", "ja", "pt-br", "de")) {
+            assertEquals(lang, all, KokoroDirectEngine.textEncoderFor(dir, lang, "Hola."))
+        }
+        File(dir, "textenc-en.ort").delete()
+        assertEquals("no student: English uses int8 ALBERT too", all,
+            KokoroDirectEngine.textEncoderFor(dir, "en-us", "Hello there."))
     }
 
     @Test

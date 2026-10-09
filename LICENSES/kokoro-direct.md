@@ -11,7 +11,8 @@ model files.
 
 | Component | Role | License |
 |---|---|---|
-| **Kokoro-82M v1.0** (`model.onnx`, `voices.bin`) | Neural voice model, 53 voices / 9 languages | **Apache-2.0** (hexgrad/Kokoro-82M) |
+| **Kokoro-82M v1.0** (`voices.bin`; up to bundle v23 `model.onnx`; from v26 `planner-rest.ort`, `textenc.ort`, `gen.ort`, `genstats/`) | Neural voice model, 53 voices / 9 languages | **Apache-2.0** (hexgrad/Kokoro-82M) |
+| **Marmalade English text encoder** (`textenc-en.ort`, bundle v26 and later) | Stands in for Kokoro's ALBERT text encoder on English text | **Apache-2.0** (Copyright (c) 2026 marmalade-tts contributors) |
 | **espeak-ng data** (`espeak-ng-data`; ≤v18 bundles also carry a now-unused `libttsespeak.so`) | Grapheme→phoneme data for English + European languages | **GPL-3.0-or-later** |
 | **Open JTalk dictionary** (NAIST/`open_jtalk_dic`) | Japanese text-analysis dictionary | **Modified BSD** |
 | **lexicon-zh** (`lexicon-zh.txt`) | Mandarin Han→IPA lexicon | **CC-BY-SA-4.0** (pinyin data is CC-CEDICT-derived via pypinyin — see note) |
@@ -43,6 +44,29 @@ the espeak corresponding-source pointer.
   ONNX export from https://github.com/thewh1teagle/kokoro-onnx
   (`model-files` release), as packaged for multilingual use by
   k2-fsa/sherpa-onnx (`kokoro-multi-lang-v1_0`).
+- **Modifications (bundle v26 and later, issues #13, #16 and #25):** the
+  same int8 model is cut into graphs so it can stream, in ONNX Runtime's
+  own `.ort` format. `gen.ort` holds the iSTFTNet vocoder, with its
+  InstanceNormalization layers reading a per-channel scale and shift from
+  an input; `genstats/<voice>.bin` holds a small per-voice model of those
+  values, fitted to the vocoder's own activations on sample text.
+  `planner-rest.ort` holds the durations, pitch, the vocoder's front and
+  the harmonic source. Its input is the text encoder's output, from one of:
+  - `textenc.ort`: Kokoro's own text encoder (ALBERT + `bert_encoder`)
+    with most of its matrix weights stored as 8-bit integers (the
+    feed-forward expansion stays 32-bit floating point). Nothing was
+    retrained. Used for every language but English.
+  - `textenc-en.ort`: a 4-layer encoder (3.5M weights; ALBERT +
+    `bert_encoder` is 6.1M) that Marmalade trained to produce the same
+    output from the same phoneme token ids. It is used for English text
+    only. Its training data was Kokoro's own ALBERT outputs on
+    public-domain text (PG-19, books published before 1919) and CC0
+    sentences (Common Voice sentence collector, release v1.60.0). That
+    text was turned into token ids by espeak-ng run as a separate
+    program. No audio and no other model was used. The encoder only
+    works together with Kokoro's own duration, pitch and vocoder weights.
+    Copyright (c) 2026 marmalade-tts contributors; distributed under
+    Apache-2.0 as part of the modified model.
 - **espeak-ng** — Copyright (C) 2005-2015 Jonathan Duddington;
   Copyright (C) 2012-2021 Reece H. Dunn; Copyright (C) 2018-2022 Juho
   Hiltunen; speechPlayer: Copyright 2014 NV Access Limited; and the other

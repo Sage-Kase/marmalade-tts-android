@@ -217,8 +217,8 @@ When investigating **{concern}**, start at **{files}**:
   not shipped (#17 report). Weights, training, ONNX export:
   `~/coding/scratch/x2-encoder/`; #17 parity/WER/bench scripts:
   `~/coding/scratch/kitten-small-planner/`.
-- **Kokoro's planner is about half ALBERT on a slower phone** (issue #16,
-  nothing in the app yet). On the Pixel 6a (Tensor G1, the app's CPU EP,
+- **Kokoro's planner is about half ALBERT on a slower phone** (issue #16;
+  in the app since #25 as "the v26 planner", see "Kokoro streams"). On the Pixel 6a (Tensor G1, the app's CPU EP,
   4 threads, spin) the planner takes 209/435/830/1248 ms at 32/80/160/240
   tokens and ALBERT + `bert_encoder` (fp32; the rest of the planner is
   already int8 QDQ) is 44–52% of it; x86 desktop 27–32%; the 8a is
@@ -243,7 +243,21 @@ When investigating **{concern}**, start at **{files}**:
     planner never did (18 runs), nor did today's planner re-joined from its
     parts the same way (so it's the graph's weight, not the surgery).
     Pinning ORT's pool threads to the big cores ("6;7;8") cures the int8
-    planners, not the student's; unverified in the app's own process.
+    planners, not the student's.
+  - **In the app's own process (#25, 6a, a 157-token English / ~92-token
+    Spanish sentence ×8, fresh process per run, screen off)** it is not a
+    start-up effect and not special to the lighter graphs: single pieces
+    take 1.4–2× at any point, in some runs (v26 English 4 of 42 pieces,
+    normal 0.51 s; Spanish 4 of 60, 0.44 s), and today's whole planner
+    flips more (0.87 ↔ 1.2 s English, 0.52 ↔ 0.86 s Spanish). Likely
+    cause: the 6a's `foreground` cpuset is CPUs 0–5 (`/proc/<pid>/status`
+    `Cpus_allowed_list`), so its two X1 cores (6–7) are top-app only and a
+    screen-off reader has two fast cores (A76, 4–5) for 4 threads. ORT's
+    `session.intra_op_thread_affinities` ids are **1-based** (#16's "6;7;8"
+    = CPUs 5–7, two of them outside that cpuset). Pinning the pool to the
+    A76s ("5;6", 3 threads) or 2–3 threads unpinned is slower overall
+    (English 0.61 s normal; Spanish 40% slow pieces), so the thread rule
+    stays 4 unpinned; the `kokoro.affinity` knob remains for A/Bs.
   Scripts, parts and results: `~/coding/scratch/kokoro-planner-k16/`
   (README.md; corpus, teacher store and checkpoints on chocolate, same path;
   lab `tts-training-research/kokoro-planner-lab.html`).
@@ -343,6 +357,23 @@ When investigating **{concern}**, start at **{files}**:
   piece `kokoro plan=…`, per slice `kokoro slice=i/n`, and `kokoro piece …
   rtf=`. `lexicon-zh.txt` (68k entries, 0.6–0.8 s) loads on the first text
   with a CJK run (`mandarinLexicon()`), not at load (#13 "D2").
+  **The v26 planner** (issue #25): `planner-rest` (the planner minus ALBERT
+  + `bert_encoder`; extra input `/bert_encoder/Add_output_0`, [1,T,512]) fed
+  per piece by one of two text encoders (tokens → that tensor):
+  `textenc-en` (#16's d256 English student) when the piece's ids are English
+  (an `en*` language and no Han run, `textEncoderFor`; the student reads only
+  token ids, so the voice doesn't matter), else `textenc` (#16's "int8f"
+  ALBERT, every language). `hasSplitPlanner` = planner-rest + textenc
+  (textenc-en optional; without it English uses textenc) and it wins over a
+  whole `planner` when both are present. Encoder sessions open on first use
+  (`textEncoderSession`, ~50–90 ms / ~230 ms on the 6a) and stay open; the
+  warmup opens textenc too when the default voice is non-English. Two whole
+  planners were rejected: each carries the same 89 MB "rest", so the
+  download would grow ~80 MB and a language switch would reload 100 MB.
+  Debug knobs: `kokoro.planner=whole` (use a whole `planner` beside the
+  v26 files, for an A/B), `kokoro.affinity` (ORT
+  `session.intra_op_thread_affinities` for the streaming graphs). The plan
+  line names the encoder (`enc=`), the load line both files.
 - **Pocket streams** (issue #15, `engine/PocketEngine.kt` + `engine/pocket/`;
   F-Droid only). Five graphs: text_conditioner, mimi_encoder (voice prompt),
   flow_lm_main (the AR transformer, int8, 6 KV caches of 1000 rows), flow_lm_flow

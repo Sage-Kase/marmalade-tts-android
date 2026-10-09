@@ -1511,15 +1511,19 @@ open class EngineInstaller @Inject constructor(
      * The model is either the unsplit model.onnx (v23 and older) or the
      * streaming layout (issue #13 "E"): planner + gen graphs and a
      * genstats/<voice>.bin for every voice — the same either/or the
-     * engine's own `KokoroDirectEngine.isInstalledIn` applies. A graph may
-     * ship as `.ort`.
+     * engine's own `KokoroDirectEngine.isInstalledIn` applies. Since v26
+     * (issue #25) the planner is planner-rest + its text encoder `textenc`
+     * (`textenc-en`, the English student, is optional). A graph may ship as
+     * `.ort`.
      */
     private fun verifyKokoroDirectLayout(dir: File): InstallState {
         fun graphOk(name: String): Boolean {
             val file = File(dir, "$name.ort").takeIf { it.isFile } ?: File(dir, "$name.onnx")
             return file.isFile && file.length() >= MIN_MODEL_BYTES
         }
-        val streaming = graphOk("planner") && graphOk("gen") && KokoroDirectEngine.hasAllGenStats(dir)
+        val planner = graphOk("planner") ||
+            (graphOk(KokoroDirectEngine.PLANNER_REST_GRAPH) && graphOk(KokoroDirectEngine.TEXT_ENCODER_GRAPH))
+        val streaming = planner && graphOk("gen") && KokoroDirectEngine.hasAllGenStats(dir)
         if (!streaming && !graphOk("model")) return InstallState.Corrupt
         val voices = File(dir, "voices.bin")
         if (!voices.isFile || voices.length() == 0L) return InstallState.Corrupt
