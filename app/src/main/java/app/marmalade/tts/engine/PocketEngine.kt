@@ -1332,7 +1332,18 @@ open class PocketEngine @Inject constructor(
      */
     suspend fun deleteClonedVoice(voiceId: String): Boolean = withContext(Dispatchers.IO) {
         val localId = voiceId.substringAfter(':', voiceId)
-        voiceEmbeddings.remove(localId)
+        voiceEmbeddings.remove(localId)?.let { embedding ->
+            // Its cached voice prompt can't be matched again: free it once no
+            // render holds the lock (without making the caller wait for one).
+            warmupScope.launch {
+                synthLock.withLock {
+                    if (voicePrompt?.embedding === embedding) {
+                        voicePrompt?.frame?.release()
+                        voicePrompt = null
+                    }
+                }
+            }
+        }
         PocketClonedVoiceStore.delete(clonedVoicesDir, localId)
     }
 
