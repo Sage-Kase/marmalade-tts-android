@@ -18,9 +18,15 @@ import java.util.regex.Pattern
 // UNICODE_CHARACTER_CLASS is set — without it ä/ö/ü/ß count as non-word
 // characters and manufacture false word boundaries, and \s would miss the
 // non-breaking space this normalizer folds. Every pattern below is
-// compiled through [ure], which sets that flag (plus UNICODE_CASE
-// alongside CASE_INSENSITIVE), so the lookarounds and boundaries behave
-// exactly as the Python source does.
+// compiled through [ure], which sets that flag where it exists (plus
+// UNICODE_CASE alongside CASE_INSENSITIVE), so the lookarounds and
+// boundaries behave exactly as the Python source does.
+//
+// Android's regex is ICU, which REJECTS UNICODE_CHARACTER_CLASS
+// (IllegalArgumentException; issue #22: German could not speak at all in
+// v1.1.0) but whose `\b`/`\w`/`\s`/`\d` are Unicode-aware already. So the
+// flag is used only where the platform accepts it ([UNICODE_CLASSES]): the
+// JVM unit tests get it, the phone gets ICU's built-in behaviour.
 // -----------------------------------------------------------------------------
 
 internal object GermanTextNormalizer {
@@ -129,8 +135,16 @@ internal object GermanTextNormalizer {
 
     // ── regex helper ──────────────────────────────────────────────────────
 
+    /**
+     * [Pattern.UNICODE_CHARACTER_CLASS] on the JVM, 0 on Android (ICU throws
+     * on the flag and is Unicode-aware without it; see the header).
+     */
+    private val UNICODE_CLASSES: Int =
+        runCatching { Pattern.compile("", Pattern.UNICODE_CHARACTER_CLASS) }
+            .fold(onSuccess = { Pattern.UNICODE_CHARACTER_CLASS }, onFailure = { 0 })
+
     private fun ure(pattern: String, ignoreCase: Boolean = false): Regex {
-        var flags = Pattern.UNICODE_CHARACTER_CLASS
+        var flags = UNICODE_CLASSES
         if (ignoreCase) flags = flags or Pattern.CASE_INSENSITIVE or Pattern.UNICODE_CASE
         return Pattern.compile(pattern, flags).toRegex()
     }
