@@ -33,8 +33,24 @@ This project follows [Semantic Versioning](https://semver.org/).
   still overrides this.
 - Kokoro loads about 0.7 s faster: its Mandarin dictionary now loads the
   first time a text has Chinese characters, not every time.
+- **Pocket TTS starts speaking in about half a second and renders faster
+  than real time** (F-Droid build): it streams each sentence in short
+  slices while it renders, decoding on a second thread, and no longer
+  copies its whole voice state twice for every 80 ms of audio. On a
+  Pixel 6a with the screen off, the wait before the first sound went from
+  over a minute to about half a second, and a minute of speech takes
+  about 36 s to render instead of about 22 minutes, almost never with a
+  gap inside a sentence (one half-second pause in 28 test sentences).
+  Same model; the audio is unchanged apart from the fix
+  below. Pocket also reads its voice sample once per voice instead of
+  before every sentence.
 
 ### Fixed
+- **Pocket no longer muddles part of long sentences**: in long sentences
+  (the two test sentences of 7 seconds or more), about two seconds of
+  audio starting half a second in was decoded slightly wrong, because
+  decoding 64 frames at once overflowed the decoder's memory of recent
+  audio. It now decodes in batches small enough to be exact.
 - After text you share interrupts an article, the article picks up again
   at the start of the sentence it was in (on-device voices), not partway
   through a word. With a cloud voice it picks up at the start of the
