@@ -2,7 +2,9 @@ package app.marmalade.tts.perf
 
 import app.marmalade.tts.data.KittenDirectVoiceCatalog
 import app.marmalade.tts.data.KokoroDirectVoiceCatalog
+import app.marmalade.tts.data.KokoroGermanVoiceCatalog
 import app.marmalade.tts.data.PocketVoiceCatalog
+import app.marmalade.tts.data.VitsVoiceCatalog
 
 // -----------------------------------------------------------------------------
 // Data flow
@@ -10,14 +12,14 @@ import app.marmalade.tts.data.PocketVoiceCatalog
 //   DeviceCapability.probe()  ──►  DeviceProbe(measuredKittenRtf, computeScore)
 //                                       │
 //                                       ▼
-//                            EngineRecommender.recommend()
+//                    EngineRecommender.recommend(probe, offered engines)
 //                                       │
 //                                       ▼
-//                         EngineRecommendation(order, fits)
+//                     EngineRecommendation(fits, recommended)
 //                                       │
 //                                       ▼
-//              OnboardingViewModel.engines ──► card order + Recommended /
-//                                              "May be slow" labels
+//              OnboardingViewModel.engines ──► Recommended / "May be slow"
+//                                              labels (card order is fixed)
 // -----------------------------------------------------------------------------
 
 /** How well one engine is expected to run on this device. */
@@ -39,55 +41,83 @@ enum class EngineFit {
  */
 data class EngineRecommendation(
     val fits: Map<String, EngineFit>,
-    /** The predicted Kokoro RTF the buckets were derived from. */
-    val predictedKokoroRtf: Double,
+    /** The one engine wearing [EngineFit.RECOMMENDED]. */
+    val recommended: String,
+    /** The probe's Kitten RTF the predictions were scaled from (measured or Tier-1). */
+    val probeKittenRtf: Double,
 )
 
 /**
  * Turns a device probe into "which engine should this phone install".
  *
  * Pure logic — no Android types, no I/O, no injection. Everything the
- * decision needs arrives in [DeviceProbe], which is what makes the
- * bucket boundaries cheap to pin in unit tests.
+ * decision needs arrives in [DeviceProbe] and the set of engines the build
+ * offers, which is what makes the boundaries cheap to pin in unit tests.
+ *
+ * **Model** (borrowed from Marmalade STT's `SpeedBudget`, 2026-10-09): every
+ * engine's cost is a fixed ratio to one cheap measurement, taken once on a
+ * reference phone ([REFERENCE_COST]); this phone's measurement scales them
+ * all. Relative costs travel between phones far better than absolute
+ * speeds do (same ORT CPU kernels, same cores). Here the measurement is the
+ * onboarding probe's own Kitten RTF ([DeviceCapability]), so the ratios are
+ * expressed in it.
+ *
+ * **Policy** (issue #19, Max 2026-10-09: "recommend Pocket to most people
+ * … Kitten for people with slower phones; people know what Kokoro is"):
+ * the first of [candidates] predicted to keep up comfortably
+ * ([RECOMMENDED_MAX_RTF]) takes the pill, else the baked Kitten. Pocket is
+ * the candidate where the build offers it (F-Droid); where it doesn't
+ * (Play, today: `EngineDescriptor.fdroidOnly`) Kokoro stands in, as before.
+ * Making Pocket visible on Play is the whole switch — no change here.
  */
 object EngineRecommender {
 
     /**
-     * Kokoro costs about 1.5× Kitten per second of audio.
+     * Each engine's warm render RTF on the reference phone ÷ the probe's
+     * Kitten RTF there ([ANCHOR_PROBE_RTF]). Reference: **Pixel 6a**
+     * (Tensor G1), 2026-10-09, issue #18 (`~/coding/scratch/engine-speed-18/`,
+     * lab `engine-speed-lab.html`). Engines were rendered by the silent bench
+     * service with the screen off, as when listening: RTF = render time ÷
+     * audio over a whole set, the mean of the B1 sentences and a
+     * 3-paragraph set at 1.0×, two runs each in A-B-B-A order:
      *
-     * Single-device anchor: Pixel 8a, 2026-08-08 — Kokoro RTF 0.42 vs
-     * Kitten RTF 0.28. Both engines are ORT-CPU matmul-bound on the same
-     * perf cluster, so the ratio should travel better across devices than
-     * either absolute number does. Re-derive if a second datapoint
-     * disagrees rather than averaging blind.
+     * | engine | sentences | paragraphs | mean | ÷ 0.206 |
+     * |---|---|---|---|---|
+     * | Kitten (Bella) | 0.256 | 0.251 | 0.253 | 1.23 |
+     * | Jenny | 0.170 | 0.157 | 0.163 | 0.79 |
+     * | Pocket (Alba, Javert) | 0.640, 0.619 | 0.529, 0.526 | 0.579 | 2.81 |
+     * | Kokoro (Heart, v23 whole-model render) | 0.866 | 0.800 | 0.833 | 4.04 |
+     * | Kokoro German (Thorsten, German text) | 0.832 | 0.835 | 0.834 | 4.05 |
+     *
+     * Kitten costs more than 1: the probe runs in the app with setup on
+     * screen, where Android lets it use the fast cores; the same sentence
+     * in the screen-off service reads 0.267. Kokoro is its published
+     * bundle's render; the streaming bundle (#13, unpublished) costs 4.66
+     * on this phone. Replaces the Pixel 8a-era ratios (Kokoro 1.5× Kitten,
+     * Pocket 2× Kokoro), which predate #13, #15 and #17.
      */
-    const val KOKORO_RTF_PER_KITTEN_RTF: Double = 1.5
+    val REFERENCE_COST: Map<String, Double> = mapOf(
+        KITTEN to 1.23,
+        KOKORO to 4.04,
+        KOKORO_DE to 4.05,
+        POCKET to 2.81,
+        VITS to 0.79,
+    )
 
     /**
-     * Pocket costs roughly 2× Kokoro. Anchored on the same device's
-     * time-to-first-audio (Pocket 4.7 s vs Kokoro 1.9 s); Pocket is
-     * autoregressive so its cost curve is shaped differently from the
-     * one-shot engines, and 2× is the deliberately round approximation.
+     * The onboarding probe's Kitten RTF on the reference phone, measured in
+     * the app (onboarding open, screen on): median of 5, 0.192–0.211. The
+     * Tier-1 anchor and the unit of [REFERENCE_COST].
      */
-    const val POCKET_COST_VS_KOKORO: Double = 2.0
-
-    /** Below this predicted RTF the engine is the device's best pick. */
-    const val RECOMMENDED_MAX_RTF: Double = 0.6
-
-    /** Up to this predicted RTF the engine is offered without a warning. */
-    const val FINE_MAX_RTF: Double = 0.9
+    const val ANCHOR_PROBE_RTF: Double = 0.206
 
     /**
-     * Tier-1 anchor. The Pixel 8a's Tensor G3 has 1× Cortex-X3 @ 2.91 GHz
-     * plus 4× Cortex-A715 @ 2.37 GHz in its non-efficiency clusters, so
-     * `1×2.91 + 4×2.37 = 12.39`, and that device measures Kokoro at ~0.45
-     * RTF cold. RTF is modelled as inversely proportional to compute score:
-     * twice the weighted perf silicon, half the RTF.
+     * Tier-1 compute score of the reference phone. The Pixel 6a's Tensor G1
+     * has 2× Cortex-X1 @ 2.80 GHz + 2× Cortex-A76 @ 2.25 GHz outside its
+     * efficiency cluster: `2×2.802 + 2×2.253 = 10.11`. An unmeasured
+     * phone's probe RTF is modelled as inversely proportional to its score.
      */
-    const val ANCHOR_COMPUTE_SCORE: Double = 12.39
-
-    /** Kokoro RTF measured on the device [ANCHOR_COMPUTE_SCORE] describes. */
-    const val ANCHOR_KOKORO_RTF: Double = 0.45
+    const val ANCHOR_COMPUTE_SCORE: Double = 10.11
 
     /**
      * Tier-1 pessimism factor. The heuristic ignores memory bandwidth,
@@ -99,70 +129,73 @@ object EngineRecommender {
     const val TIER1_CONSERVATISM: Double = 1.15
 
     /**
-     * Predicted Kokoro RTF for this device, or null when the probe carries
-     * no usable signal (no measurement and unreadable sysfs) — callers then
-     * fall back to the catalog's static ordering.
+     * Up to this predicted RTF an engine keeps up comfortably and may take
+     * the pill: normal speed with the same 20% headroom the speed-up warning
+     * keeps ([SpeedPerfWarning.EFFECTIVE_RTF_THRESHOLD]), so a recommended
+     * engine never warns at 1.0×.
      */
-    fun predictedKokoroRtf(probe: DeviceProbe): Double? {
-        probe.measuredKittenRtf?.let { return it * KOKORO_RTF_PER_KITTEN_RTF }
+    const val RECOMMENDED_MAX_RTF: Double = SpeedPerfWarning.EFFECTIVE_RTF_THRESHOLD
+
+    /** Up to this predicted RTF the engine is offered without a warning. */
+    const val FINE_MAX_RTF: Double = 0.9
+
+    /**
+     * The engines that may take the pill, best first, for a build offering
+     * [offered]: Pocket where offered, else Kokoro; the baked Kitten always
+     * last, as the floor.
+     */
+    fun candidates(offered: Collection<String>): List<String> {
+        val heavy = if (POCKET in offered) POCKET else KOKORO.takeIf { it in offered }
+        return listOfNotNull(heavy, KITTEN)
+    }
+
+    /**
+     * The probe's Kitten RTF for this device: measured, or estimated from
+     * its compute score; null when the probe carries no usable signal (no
+     * measurement and unreadable sysfs) — callers then fall back to the
+     * catalog's static flags.
+     */
+    fun probeKittenRtf(probe: DeviceProbe): Double? {
+        probe.measuredKittenRtf?.let { return it }
         val score = probe.computeScore ?: return null
         if (score <= 0.0) return null
-        return ANCHOR_KOKORO_RTF * (ANCHOR_COMPUTE_SCORE / score) * TIER1_CONSERVATISM
+        return ANCHOR_PROBE_RTF * (ANCHOR_COMPUTE_SCORE / score) * TIER1_CONSERVATISM
     }
 
     /**
      * Predicted warm RTF for [engineName] on this device, or null when the
-     * probe carries no signal or the engine isn't one of the three the
-     * recommender models. Derived from the same Kokoro anchor + fixed ratios
-     * as [recommend]; the speed-up warning uses it as its cold-start estimate
-     * before measured RTFs accrue.
+     * probe carries no signal or the engine isn't in [REFERENCE_COST]. The
+     * speed-up warning uses it before measured RTFs accrue.
      */
     fun predictedRtf(engineName: String, probe: DeviceProbe): Double? {
-        val kokoro = predictedKokoroRtf(probe) ?: return null
-        return when (engineName) {
-            KITTEN -> kokoro / KOKORO_RTF_PER_KITTEN_RTF
-            KOKORO -> kokoro
-            POCKET -> kokoro * POCKET_COST_VS_KOKORO
-            else -> null
-        }
+        val cost = REFERENCE_COST[engineName] ?: return null
+        return probeKittenRtf(probe)?.let { it * cost }
     }
 
     /**
-     * Fit + ordering for the three production engines, or null when the
-     * probe says nothing (see [predictedKokoroRtf]).
-     *
-     * Ordering follows the heavy engine: when Kokoro is the device's best
-     * pick it leads, otherwise the baked Kitten leads and Kokoro follows.
-     * Pocket is always last — it's the heaviest engine on every device we
-     * can predict, and it is never given the Recommended pill even on a
-     * phone fast enough to bucket it there, so exactly one card wears it.
+     * Fits for the modelled engines in [offered], or null when the probe
+     * says nothing (see [probeKittenRtf]). Exactly one engine wears
+     * [EngineFit.RECOMMENDED] (the first of [candidates] under
+     * [RECOMMENDED_MAX_RTF], else Kitten). Kitten is never warned about;
+     * every other engine is [EngineFit.FINE] or [EngineFit.MAY_BE_SLOW].
      */
-    fun recommend(probe: DeviceProbe): EngineRecommendation? {
-        val kokoroRtf = predictedKokoroRtf(probe) ?: return null
-        val kokoroFit = bucket(kokoroRtf)
-        val pocketFit = bucket(kokoroRtf * POCKET_COST_VS_KOKORO).atMost(EngineFit.FINE)
-        // Kitten is the baked floor and the fastest engine everywhere, so it
-        // is never warned about; it takes the pill whenever Kokoro doesn't.
-        val kittenFit =
-            if (kokoroFit == EngineFit.RECOMMENDED) EngineFit.FINE else EngineFit.RECOMMENDED
-
-        return EngineRecommendation(
-            fits = mapOf(KITTEN to kittenFit, KOKORO to kokoroFit, POCKET to pocketFit),
-            predictedKokoroRtf = kokoroRtf,
-        )
+    fun recommend(probe: DeviceProbe, offered: Collection<String>): EngineRecommendation? {
+        val kittenRtf = probeKittenRtf(probe) ?: return null
+        val rtf = { engine: String -> kittenRtf * REFERENCE_COST.getValue(engine) }
+        val pick = candidates(offered).first { it == KITTEN || rtf(it) <= RECOMMENDED_MAX_RTF }
+        val fits = (offered.filter { it in REFERENCE_COST } + KITTEN).associateWith { engine ->
+            when {
+                engine == pick -> EngineFit.RECOMMENDED
+                engine == KITTEN || rtf(engine) <= FINE_MAX_RTF -> EngineFit.FINE
+                else -> EngineFit.MAY_BE_SLOW
+            }
+        }
+        return EngineRecommendation(fits, recommended = pick, probeKittenRtf = kittenRtf)
     }
-
-    private fun bucket(rtf: Double): EngineFit = when {
-        rtf < RECOMMENDED_MAX_RTF -> EngineFit.RECOMMENDED
-        rtf <= FINE_MAX_RTF -> EngineFit.FINE
-        else -> EngineFit.MAY_BE_SLOW
-    }
-
-    /** Demote a fit that outranks [cap]; leave weaker ones alone. */
-    private fun EngineFit.atMost(cap: EngineFit): EngineFit =
-        if (ordinal < cap.ordinal) cap else this
 
     private const val KITTEN = KittenDirectVoiceCatalog.ENGINE
     private const val KOKORO = KokoroDirectVoiceCatalog.ENGINE
+    private const val KOKORO_DE = KokoroGermanVoiceCatalog.ENGINE
     private const val POCKET = PocketVoiceCatalog.ENGINE
+    private const val VITS = VitsVoiceCatalog.ENGINE
 }

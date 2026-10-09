@@ -137,6 +137,7 @@
     <string name="engine_spec_languages">Idiomas</string>
     <string name="engine_speed_fastest">Ultrarrápido</string>
     <string name="engine_speed_fast">Rápido</string>
+    <string name="engine_speed_moderate">Moderado</string>
     <string name="engine_speed_heavy">Pesado</string>
     <string name="engine_quality_natural">Natural</string>
     <string name="engine_quality_best">Melhor no geral</string>

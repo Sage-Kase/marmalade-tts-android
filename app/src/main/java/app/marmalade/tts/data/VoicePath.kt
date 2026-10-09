@@ -80,7 +80,7 @@ class VoicePathResolver @Inject constructor(
             )
         }
         // On-device: the engine is the model, and the id is `engine:voice`.
-        // The id's voice key is machinery-facing (`am_adam`, `marius`) —
+        // The id's voice key is machinery-facing (`am_adam`, `javert`) —
         // show the human form the picker uses instead.
         val engineLabel = EngineCatalog.byName(engineName)?.displayName
             ?: BuildTypeEngines.displayName(engineName)

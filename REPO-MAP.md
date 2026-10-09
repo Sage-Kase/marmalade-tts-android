@@ -70,8 +70,8 @@ app/src/main/
   mappings; DataStore Preferences for user settings (theme, primary
   alias, per-engine preprocessing rule toggles).
 - **Engines**: Vendored Sherpa-ONNX AAR (`libs/sherpa-onnx-static-link-onnxruntime-1.13.2.aar`).
-  Models download separately per engine (Kokoro recommended, Kitten
-  optional). Since v0.1.19 Kokoro is **multi-language** — 53 voices
+  Models download separately per engine (setup recommends one per
+  device: see "Engine speed + recommendation"). Since v0.1.19 Kokoro is **multi-language** — 53 voices
   across American + British English, Spanish, French, Hindi, Italian,
   Japanese, Brazilian Portuguese, and Mandarin. Voice/language
   orthogonality holds at the synthesizer (non-English voice speaks
@@ -230,6 +230,17 @@ When investigating **{concern}**, start at **{files}**:
   `probeInstalledVoiceAssets` (sideloaded = installed), `VoicePath` and the
   alias editor's engine list. Bundles stay sideloaded (no catalog entry); a
   debug-only engine goes through the seam, never into `EngineCatalog`.
+- **Retired voices** (issue #19): a voice dropped from a catalog goes in
+  that catalog's `retiredVoices` (retired id → replacement id, same
+  engine), and `migrateRetiredVoices` (`data/RetiredEngines.kt`) applies it
+  on every start, release too, after the reseed: aliases keep their ids and
+  move with `VoiceAliasDao.repointVoice`, the default voice follows, the
+  row is deleted. Today: Pocket's `marius` → `alba` (its WAV stays in the
+  bundle, unread), mirrored for the clean twin by
+  `PocketDevVoiceCatalog.retiredVoices`. `PocketVoiceCatalog.OFFER_VCTK_VOICES`
+  is the one-line switch that would retire `azelma`/`eponine`/`fantine` the
+  same way. The installer's Pocket layout check requires a WAV per offered
+  voice only.
 - **Kitten streams** (issue #10, `engine/kitten/KittenDirectEngine.kt`):
   the baked bundle is `planner.onnx` + `gen.onnx` + `genstats/<voice>.bin`
   + `voices/<voice>.bin`, cut from upstream's `kitten.onnx` by
@@ -607,6 +618,32 @@ and `MarmaladeSynthService` is its foreground host. System TTS
     (`Failed.partialDownloadBytes`); "Remove download" →
     `discardDownload` / `discardPackDownload` deletes it. Stale `*.tmp`
     scratch dirs/archives are swept when the installer is constructed.
+
+### Engine speed + recommendation (issues #18, #19)
+- `perf/DeviceCapability.kt` — the probe: the baked Kitten renders one
+  fixed sentence in the app (onboarding, reader and alias screens ask),
+  stored once per install (`SettingsRepository.kittenRtfMeasurement`;
+  one older than `MEASURED_SINCE_MILLIS` is measured again), plus a Tier-1
+  CPU score from sysfs for when it can't run.
+- `perf/EngineRecommender.kt` — every engine's cost is a fixed multiple of
+  that probe RTF (`REFERENCE_COST`), measured once on the reference phone
+  (Pixel 6a, 2026-10-09, `~/coding/scratch/engine-speed-18/`, lab
+  `tts-training-research/engine-speed-lab.html`); borrowed from Marmalade
+  STT's `SpeedBudget`. `recommend(probe, offered)`: the first of
+  `candidates` (Pocket where the build offers it, else Kokoro; then Kitten)
+  predicted at RTF ≤ 0.8 (= `SpeedPerfWarning`'s headroom) takes the one
+  Recommended pill; others are FINE up to 0.9, then MAY_BE_SLOW; Kitten is
+  never warned. Flavor-aware only through `EngineCatalog.visibleTo`, so
+  Pocket reaching Play (dropping `fdroidOnly`) needs no recommender change.
+  `predictedRtf` feeds the speed-up warning before measured RTFs accrue.
+- Re-bench before changing a cost or a `SpeedTier`: the probe's in-app RTF
+  (screen on, fast cores) is lower than the bench service's (screen off),
+  so costs are engine service RTF ÷ in-app probe RTF. Debug
+  `devbench/DevStateService` replays onboarding and forces a probe value
+  (`--ez onboarded false --ef kittenRtf <x>`, <= 0 clears it).
+- `install/EngineCatalog.kt` `SpeedTier` — the card's 4-segment meter,
+  from the same bench: Kitten/Jenny 4, Pocket 3, Kokoro/Kokoro German 2
+  (MODERATE), HEAVY only the Pocket clean-reference build.
 
 ### Preprocessing
 - `preprocessing/Preprocessor.kt` — applies the rule set

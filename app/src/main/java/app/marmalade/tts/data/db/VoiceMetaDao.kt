@@ -43,6 +43,9 @@ interface VoiceMetaDao {
     @Query("DELETE FROM voice_meta WHERE engine = :engine")
     suspend fun deleteByEngine(engine: String)
 
+    @Query("DELETE FROM voice_meta WHERE id = :id")
+    suspend fun deleteById(id: String)
+
     /**
      * Atomically swap an engine's rows for [voices]. Used by the Cloud
      * API engine, whose voice list is dynamic (provider descriptors +

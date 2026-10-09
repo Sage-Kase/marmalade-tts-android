@@ -191,6 +191,7 @@ class MarmaladeTtsServiceTest {
         override suspend fun upsert(alias: app.marmalade.tts.data.db.VoiceAlias) = Unit
         override suspend fun delete(id: String) = Unit
         override suspend fun repointEngine(fromEngine: String, toEngine: String) = Unit
+        override suspend fun repointVoice(fromVoiceId: String, toVoiceId: String) = Unit
     }
 
     // -- 1. happy path: start → audioAvailable* → done --------------------
@@ -423,6 +424,7 @@ class MarmaladeTtsServiceTest {
             override suspend fun upsert(alias: app.marmalade.tts.data.db.VoiceAlias) = Unit
             override suspend fun delete(id: String) = Unit
             override suspend fun repointEngine(fromEngine: String, toEngine: String) = Unit
+            override suspend fun repointVoice(fromVoiceId: String, toVoiceId: String) = Unit
         }
         kotlinx.coroutines.runBlocking { fakeSettings.setPrimaryAliasId(alias.id) }
         setField(service, "router", TtsRouter(
@@ -1581,6 +1583,10 @@ internal class FakeVoiceMetaDao(seed: List<VoiceMeta>) : VoiceMetaDao {
 
     override suspend fun deleteByEngine(engine: String) {
         rows.values.removeAll { it.engine == engine }
+    }
+
+    override suspend fun deleteById(id: String) {
+        rows.remove(id)
     }
 }
 

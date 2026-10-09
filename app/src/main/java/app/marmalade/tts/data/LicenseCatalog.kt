@@ -430,7 +430,7 @@ object LicenseCatalog {
             licenseId = "CC0-1.0",
             copyright = listOf(
                 "Unmute Voice Donation Project contributors — public-domain " +
-                    "dedication, no attribution required (javert, marius)",
+                    "dedication, no attribution required (javert)",
             ),
         ),
         Component(

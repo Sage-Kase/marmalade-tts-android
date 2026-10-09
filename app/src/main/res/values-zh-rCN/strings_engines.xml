@@ -136,6 +136,7 @@
     <string name="engine_spec_languages">语言</string>
     <string name="engine_speed_fastest">最快</string>
     <string name="engine_speed_fast">快速</string>
+    <string name="engine_speed_moderate">中等</string>
     <string name="engine_speed_heavy">重载</string>
     <string name="engine_quality_natural">自然</string>
     <string name="engine_quality_best">综合最佳</string>

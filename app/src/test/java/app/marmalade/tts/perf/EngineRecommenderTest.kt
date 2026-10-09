@@ -2,214 +2,220 @@ package app.marmalade.tts.perf
 
 import app.marmalade.tts.data.KittenDirectVoiceCatalog
 import app.marmalade.tts.data.KokoroDirectVoiceCatalog
+import app.marmalade.tts.data.KokoroGermanVoiceCatalog
 import app.marmalade.tts.data.PocketVoiceCatalog
+import app.marmalade.tts.data.VitsVoiceCatalog
+import app.marmalade.tts.install.EngineCatalog
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Bucket coverage for [EngineRecommender].
+ * Policy coverage for [EngineRecommender] (issue #19): Pocket for phones
+ * that keep up with it, Kitten for slower ones, Kokoro offered but only
+ * recommended where Pocket isn't offered (the Play build today), and
+ * exactly one pill.
  *
  * Pure logic with no injected collaborators, so these tests construct the
  * probe directly — no DataStore, no fake SettingsRepository (whose
  * un-overridden flows never emit and would hang a `combine` for 60 s).
  *
  * Boundaries are probed with an epsilon on either side rather than at the
- * exact threshold: the predicted RTF arrives via a floating-point multiply,
- * and pinning behaviour at a value that lands on a rounding tie would make
- * the suite fragile rather than strict.
+ * exact threshold: predictions arrive via a floating-point multiply.
  */
 class EngineRecommenderTest {
 
     private val kitten = KittenDirectVoiceCatalog.ENGINE
     private val kokoro = KokoroDirectVoiceCatalog.ENGINE
+    private val kokoroDe = KokoroGermanVoiceCatalog.ENGINE
     private val pocket = PocketVoiceCatalog.ENGINE
+    private val vits = VitsVoiceCatalog.ENGINE
 
-    /** A measured probe whose predicted Kokoro RTF is [kokoroRtf]. */
-    private fun measured(kokoroRtf: Double) = DeviceProbe(
-        measuredKittenRtf = kokoroRtf / EngineRecommender.KOKORO_RTF_PER_KITTEN_RTF,
+    private val fdroid = EngineCatalog.visibleTo(showDeveloper = false, flavor = "fdroid").map { it.name }
+    private val play = EngineCatalog.visibleTo(showDeveloper = false, flavor = "play").map { it.name }
+
+    private fun cost(engine: String) = EngineRecommender.REFERENCE_COST.getValue(engine)
+
+    /** A measured probe whose predicted RTF for [engine] is [rtf]. */
+    private fun probeFor(engine: String, rtf: Double) = DeviceProbe(
+        measuredKittenRtf = rtf / cost(engine),
         computeScore = EngineRecommender.ANCHOR_COMPUTE_SCORE,
     )
 
-    // -- buckets ---------------------------------------------------------------
+    /** The reference phone (Pixel 6a) as the app measured it. */
+    private val referencePhone = DeviceProbe(EngineRecommender.ANCHOR_PROBE_RTF, EngineRecommender.ANCHOR_COMPUTE_SCORE)
+
+    /** A phone twice as fast as the reference. */
+    private val fastPhone = DeviceProbe(EngineRecommender.ANCHOR_PROBE_RTF / 2, 20.0)
+
+    /** A phone twice as slow as the reference. */
+    private val slowPhone = DeviceProbe(EngineRecommender.ANCHOR_PROBE_RTF * 2, 5.0)
+
+    private fun EngineRecommendation.pills() = fits.filterValues { it == EngineFit.RECOMMENDED }.keys
+
+    // -- the flavors' builds ------------------------------------------------------
 
     @Test
-    fun fastDeviceRecommendsKokoroAndListsItFirst() {
-        // Pixel 8a anchor: Kitten 0.28 → Kokoro 0.42, comfortably under 0.6.
-        val rec = EngineRecommender.recommend(
-            DeviceProbe(measuredKittenRtf = 0.28, computeScore = 12.39),
-        )!!
+    fun theFlavorsDifferOnlyInPocket() {
+        // If Max puts Pocket on Play, `play` gains it and the Play policy
+        // becomes the F-Droid one with no change to the recommender.
+        assertTrue(pocket in fdroid)
+        assertFalse(pocket in play)
+        assertEquals(listOf(pocket, kitten), EngineRecommender.candidates(fdroid))
+        assertEquals(listOf(kokoro, kitten), EngineRecommender.candidates(play))
+        assertEquals(listOf(pocket, kitten), EngineRecommender.candidates(play + pocket))
+    }
 
-        assertEquals(0.42, rec.predictedKokoroRtf, 1e-9)
-        assertEquals(EngineFit.RECOMMENDED, rec.fits[kokoro])
-        // Exactly one Recommended pill — Kitten steps aside for Kokoro.
+    // -- F-Droid: Pocket or Kitten --------------------------------------------------
+
+    @Test
+    fun fdroidReferencePhoneRecommendsPocket() {
+        val rec = EngineRecommender.recommend(referencePhone, fdroid)!!
+        assertEquals(pocket, rec.recommended)
+        assertEquals(EngineFit.RECOMMENDED, rec.fits[pocket])
         assertEquals(EngineFit.FINE, rec.fits[kitten])
-        // Pocket at 0.84 is still inside the no-warning band.
-        assertEquals(EngineFit.FINE, rec.fits[pocket])
+        assertEquals(setOf(pocket), rec.pills())
     }
 
     @Test
-    fun midDeviceKeepsKokoroUnwarnedAndHandsKittenThePill() {
-        val rec = EngineRecommender.recommend(measured(0.75))!!
-
+    fun fdroidFastPhoneStillRecommendsPocketNotKokoro() {
+        val rec = EngineRecommender.recommend(fastPhone, fdroid)!!
+        assertEquals(pocket, rec.recommended)
+        // Kokoro is offered, plainly, however fast the phone.
         assertEquals(EngineFit.FINE, rec.fits[kokoro])
-        // Kitten leads, so it takes the pill.
+        assertEquals(setOf(pocket), rec.pills())
+    }
+
+    @Test
+    fun fdroidSlowPhoneRecommendsKittenAndWarnsOnTheHeavyEngines() {
+        val rec = EngineRecommender.recommend(slowPhone, fdroid)!!
+        assertEquals(kitten, rec.recommended)
         assertEquals(EngineFit.RECOMMENDED, rec.fits[kitten])
-        // Pocket at 1.5 is past the warning line.
         assertEquals(EngineFit.MAY_BE_SLOW, rec.fits[pocket])
-    }
-
-    @Test
-    fun slowDeviceWarnsOnKokoroAndPocket() {
-        val rec = EngineRecommender.recommend(measured(1.2))!!
-
         assertEquals(EngineFit.MAY_BE_SLOW, rec.fits[kokoro])
-        assertEquals(EngineFit.MAY_BE_SLOW, rec.fits[pocket])
-    }
-
-    // -- boundaries ------------------------------------------------------------
-
-    @Test
-    fun recommendedBoundaryIsExclusiveAtTheTop() {
-        val eps = 1e-6
-        assertEquals(
-            EngineFit.RECOMMENDED,
-            EngineRecommender.recommend(measured(EngineRecommender.RECOMMENDED_MAX_RTF - eps))!!
-                .fits[kokoro],
-        )
-        assertEquals(
-            EngineFit.FINE,
-            EngineRecommender.recommend(measured(EngineRecommender.RECOMMENDED_MAX_RTF + eps))!!
-                .fits[kokoro],
-        )
+        assertEquals(setOf(kitten), rec.pills())
     }
 
     @Test
-    fun fineBoundaryIsInclusiveAtTheTop() {
+    fun pocketTakesThePillExactlyUpToTheComfortLine() {
+        val eps = 1e-6
+        val under = EngineRecommender.recommend(probeFor(pocket, EngineRecommender.RECOMMENDED_MAX_RTF - eps), fdroid)!!
+        assertEquals(pocket, under.recommended)
+        val over = EngineRecommender.recommend(probeFor(pocket, EngineRecommender.RECOMMENDED_MAX_RTF + eps), fdroid)!!
+        assertEquals(kitten, over.recommended)
+        assertEquals(EngineFit.FINE, over.fits[pocket])
+    }
+
+    @Test
+    fun theComfortLineIsTheSpeedWarningsHeadroom() {
+        // A recommended engine never shows the speed-up warning at 1.0x.
+        assertEquals(SpeedPerfWarning.EFFECTIVE_RTF_THRESHOLD, EngineRecommender.RECOMMENDED_MAX_RTF, 0.0)
+    }
+
+    @Test
+    fun mayBeSlowStartsPastTheFineLine() {
         val eps = 1e-6
         assertEquals(
             EngineFit.FINE,
-            EngineRecommender.recommend(measured(EngineRecommender.FINE_MAX_RTF - eps))!!
-                .fits[kokoro],
+            EngineRecommender.recommend(probeFor(kokoro, EngineRecommender.FINE_MAX_RTF - eps), fdroid)!!.fits[kokoro],
         )
         assertEquals(
             EngineFit.MAY_BE_SLOW,
-            EngineRecommender.recommend(measured(EngineRecommender.FINE_MAX_RTF + eps))!!
-                .fits[kokoro],
+            EngineRecommender.recommend(probeFor(kokoro, EngineRecommender.FINE_MAX_RTF + eps), fdroid)!!.fits[kokoro],
         )
     }
 
-    // -- the Pocket shift ------------------------------------------------------
+    // -- Play: Kokoro or Kitten (until Pocket is offered there) ---------------------
 
     @Test
-    fun pocketBucketsOnDoubleTheKokoroCost() {
-        // Predicted Kokoro 0.44 → Pocket 0.88, one notch inside FINE. Nudging
-        // Kokoro to 0.46 pushes Pocket to 0.92 and over the warning line while
-        // Kokoro itself stays Recommended — that gap is the ×2 shift.
-        assertEquals(EngineFit.FINE, EngineRecommender.recommend(measured(0.44))!!.fits[pocket])
-
-        val nudged = EngineRecommender.recommend(measured(0.46))!!
-        assertEquals(EngineFit.RECOMMENDED, nudged.fits[kokoro])
-        assertEquals(EngineFit.MAY_BE_SLOW, nudged.fits[pocket])
+    fun playFastPhoneRecommendsKokoro() {
+        val rec = EngineRecommender.recommend(fastPhone, play)!!
+        assertEquals(kokoro, rec.recommended)
+        assertFalse("Play offers no Pocket card", pocket in rec.fits)
+        assertEquals(setOf(kokoro), rec.pills())
     }
 
     @Test
-    fun pocketNeverTakesTheRecommendedPill() {
-        // Flagship-fast: Kokoro 0.2 → Pocket 0.4, which buckets Recommended
-        // on the raw thresholds. Pocket is capped at FINE so only one card
-        // wears the pill.
-        val rec = EngineRecommender.recommend(measured(0.2))!!
-        assertEquals(EngineFit.RECOMMENDED, rec.fits[kokoro])
-        assertEquals(EngineFit.FINE, rec.fits[pocket])
+    fun playReferencePhoneRecommendsKitten() {
+        // Kokoro's published render is over the comfort line on a Pixel 6a.
+        val rec = EngineRecommender.recommend(referencePhone, play)!!
+        assertEquals(kitten, rec.recommended)
+        assertEquals(setOf(kitten), rec.pills())
     }
 
     @Test
-    fun kittenIsNeverWarnedAboutEvenOnAVerySlowDevice() {
-        val rec = EngineRecommender.recommend(measured(4.0))!!
-        assertNotEquals(EngineFit.MAY_BE_SLOW, rec.fits[kitten])
+    fun playSlowPhoneRecommendsKitten() {
+        val rec = EngineRecommender.recommend(slowPhone, play)!!
+        assertEquals(kitten, rec.recommended)
+        assertEquals(EngineFit.MAY_BE_SLOW, rec.fits[kokoro])
+    }
+
+    // -- invariants -------------------------------------------------------------
+
+    @Test
+    fun kittenIsNeverWarnedAbout() {
+        val rec = EngineRecommender.recommend(DeviceProbe(4.0, null), fdroid)!!
         assertEquals(EngineFit.RECOMMENDED, rec.fits[kitten])
     }
 
-    // -- Tier 1 fallback -------------------------------------------------------
+    @Test
+    fun everyOfferedModelledEngineGetsAFit() {
+        val rec = EngineRecommender.recommend(referencePhone, fdroid)!!
+        for (engine in listOf(kitten, kokoro, kokoroDe, pocket, vits).filter { it in fdroid }) {
+            assertTrue("$engine has no fit", engine in rec.fits)
+        }
+    }
 
     @Test
-    fun nullMeasurementFallsBackToTheComputeScore() {
-        val rec = EngineRecommender.recommend(
-            DeviceProbe(
-                measuredKittenRtf = null,
-                computeScore = EngineRecommender.ANCHOR_COMPUTE_SCORE,
-            ),
-        )!!
+    fun predictionsScaleTheReferenceCosts() {
+        for ((engine, cost) in EngineRecommender.REFERENCE_COST) {
+            assertEquals(
+                EngineRecommender.ANCHOR_PROBE_RTF * cost,
+                EngineRecommender.predictedRtf(engine, referencePhone)!!,
+                1e-9,
+            )
+        }
+        assertNull(EngineRecommender.predictedRtf("no-such-engine", referencePhone))
+    }
 
-        // The anchor device itself, quoted through the pessimism factor.
+    @Test
+    fun theEnginesRankAsMeasured() {
+        // #18, Pixel 6a: Kitten fastest; Pocket faster than either Kokoro.
+        assertTrue(cost(kitten) < cost(pocket))
+        assertTrue(cost(pocket) < cost(kokoro))
+        assertTrue(cost(pocket) < cost(kokoroDe))
+    }
+
+    // -- Tier 1 (no measurement) ------------------------------------------------
+
+    @Test
+    fun tier1AtTheAnchorScoreIsTheAnchorPlusConservatism() {
         assertEquals(
-            EngineRecommender.ANCHOR_KOKORO_RTF * EngineRecommender.TIER1_CONSERVATISM,
-            rec.predictedKokoroRtf,
+            EngineRecommender.ANCHOR_PROBE_RTF * EngineRecommender.TIER1_CONSERVATISM,
+            EngineRecommender.probeKittenRtf(DeviceProbe(null, EngineRecommender.ANCHOR_COMPUTE_SCORE))!!,
             1e-9,
         )
-        assertEquals(EngineFit.RECOMMENDED, rec.fits[kokoro])
     }
 
     @Test
-    fun tier1IsConservativeRelativeToARealMeasurement() {
-        val score = EngineRecommender.ANCHOR_COMPUTE_SCORE
-        val tier1 = EngineRecommender.predictedKokoroRtf(
-            DeviceProbe(measuredKittenRtf = null, computeScore = score),
-        )!!
-        assertTrue(
-            "Tier 1 must round toward slower than the anchor it is built on",
-            tier1 > EngineRecommender.ANCHOR_KOKORO_RTF,
-        )
+    fun tier1IsInverselyProportionalToScore() {
+        val full = EngineRecommender.probeKittenRtf(DeviceProbe(null, EngineRecommender.ANCHOR_COMPUTE_SCORE))!!
+        val half = EngineRecommender.probeKittenRtf(DeviceProbe(null, EngineRecommender.ANCHOR_COMPUTE_SCORE / 2))!!
+        assertEquals(2.0, half / full, 1e-9)
     }
 
     @Test
-    fun halfTheComputeScorePredictsRoughlyDoubleTheRtf() {
-        val full = EngineRecommender.predictedKokoroRtf(
-            DeviceProbe(null, EngineRecommender.ANCHOR_COMPUTE_SCORE),
-        )!!
-        val half = EngineRecommender.predictedKokoroRtf(
-            DeviceProbe(null, EngineRecommender.ANCHOR_COMPUTE_SCORE / 2),
-        )!!
-        assertEquals(full * 2, half, 1e-9)
+    fun aMeasurementBeatsTheScore() {
+        assertEquals(0.5, EngineRecommender.probeKittenRtf(DeviceProbe(0.5, 1000.0))!!, 0.0)
     }
 
     @Test
-    fun weakSiliconIsWarnedAboutWithoutAMeasurement() {
-        // A budget chip a third of the anchor's weighted perf silicon:
-        // 0.45 × 3 × 1.15 = 1.55 predicted, clearly past the warning line.
-        val rec = EngineRecommender.recommend(
-            DeviceProbe(null, EngineRecommender.ANCHOR_COMPUTE_SCORE / 3),
-        )!!
-        assertEquals(EngineFit.MAY_BE_SLOW, rec.fits[kokoro])
-    }
-
-    @Test
-    fun measurementWinsOverTheComputeScoreWhenBothArePresent() {
-        // Anchor-class silicon that actually benchmarks slowly — the real
-        // measurement must not be diluted by the topology guess.
-        val rec = EngineRecommender.recommend(
-            DeviceProbe(
-                measuredKittenRtf = 1.0,
-                computeScore = EngineRecommender.ANCHOR_COMPUTE_SCORE,
-            ),
-        )!!
-        assertEquals(1.5, rec.predictedKokoroRtf, 1e-9)
-        assertEquals(EngineFit.MAY_BE_SLOW, rec.fits[kokoro])
-    }
-
-    // -- no signal at all ------------------------------------------------------
-
-    @Test
-    fun noMeasurementAndNoComputeScoreYieldsNoRecommendation() {
-        assertNull(EngineRecommender.recommend(DeviceProbe(null, null)))
-        assertNull(EngineRecommender.predictedKokoroRtf(DeviceProbe(null, null)))
-    }
-
-    @Test
-    fun nonsensicalComputeScoreIsTreatedAsNoSignal() {
-        assertNull(EngineRecommender.recommend(DeviceProbe(null, 0.0)))
-        assertNull(EngineRecommender.recommend(DeviceProbe(null, -1.0)))
+    fun noSignalMeansNoRecommendation() {
+        assertNull(EngineRecommender.recommend(DeviceProbe(null, null), fdroid))
+        assertNull(EngineRecommender.recommend(DeviceProbe(null, 0.0), fdroid))
+        assertNull(EngineRecommender.recommend(DeviceProbe(null, -1.0), fdroid))
+        assertNull(EngineRecommender.predictedRtf(kitten, DeviceProbe(null, null)))
     }
 }

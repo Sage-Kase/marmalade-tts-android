@@ -43,7 +43,7 @@ no non-commercial voice data.
 | `eponine` | `vctk/p262_023_enhanced.wav` | VCTK | **CC-BY-4.0** |
 | `fantine` | `vctk/p244_023_enhanced.wav` | VCTK | **CC-BY-4.0** |
 | `javert` | `voice-donations/Butter.wav` | Unmute Voice Donation | **CC0** |
-| `marius` | `voice-donations/Selfie.wav` | Unmute Voice Donation | **CC0** |
+| `marius` | `voice-donations/Selfie.wav` | Unmute Voice Donation | **CC0** (in the bundle, not offered by the app since 2026-10-09) |
 
 ### Attribution (CC-BY-4.0)
 
@@ -55,7 +55,8 @@ derived from:
 - **`azelma`, `eponine`, `fantine`** — the **CSTR VCTK Corpus**
   (speakers p303, p262, p244), Centre for Speech Technology Research,
   University of Edinburgh, CC-BY-4.0. https://doi.org/10.7488/ds/2645
-- **`javert`, `marius`** — Unmute Voice Donation Project contributors,
+- **`javert`** (and `marius`, still in the bundle but not offered by the
+  app since 2026-10-09) — Unmute Voice Donation Project contributors,
   released CC0 (no attribution required; acknowledged with thanks).
 
 This attribution is also recorded in [`../CREDITS.md`](../CREDITS.md).

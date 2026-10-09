@@ -63,20 +63,26 @@ data class EngineArchive(
  * meter is coloured by fill count (4 = green, 3 = light green, 2 = amber,
  * 1 = red — see EngineSpecColumn.speedMeterColor), so a shorter bar is also
  * a hotter colour and a single red tick reads as "slow", never as "one of
- * four good". FASTEST leads (Kitten), then FAST (Kokoro); the amber 2-tick
- * band is reserved for a mid engine between Kokoro and Pocket, HEAVY is the
- * heaviest (Pocket).
+ * four good".
+ *
+ * Tiers follow one same-phone bench (issue #18, Pixel 6a, 2026-10-09; RTF =
+ * render time ÷ audio, B1 sentences): FASTEST = Kitten (0.26, first sound
+ * 0.4 s) and Jenny (0.17, 0.7 s); FAST = Pocket (0.63, 0.55 s);
+ * MODERATE = Kokoro (0.87 published render, 2.1 s) and Kokoro German (0.83,
+ * 3.1 s), which barely keep up on that phone. HEAVY is left for the Pocket
+ * clean-reference build. Re-bench before moving an engine.
  */
 enum class SpeedTier(val meterFill: Int) {
     FASTEST(4),
     FAST(3),
+    MODERATE(2),
     HEAVY(1),
 }
 
 /**
  * How an engine's output quality is framed on the card. Deliberately NOT a
- * linear ranking — each engine leads on a different strength, so the "heavy"
- * Pocket engine is "most expressive", never "worst".
+ * linear ranking — each engine leads on a different strength, so Pocket is
+ * "most expressive" and Kitten "natural", never "worst".
  */
 enum class QualityTier {
     /** Kitten — good, natural. */
@@ -330,7 +336,7 @@ object EngineCatalog {
         licenseNotice = "LICENSES/kokoro-direct.md",
         licenseSummaryRes = R.string.engine_kokoro_license,
         taglineRes = R.string.engine_kokoro_tagline,
-        speedTier = SpeedTier.FAST,
+        speedTier = SpeedTier.MODERATE,
         qualityTier = QualityTier.BEST_OVERALL,
         // The nine distinct locales KokoroDirectVoiceCatalog exposes. American
         // and British English count separately, which is why it's 9 and not 8.
@@ -378,7 +384,7 @@ object EngineCatalog {
         licenseNotice = "LICENSES/kokoro-de.md",
         licenseSummaryRes = R.string.engine_kokoro_de_license,
         taglineRes = R.string.engine_kokoro_de_tagline,
-        speedTier = SpeedTier.FAST,
+        speedTier = SpeedTier.MODERATE,
         // Same quality framing as the base Kokoro — the German fine-tune
         // gates at the community-rated reference (WER 0.88%).
         qualityTier = QualityTier.BEST_OVERALL,
@@ -403,9 +409,11 @@ object EngineCatalog {
      * non-commercial voices removed.
      *
      * Licensing: the Kyutai model **code** is MIT (not Apache-2.0). Each
-     * predefined voice carries its own data license — the 6 we ship are
-     * CC0 (`javert`, `marius`) or CC-BY-4.0 (`alba`, `azelma`, `eponine`,
-     * `fantine`); attribution for the CC-BY voices is in CREDITS.md. No
+     * predefined voice carries its own data license — the 6 in the bundle
+     * are CC0 (`javert`, `marius`) or CC-BY-4.0 (`alba`, `azelma`,
+     * `eponine`, `fantine`); the app offers all but `marius` (dropped for
+     * quality, issue #19); attribution for the CC-BY voices is in
+     * CREDITS.md. No
      * espeak dependency — Pocket phonemizes upstream of the ONNX export, so
      * this is the only catalog entry without GPL contamination.
      */
@@ -425,7 +433,7 @@ object EngineCatalog {
         licenseNotice = "LICENSES/pocket-tts.md",
         licenseSummaryRes = R.string.engine_pocket_license,
         taglineRes = R.string.engine_pocket_tagline,
-        speedTier = SpeedTier.HEAVY,
+        speedTier = SpeedTier.FAST,
         qualityTier = QualityTier.MOST_EXPRESSIVE,
         languageCodes = listOf("en"),
         fdroidOnly = true,

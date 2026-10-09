@@ -4,7 +4,7 @@ import app.marmalade.tts.data.db.VoiceMeta
 
 /**
  * Voice catalog for the developer-only clean-room Pocket engine
- * ([app.marmalade.tts.engine.PocketDevEngine]). Mirrors the 8 built-in
+ * ([app.marmalade.tts.engine.PocketDevEngine]). Mirrors the built-in
  * voices from [PocketVoiceCatalog] but under a separate engine name so
  * they appear as parallel choices in the voice picker.
  *
@@ -35,5 +35,13 @@ object PocketDevVoiceCatalog {
             gender = v.gender,
             isInstalled = false,
         )
+    }
+
+    /**
+     * [PocketVoiceCatalog.retiredVoices] under this engine's ids, so the
+     * clean twin's `marius` row and anything pointing at it go too.
+     */
+    val retiredVoices: Map<String, String> = PocketVoiceCatalog.retiredVoices.entries.associate { (from, to) ->
+        voiceId(from.substringAfterLast(':')) to voiceId(to.substringAfterLast(':'))
     }
 }

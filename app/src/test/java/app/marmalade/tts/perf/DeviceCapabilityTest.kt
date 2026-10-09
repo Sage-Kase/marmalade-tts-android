@@ -77,9 +77,34 @@ class DeviceCapabilityTest {
         assertEquals(1, kitten.installChecks)
     }
 
-    /** No stored measurement, and the baked seed already landed. */
-    private class NoMeasurementSettings : SettingsRepository(NoOpPreferencesDataStore) {
-        override val kittenRtfMeasurement: Flow<KittenRtfMeasurement?> = flowOf(null)
+    @Test
+    fun `a measurement from before the Kitten planner change is measured again`() = runTest {
+        val ctx: Context = ApplicationProvider.getApplicationContext()
+        val stale = KittenRtfMeasurement(0.5, DeviceCapability.MEASURED_SINCE_MILLIS - 1)
+        val settings = NoMeasurementSettings(stale)
+        val kitten = CountingKitten(ctx, settings)
+
+        // The re-run fails here (no engine), so the probe falls back to Tier 1.
+        assertNull(DeviceCapability(kitten, settings).probe().measuredKittenRtf)
+        assertEquals(1, kitten.installChecks)
+    }
+
+    @Test
+    fun `a current measurement is used without measuring`() = runTest {
+        val ctx: Context = ApplicationProvider.getApplicationContext()
+        val current = KittenRtfMeasurement(0.3, DeviceCapability.MEASURED_SINCE_MILLIS)
+        val settings = NoMeasurementSettings(current)
+        val kitten = CountingKitten(ctx, settings)
+
+        assertEquals(0.3, DeviceCapability(kitten, settings).probe().measuredKittenRtf!!, 0.0)
+        assertEquals(0, kitten.installChecks)
+    }
+
+    /** [stored] as the persisted measurement (none by default); the baked seed already landed. */
+    private class NoMeasurementSettings(
+        stored: KittenRtfMeasurement? = null,
+    ) : SettingsRepository(NoOpPreferencesDataStore) {
+        override val kittenRtfMeasurement: Flow<KittenRtfMeasurement?> = flowOf(stored)
         override val bakedDefaultSeeded: Flow<Boolean> = flowOf(true)
     }
 

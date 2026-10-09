@@ -109,6 +109,7 @@ class TtsRouterTest {
         override suspend fun upsert(alias: VoiceAlias) = Unit
         override suspend fun delete(id: String) = Unit
         override suspend fun repointEngine(fromEngine: String, toEngine: String) = Unit
+        override suspend fun repointVoice(fromVoiceId: String, toVoiceId: String) = Unit
     }
 
     private object NoMappings : AppAliasMappingDao {

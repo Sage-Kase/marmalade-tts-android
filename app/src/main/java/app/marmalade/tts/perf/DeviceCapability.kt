@@ -148,13 +148,16 @@ class DeviceCapability @Inject constructor(
 
     /**
      * Tier 2. Returns the persisted benchmark if it has already run on this
-     * install, otherwise synthesizes [BENCH_TEXT] once and stores the result.
+     * install (since [MEASURED_SINCE_MILLIS]), otherwise synthesizes
+     * [BENCH_TEXT] once and stores the result.
      *
      * Null on any failure — engine not installed, ORT init blowup, or the
      * [BENCH_TIMEOUT_MS] cap elapsing. Callers fall back to Tier 1.
      */
     suspend fun measureKittenRtf(): Double? = benchLock.withLock {
-        settings.kittenRtfMeasurement.first()?.let { return@withLock it.rtf }
+        settings.kittenRtfMeasurement.first()
+            ?.takeIf { it.measuredAtMillis >= MEASURED_SINCE_MILLIS }
+            ?.let { return@withLock it.rtf }
         if (benchmarkFailed) return@withLock null
         val rtf = runBenchmark() ?: run {
             benchmarkFailed = true
@@ -208,8 +211,18 @@ class DeviceCapability @Inject constructor(
         }
     }
 
-    private companion object {
-        const val TAG = "DeviceCapability"
+    internal companion object {
+        private const val TAG = "DeviceCapability"
+
+        /**
+         * A stored benchmark older than this is measured again. #17 swapped
+         * Kitten's text encoder for a smaller one (faster on the same text),
+         * and #18 re-expressed every engine's cost in the new Kitten's probe
+         * RTF (2026-10-09, UTC midnight): an older number would scale those
+         * ratios by the old, slower Kitten. Move it whenever the probe's
+         * workload changes.
+         */
+        const val MEASURED_SINCE_MILLIS = 1_791_504_000_000L
 
         /**
          * Fixed English sentence, ~2 s of audio at speed 1.0. Fixed because
@@ -217,7 +230,7 @@ class DeviceCapability @Inject constructor(
          * running the identical workload — never localize this, and never
          * vary it per run.
          */
-        const val BENCH_TEXT =
+        private const val BENCH_TEXT =
             "The quick brown fox jumps over the lazy dog near the river."
 
         /**
@@ -225,17 +238,17 @@ class DeviceCapability @Inject constructor(
          * blow through 30 s on two seconds of Kitten audio has answered the
          * capability question anyway, and Tier 1 covers the timeout path.
          */
-        const val BENCH_TIMEOUT_MS = 30_000L
+        private const val BENCH_TIMEOUT_MS = 30_000L
 
         /** Below this the synth clearly produced nothing usable. */
-        const val MIN_BENCH_AUDIO_MS = 200.0
+        private const val MIN_BENCH_AUDIO_MS = 200.0
 
         /**
          * How long the benchmark will wait for the baked Kitten seed on a
          * fresh install before giving up and letting Tier 1 answer. Inside
          * [BENCH_TIMEOUT_MS], so the overall cap still holds.
          */
-        const val SEED_WAIT_MS = 15_000L
+        private const val SEED_WAIT_MS = 15_000L
     }
 }
 

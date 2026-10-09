@@ -555,5 +555,8 @@ class SpeakViewModelTest {
         override suspend fun deleteByEngine(engine: String) {
             voices.value = voices.value.filterNot { it.engine == engine }
         }
+        override suspend fun deleteById(id: String) {
+            voices.value = voices.value.filterNot { it.id == id }
+        }
     }
 }

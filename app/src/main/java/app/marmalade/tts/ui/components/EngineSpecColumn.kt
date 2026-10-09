@@ -80,7 +80,7 @@ fun EngineSpecColumn(
         verticalArrangement = Arrangement.Top,
     ) {
         SpecRow(label = stringResource(R.string.engine_spec_speed)) {
-            // Meter only — the tier word ("Fastest"/"Fast"/"Heavy") is dropped
+            // Meter only — the tier word ("Fastest"/"Fast"/"Moderate"/"Heavy") is dropped
             // from the card and carried as the meter's contentDescription, so
             // the visual stays a bare gauge while TalkBack still names the tier
             // for anyone who can't read fill length or colour.
@@ -367,6 +367,7 @@ private fun meterFillColor(fill: Int, isDark: Boolean): Color = when (fill) {
 fun speedTierLabelRes(tier: SpeedTier): Int = when (tier) {
     SpeedTier.FASTEST -> R.string.engine_speed_fastest
     SpeedTier.FAST -> R.string.engine_speed_fast
+    SpeedTier.MODERATE -> R.string.engine_speed_moderate
     SpeedTier.HEAVY -> R.string.engine_speed_heavy
 }
 

@@ -2,6 +2,7 @@ package app.marmalade.tts.install
 
 import android.content.res.AssetManager
 import android.util.Log
+import app.marmalade.tts.data.PocketVoiceCatalog
 import app.marmalade.tts.engine.BuildTypeEngines
 import app.marmalade.tts.engine.kokoro.KokoroDirectEngine
 import java.io.BufferedInputStream
@@ -1638,14 +1639,11 @@ open class EngineInstaller @Inject constructor(
 
         val voicesDir = File(dir, "voices")
         if (!voicesDir.isDirectory) return InstallState.Corrupt
-        // We need at least one voice WAV; check the six commercial-safe Kyutai
-        // predefined names match what the catalog promises (PocketVoiceCatalog.voices
-        // is the source of truth, but we can't depend on it from the
-        // installer module without widening the dependency graph — six
-        // hardcoded names here mirror it). The upstream `cosette` (Expresso)
-        // and `jean` (EARS) voices are CC-BY-NC-4.0 and are not shipped, so
-        // they are deliberately absent from this list and the v21+ bundle.
-        val expectedVoices = listOf("alba", "azelma", "eponine", "fantine", "javert", "marius")
+        // Every voice the catalog offers needs its WAV. The bundle holds more
+        // than that (`marius`, no longer offered, issue #19) and the check
+        // doesn't care. The upstream `cosette` (Expresso) and `jean` (EARS)
+        // voices are CC-BY-NC-4.0 and absent from the v21+ bundle.
+        val expectedVoices = PocketVoiceCatalog.voices.map { it.id.substringAfter(':') }
         for (name in expectedVoices) {
             val wav = File(voicesDir, "$name.wav")
             if (!wav.isFile || wav.length() == 0L) return InstallState.Corrupt

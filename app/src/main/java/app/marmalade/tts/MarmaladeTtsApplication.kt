@@ -13,6 +13,7 @@ import app.marmalade.tts.data.KokoroGermanVoiceCatalog
 import app.marmalade.tts.data.BuiltinEffects
 import app.marmalade.tts.data.SettingsRepository
 import app.marmalade.tts.data.migrateRetiredEngines
+import app.marmalade.tts.data.migrateRetiredVoices
 import app.marmalade.tts.data.db.EffectDao
 import app.marmalade.tts.data.db.VoiceAliasDao
 import app.marmalade.tts.data.db.VoiceMetaDao
@@ -198,6 +199,17 @@ class MarmaladeTtsApplication : Application() {
             // and whatever pointed at a retired one moves to its replacement
             // (every start, idempotent; nothing to do in release).
             migrateRetiredEngines(BuildTypeEngines.retiredEngines, aliasDao.get(), dao, prefs)
+            // Retired voices (issue #19: Pocket's `marius`) move onto their
+            // replacement on every start, release builds too, and after the
+            // reseed so no catalog row can come back. Outside the gate so an
+            // install whose catalog stamp is already current still migrates;
+            // idempotent, so later starts find nothing to do.
+            migrateRetiredVoices(
+                PocketVoiceCatalog.retiredVoices + PocketDevVoiceCatalog.retiredVoices,
+                aliasDao.get(),
+                dao,
+                prefs,
+            )
             if (BuildTypeEngines.voices.isNotEmpty()) dao.upsertAll(BuildTypeEngines.voices)
             // Cloud API voices are not seeded from a static catalog — the
             // provider store owns those rows (descriptors + live discovery)

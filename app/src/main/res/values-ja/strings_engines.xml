@@ -136,6 +136,7 @@
     <string name="engine_spec_languages">言語</string>
     <string name="engine_speed_fastest">最速</string>
     <string name="engine_speed_fast">高速</string>
+    <string name="engine_speed_moderate">中速</string>
     <string name="engine_speed_heavy">重い</string>
     <string name="engine_quality_natural">自然</string>
     <string name="engine_quality_best">総合的に最高</string>

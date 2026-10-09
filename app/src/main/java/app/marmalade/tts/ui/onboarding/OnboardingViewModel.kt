@@ -281,7 +281,10 @@ class OnboardingViewModel @Inject constructor(
             withTimeoutOrNull(SEED_WAIT_TIMEOUT_MS) {
                 settings.bakedDefaultSeeded.firstOrNull { it }
             }
-            _recommendation.value = EngineRecommender.recommend(deviceProbe.probe())
+            _recommendation.value = EngineRecommender.recommend(
+                deviceProbe.probe(),
+                offered = EngineCatalog.visibleTo(showDeveloper = false).map { it.name },
+            )
         }
     }
 
@@ -732,7 +735,8 @@ class OnboardingViewModel @Inject constructor(
 
     /**
      * The engine a fresh alias defaults to: an installed one, preferring
-     * Kokoro over Kitten to match the catalog's recommended order. "Installed"
+     * the downloadable engine this device was recommended (issue #19:
+     * Pocket on most phones), then Kokoro over Kitten. "Installed"
      * is this session's finished installs plus whatever [seedAliasDefaults]
      * found on disk (the baked Kitten after a skipped engine step). With
      * nothing installed, the catalog's recommended engine stands in so the
@@ -746,7 +750,12 @@ class OnboardingViewModel @Inject constructor(
             .keys + EngineCatalog.visibleTo(showDeveloper = false)
             .map { it.name }
             .filter { it in onDisk }
-        return installedEngines.firstOrNull { it.startsWith("kokoro") }
+        // The baked Kitten is "recommended" on slow phones only as the floor;
+        // a download the user chose there still wins.
+        val recommended = _recommendation.value?.recommended
+            ?.takeIf { it != KittenDirectVoiceCatalog.ENGINE }
+        return installedEngines.firstOrNull { it == recommended }
+            ?: installedEngines.firstOrNull { it.startsWith("kokoro") }
             ?: installedEngines.firstOrNull { it.startsWith("kitten") }
             ?: installedEngines.firstOrNull()
             ?: EngineCatalog.all.firstOrNull { it.isRecommended }?.name
