@@ -295,6 +295,79 @@ When investigating **{concern}**, start at **{files}**:
   piece `kokoro plan=…`, per slice `kokoro slice=i/n`, and `kokoro piece …
   rtf=`. `lexicon-zh.txt` (68k entries, 0.6–0.8 s) loads on the first text
   with a CJK run (`mandarinLexicon()`), not at load (#13 "D2").
+- **Pocket streams** (issue #15, `engine/PocketEngine.kt` + `engine/pocket/`;
+  F-Droid only). Five graphs: text_conditioner, mimi_encoder (voice prompt),
+  flow_lm_main (the AR transformer, int8, 6 KV caches of 1000 rows), flow_lm_flow
+  (one LSD step), mimi_decoder (56 state slots). Per mini-chunk: fresh flow_lm
+  state from the voice prompt, AR frames at 12.5 Hz, each latent frame decoded
+  into 1920 samples. What #15 changed, and why (results lab
+  `tts-training-research/pocket-speed-lab.html`, Pixel 6a):
+  - **State is carried, never copied** (`PocketStateCarry`): a run's output
+    tensors are the next run's inputs, and the `Result` owning them closes once
+    nothing references it. ORT 1.26's `OnnxTensor.getFloatBuffer()` allocates a
+    heap array and copies; the old path did that for the 49 MB of KV caches twice
+    per AR frame (1.5 s per frame on the 6a). Init states (`flowInitStates`,
+    `mimiState`) are only read, never refilled: refilling the decoder's slots one
+    value at a time cost ~0.95 s per sentence. ORT never writes a graph input.
+  - **The voice prompt runs once per voice** (`voicePrompt`, "C"): phase 1 has
+    no randomness, so later chunks start from its cached state frame. It holds
+    ~49 MB native while the engine is loaded (the 1000-row cache; ~22 MB at
+    448 rows with "F"), freed by `release()` (residency evicts idle engines)
+    and on deleting that cloned voice. Dropping it after every request was
+    measured on the 6a and rejected: first sound +190 ms, CPU +10%, and idle
+    PSS no lower (799 vs 774 MB, mean of 2: the native heap keeps the freed
+    memory and re-running phase 1 grows it).
+  - **Decode batches of at most 46 frames are exact** (`PocketMimiBatch`, "D"):
+    the export bakes mimi's attention ring at 1000 slots, and the decoder writes
+    16 steps per latent frame with a 250-step lookback, so a batch B is exact
+    iff `16·B + 249 ≤ capacity`. Larger batches overwrite keys still needed and
+    corrupt early frames SILENTLY (the old P-AL 64-frame re-decode garbled
+    frames 8–32 of long sentences; probably the old "distorted word" reports).
+  - **Streamed render** (`streamChunks`, "E"): frames go to the decoder in
+    slices while the AR loop runs; by default the decoder runs on its own
+    coroutine (`pocket.stream=inline` decodes on the AR thread). The decoder's
+    job queue holds 2 slices (`DECODE_QUEUE`), so when the Narrator's
+    read-ahead permit closes the AR loop stops too: past it the engine renders
+    at most `ENGINE_AHEAD_CHUNKS` (8, now counting slices) + 4 slices, about
+    30 s or 6 sentences of long text on the 6a (an unlimited queue rendered
+    the whole segment). Slices are
+    cut by deadline (`PocketSliceClock`): the first at 6 frames, each later
+    one when waiting one more frame would let playback run dry (min 4 frames,
+    max the exact batch). Fixed doubling slices (6/12/24/46) stalled in 13
+    of 14 sentences at RTF 0.63, and a length-estimated hold only halved
+    that (sentence lengths are only known to ±15%). A first-sound hold
+    (`PocketStreamPlan.holdMs`, capped 3 s) is only set when the render
+    can't keep up (slow phone, high speed); the decoder's cost per slice is
+    fitted live (`PocketDecodeCost`, ~60 ms + 24 ms/frame on the 6a; no line
+    until sizes span 8 frames, or a 6- and a 7-frame slice tilt it to ~0 ms).
+  - **Decode safety factor** ("G", `PocketSliceClock.DECODE_SAFETY` = 3): the
+    deadline assumes a slice may take 3× its usual decode. A screen-off app
+    (even a foreground service) is in the `foreground` cpuset, cores 0–5 on
+    the 6a: no big cores. The AR loop and the decoder each keep a mid core
+    busy, and now and then the scheduler parks the decoder on a little core
+    for seconds (2.4–5.5× slower slices, ~1 in 50). With the bare estimate
+    70 of 91 slices arrived with < 0.5 s of audio left; with 3×: pauses
+    1.3 s → 0 per 3-paragraph run, 0.44 s → 0.01 s per 14 sentences, same
+    RTF, +3% CPU, audio within 1 LSB. Per-thread cores: `ps -T -p <pid> -o
+    TID,PSR,TIME+` (`~/coding/scratch/pocket-speed/psr.sh`).
+  - **Threads** ("B", `PocketSessionPlan`): the flow head and the decoder get
+    half the threads (at least 2): with the decoder alongside the AR loop, two
+    full pools oversubscribed the 6a (2 decoder threads: same RTF, −11% CPU,
+    audio within 1 LSB). XNNPACK stays on everywhere (off: −4% RTF, +10% CPU);
+    intra-op spinning stays off (on: RTF 0.61 → 0.84, CPU ×2.4, because
+    spinning threads starve the decoder running alongside).
+  - **Symbolic cache axes** ("F", `PocketCacheShapes`): if a bundle ships
+    `*_dyncache` graphs (cache axis −1 in the declared shape), flow_lm's caches
+    are sized per voice (`roundUp64(promptRows + tokens + maxFrames)`, ≤ 1000)
+    and mimi's ring at 320 (batch ≤ 4). The published bundle doesn't have them.
+  - Debug knobs (`EngineDevKnobs`): `pocket.xnnpack`, `pocket.spin`,
+    `pocket.<text|enc|dec|main|flow>.threads` (`PocketSessionPlan`),
+    `pocket.stream=inline`, `pocket.decode=<frames>`, `pocket.decodeSafety`, `pocket.seed` (bit-exact
+    A/B), `pocket.ortProfile=<requests>`, `pocket.file.<graph>` (sideloaded
+    graph), `pocket.cacheLen`, `pocket.mimiCap`. Logcat `StreamPerf`: per chunk
+    `pocket chunk=i prof …` (AR split main/state/flow) and `… decode=…`, per
+    slice `pocket slice …`, per request `pocket hold=…`. Bench driver and
+    analysis scripts: `~/coding/scratch/pocket-speed/`.
 - `engine/SherpaEngine.kt` — abstract base (loadLock, ensureModelLoaded,
   synthesize, release, floatToPcm16, sampleRate)
 - `engine/KittenEngine.kt`, `engine/KokoroEngine.kt` — subclasses,
@@ -798,8 +871,10 @@ write Marmalade code.
   (cancelled)`). Without it the abandoned chunk ran to completion under
   synthLock and the service's synth mutex, and a reader tap paid for it.
   A new ORT engine should route its runs through it too, consuming and
-  closing the `Result` inside the block. Pocket needs none: its runs are
-  short autoregressive steps with an `ensureActive` between them.
+  closing the `Result` inside the block. Pocket doesn't use it: its AR
+  steps are short with an `ensureActive` between them, but a cancelled
+  render still waits for a decoder slice in flight (up to ~1 s for a
+  46-frame slice on a 6a) before releasing `synthLock`.
 - **User `speed` is a time-stretch, not a model parameter**: Pocket's
   ONNX graphs are autoregressive with no speed input, and Kokoro's and
   Kitten's `speed` tensors saturate (Kokoro ~2.2x for a requested 3.0x;
