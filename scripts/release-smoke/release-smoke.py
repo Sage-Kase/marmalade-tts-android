@@ -31,18 +31,20 @@ PROBE = f"{PROBE_PKG}/.SmokeProbe"
 PROBE_APK = HERE / "build" / "probe.apk"
 
 # Engines a release must be able to speak with (names from the *VoiceCatalog
-# ENGINE constants). One missing from the phone is a FAIL, not a skip: a gate
-# that passes because an engine isn't installed proves nothing.
-EXPECTED_ENGINES = {
-    "fdroid": ["kitten-direct-v0_8", "kokoro-direct-v1_0", "kokoro-de-v1_0",
-               "pocket-tts-en-v2026_04", "vits-marmalade-v1"],
-    # Play hides fdroidOnly engines (Pocket); see EngineCatalog.visibleTo.
-    "play": ["kitten-direct-v0_8", "kokoro-direct-v1_0", "kokoro-de-v1_0",
-             "vits-marmalade-v1"],
-}
+# ENGINE constants), in both flavors: only the developer-only Pocket twin is
+# fdroidOnly, and system TTS never offers developer engines. One missing from
+# the phone is a FAIL, not a skip: a gate that passes because an engine isn't
+# installed proves nothing.
+EXPECTED_ENGINES = ["kitten-direct-v0_8", "kokoro-direct-v1_0", "kokoro-de-v1_0",
+                    "pocket-tts-en-v2026_04", "vits-marmalade-v1"]
 # Advertised but not spoken by the gate: needs a network and an API key.
 SKIPPED_ENGINES = {"cloud-api-v1": "cloud voices need a network and a key"}
 VITS_ENGINE = "vits-marmalade-v1"
+# Request languages (ISO 639-2) for an engine's accented tier
+# (EngineCatalog partialLanguageCodes): no voice of its own, so the gate
+# reaches it the way a client does, with that request language on one of the
+# engine's voices. Its sentence is `accented:<code>` in sentences.tsv.
+ISO3 = {"de": "deu", "bg": "bul"}
 
 # A row's audio must be at least this loud (RMS, dBFS) to count as speech.
 MIN_RMS_DB = -50.0
@@ -70,6 +72,7 @@ class Row:
     engine: str
     locale: str
     voice: str
+    request_lang: str | None = None  # an accented-tier row's language
     bundle: str = "?"
     result: str = "FAIL"
     reasons: list[str] = field(default_factory=list)
@@ -187,11 +190,41 @@ def install(phone: Phone, apk: Path, backup_root: Path) -> str:
     return pkg
 
 
-def probe(phone: Phone, **extras: str) -> dict[str, str]:
+def probe(phone: Phone, watch: str | None = None, since: str = "", start_pids: frozenset[str] = frozenset(),
+          **extras: str) -> dict[str, str]:
+    """Run the probe once. With [watch], a crash of that package (its fatal
+    exception logged since [since]) or a death or restart of its process ends
+    the row at once instead of after the probe's own timeout. [start_pids] is
+    the process seen before the row; without it the first one seen counts."""
     args = []
     for k, v in extras.items():
         args += ["-e", k, v]
-    out = phone.sh("am instrument -w " + " ".join(args) + f" {PROBE}", check=False, timeout=ROW_TIMEOUT_S)
+    p = subprocess.Popen(["adb", "-s", phone.serial, "shell", "am instrument -w " + " ".join(args) + f" {PROBE}"],
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    deadline, pid = time.monotonic() + ROW_TIMEOUT_S, min(start_pids, default=None)
+    while True:
+        try:
+            out, _ = p.communicate(timeout=0.5)
+            break
+        except subprocess.TimeoutExpired:
+            pass
+        failure = None
+        if time.monotonic() > deadline:
+            failure = f"no result in {ROW_TIMEOUT_S} s"
+        elif watch:
+            now = sorted(phone.pids(watch))
+            crash = phone.adb("logcat", "-d", "-T", since, "-s", "AndroidRuntime:E", check=False)
+            if f"Process: {watch}," in crash:
+                failure = "app crashed mid-row"
+            elif pid is None:
+                pid = now[0] if now else None
+            elif pid not in now:
+                failure = f"app process {pid} died mid-row"
+        if failure:
+            p.kill()
+            p.communicate()
+            phone.sh(f"am force-stop {PROBE_PKG}", check=False)
+            return {"status": "error", "error": failure}
     res: dict[str, str] = {}
     for line in out.splitlines():
         if line.startswith("INSTRUMENTATION_RESULT: ") and "=" in line:
@@ -211,23 +244,71 @@ def load_sentences() -> dict[str, str]:
     return out
 
 
-def catalog_bundles() -> dict[str, str]:
-    """engine name → the bundle release its catalog entry downloads (e.g. 'v23'), read from source."""
+def read_catalog() -> tuple[dict[str, str], dict[str, list[str]]]:
+    """From EngineCatalog.kt: engine name → the bundle release its catalog entry
+    downloads (e.g. 'v23'), and engine name → its accented-tier language codes."""
     src = (REPO / "app/src/main/java/app/marmalade/tts/install/EngineCatalog.kt").read_text()
-    out = {}
+    out, partial = {}, {}
     for m in re.finditer(r'name = "([\w.-]+)",(.*?)(?=\n\s+name = |\Z)', src, re.S):
         v = re.search(r"releases/download/(v\d+)/", m.group(2))
         if v:
             out.setdefault(m.group(1), v.group(1))
+        codes = re.search(r"partialLanguageCodes = listOf\(([^)]*)\)", m.group(2))
+        if codes:
+            partial.setdefault(m.group(1), re.findall(r'"([\w-]+)"', codes.group(1)))
     packs = (REPO / "app/src/main/java/app/marmalade/tts/install/VoicePackCatalog.kt").read_text()
     v = re.search(r"PACK_RELEASE_BASE_URL[^=]*=\s*\"[^\"]*/(v\d+)\"", packs)
     if v:
         out[VITS_ENGINE] = v.group(1)
-    return out
+    return out, partial
 
 
-def pick_rows(voices: list[tuple[str, str]], all_voices: bool) -> list[Row]:
-    """One voice per (engine, locale) — per VITS pack, since each pack is its own model — or every voice."""
+class LangDetector:
+    """The app's utterance language detector (lang/LangDetector.kt), reading the
+    same langdetect.tab. A Kokoro voice phonemizes in the DETECTED language and
+    only falls back to the request language when detection abstains, so an
+    accented row's sentence must make it abstain or the row never reaches the
+    accented tier. Script stage reduced to "kana, Han or Devanagari wins"."""
+
+    MIN_TRIGRAMS, SHORT_TRIGRAMS, MIN_MARGIN, SHORT_MARGIN = 8, 24, 2.0, 8.0
+
+    def __init__(self, table: Path):
+        lines = table.read_text(encoding="utf-8").splitlines()
+        self.langs = lines[1].split()
+        self.floor = [int(x) for x in lines[3].split()]
+        keys = lines[4].replace("_", " ")
+        self.costs = base64.b64decode(lines[5])
+        n = len(self.langs)
+        self.offsets = {keys[i * 3:i * 3 + 3]: i * n for i in range(len(keys) // 3)}
+
+    def detect(self, text: str) -> str | None:
+        script = sum(1 for c in text if "\u3040" <= c <= "\u30ff" or "\u4e00" <= c <= "\u9fff"
+                     or "\u0900" <= c <= "\u097f")
+        letters = sum(1 for c in text if c.isalpha())
+        if script and script >= letters - script:
+            return "ja/zh/hi"
+        norm = " ".join("".join(c if c.isalpha() else " " for c in text.lower()).split())
+        if not norm:
+            return None
+        padded, n = f" {norm} ", len(self.langs)
+        n_tri = len(padded) - 2
+        if n_tri < self.MIN_TRIGRAMS:
+            return None
+        totals = [0] * n
+        for t in range(n_tri):
+            at = self.offsets.get(padded[t:t + 3])
+            for li in range(n):
+                totals[li] += self.floor[li] if at is None else self.costs[at + li]
+        order = sorted(range(n), key=lambda li: (totals[li], li))
+        best, second = order[0], order[1]
+        frac = max(0.0, (self.SHORT_TRIGRAMS - n_tri) / (self.SHORT_TRIGRAMS - self.MIN_TRIGRAMS))
+        need = self.MIN_MARGIN + (self.SHORT_MARGIN - self.MIN_MARGIN) * frac
+        return None if (totals[second] - totals[best]) / n_tri < need else self.langs[best]
+
+
+def pick_rows(voices: list[tuple[str, str]], all_voices: bool, partial: dict[str, list[str]]) -> list[Row]:
+    """One voice per (engine, locale) — per VITS pack, since each pack is its own model — or every
+    voice; then one row per accented-tier language, on the engine's first voice."""
     rows, seen = [], set()
     for name, locale in sorted(voices):
         engine = name.split(":", 1)[0]
@@ -238,6 +319,10 @@ def pick_rows(voices: list[tuple[str, str]], all_voices: bool) -> list[Row]:
             continue
         seen.add(key)
         rows.append(Row(engine=engine, locale=locale, voice=name))
+    for engine, codes in partial.items():
+        first = next((r.voice for r in rows if r.engine == engine), None)
+        rows += [Row(engine=engine, locale=f"{c} (accented)", voice=first, request_lang=c)
+                 for c in codes if first]
     return rows
 
 
@@ -277,7 +362,7 @@ def judge(row: Row, res: dict[str, str], text: str, rate: float) -> None:
     samples = int(res.get("samples", 0))
     row.duration_s = int(res.get("durationMs", 0)) / 1000
     row.rms_db = float(res.get("rmsDb", -120))
-    lang = row.locale.split("-")[0]
+    lang = row.request_lang or row.locale.split("-")[0]
     nominal = len(text) * SEC_PER_CHAR.get(lang, SEC_PER_CHAR_DEFAULT) / rate
     if samples == 0:
         row.reasons.append("no audio")
@@ -309,7 +394,6 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--apk", type=Path, help="install this build first (adb install -r); default: test what's installed")
     ap.add_argument("--package", default="app.marmalade.tts.rc", help="app under test (default: the R8 smoke build)")
-    ap.add_argument("--flavor", choices=EXPECTED_ENGINES, default="fdroid", help="which engines must be there")
     ap.add_argument("--serial", help="adb serial (default: $ANDROID_SERIAL, else the connected --model)")
     ap.add_argument("--model", default="Pixel 6a", help="refuse any phone but this model (default: Pixel 6a)")
     ap.add_argument("--all-voices", action="store_true", help="speak every advertised voice, not one per language")
@@ -322,7 +406,8 @@ def main() -> int:
     a = ap.parse_args()
 
     sentences = load_sentences()
-    bundles = catalog_bundles()
+    bundles, partial = read_catalog()
+    detector = LangDetector(REPO / "app/src/main/assets/langdetect.tab")
     allow = load_allowlist()
     out = a.out or REPO / "build" / "release-smoke" / time.strftime("%Y-%m-%d-%H%M%S")
     (out / "wav").mkdir(parents=True, exist_ok=True)
@@ -347,22 +432,35 @@ def main() -> int:
     if listed.get("status") != "ok":
         die(f"can't list {pkg}'s voices: {listed.get('error')}")
     voices = [tuple(v.split(",", 1)) for v in listed.get("voices", "").split(";") if "," in v]
-    rows = pick_rows(voices, a.all_voices)
+    rows = pick_rows(voices, a.all_voices, partial)
     advertised = {r.engine for r in rows}
     missing = [Row(engine=e, locale="-", voice="-", reasons=["engine not installed on the phone"])
-               for e in EXPECTED_ENGINES[a.flavor] if e not in advertised]
+               for e in EXPECTED_ENGINES if e not in advertised]
 
     for i, row in enumerate(rows, 1):
         row.bundle = bundles.get(row.engine, "?")
-        text = sentences.get(row.locale.split("-")[0])
+        key = f"accented:{row.request_lang}" if row.request_lang else row.locale.split("-")[0]
+        text = sentences.get(key)
         if text is None:
-            row.reasons.append(f"no sentence for {row.locale} in sentences.tsv")
+            row.reasons.append(f"no `{key}` line in sentences.tsv")
             continue
-        tag = re.sub(r"[^\w.-]", "_", f"{i:02d}-{row.voice}")
+        extra = {}
+        if row.request_lang:
+            if row.request_lang not in ISO3:
+                row.reasons.append(f"no ISO 639-2 code for {row.request_lang} in ISO3")
+                continue
+            seen = detector.detect(text)
+            if seen is not None:
+                row.reasons.append(f"the app's language detector reads the `{key}` line as {seen}, so the "
+                                   f"row would never reach the accented tier: pick a line it abstains on")
+                continue
+            extra["lang"] = ISO3[row.request_lang]
+        tag = re.sub(r"[^\w.-]", "_", f"{i:02d}-{row.voice}" + (f"-{row.request_lang}" if row.request_lang else ""))
         print(f"[{i}/{len(rows)}] {row.voice} ({row.locale}) …", flush=True)
         since, pids = phone.now(), phone.pids(pkg)
-        res = probe(phone, engine=pkg, mode="speak", voice=row.voice,
-                    text64=base64.b64encode(text.encode()).decode(), out=tag)
+        res = probe(phone, watch=pkg, since=since, start_pids=frozenset(pids),
+                    engine=pkg, mode="speak", voice=row.voice,
+                    text64=base64.b64encode(text.encode()).decode(), out=tag, **extra)
         time.sleep(0.5)  # let the app's last log lines land
         judge(row, res, text, rate)
         row.exceptions = app_exceptions(phone, pkg, since, pids | phone.pids(pkg), allow)

@@ -25,14 +25,22 @@ device shows: JNI, missing assets, classes R8 stripped.
    (per voice pack for VITS; `--all-voices` for every voice). It renders that
    language's line from `sentences.tsv` to a WAV on the phone. Nothing is
    played.
+   Kokoro's accented tier (German and Bulgarian, `partialLanguageCodes` in
+   `EngineCatalog`) has no voice of its own. The gate reaches it the way a
+   client does: a Kokoro voice plus that request language (`deu`, `bul`).
+   Kokoro uses the request language only when its language detector abstains
+   on the text, so those rows' `accented:<code>` sentences must make it abstain.
+   The gate checks that with the app's own `langdetect.tab` and fails the row
+   if not. Most German prose reads as English or French to the detector.
 5. A row passes when audio came out (samples, a plausible length for the
    sentence, not silence) and the app's process logged no error or exception
    while rendering it. The length check divides by the phone's system
    speech rate (Settings → Text-to-speech → Speech rate), which Android
    applies over any rate a client asks for; the gate reads it and never
-   changes it. An engine the flavor should have that the phone doesn't
-   advertise is a FAIL row, not a skip. Cloud voices are skipped (network
-   + key).
+   changes it. If the app's process dies or restarts during a row, that row
+   fails at once and the run carries on. An expected engine that the phone
+   doesn't advertise is a FAIL row, not a skip. Cloud voices are skipped
+   (network + key).
 6. Prints a pass/fail table and exits 1 on any failure (2 on a setup error).
    Results (`table.md`, `results.json`, the WAVs) go to
    `build/release-smoke/<time>/`.
@@ -51,9 +59,10 @@ scripts/release-smoke/release-smoke.py \
 ```
 
 Without `--apk` it tests what is already installed (`--package`, default
-`app.marmalade.tts.rc`). `--flavor play` expects the Play engine set (no
-Pocket); the Play and F-Droid rc builds share the rc package, so test one at a
-time.
+`app.marmalade.tts.rc`). Both flavors offer the same engines to system TTS, so
+the same command tests a Play build (`assemblePlayRelease -PsmokeRelease`,
+`app-play-release.apk`); the Play and F-Droid rc builds share the rc package,
+so test one at a time.
 
 ## One-time phone setup
 
@@ -77,5 +86,3 @@ built in). `adb install -r` keeps them across later builds.
 
 - How the audio sounds. Ear tests stay manual (`docs/release/device-test-lab.html`).
 - Developer-only engines: system TTS never offers them to other apps.
-- Kokoro's accented German and Bulgarian: only an alias set to that
-  language reaches them, and system TTS can't pick one.
