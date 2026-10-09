@@ -21,11 +21,20 @@ object PocketSessionPlan {
 
     val GRAPHS = listOf("text", "enc", "dec", "main", "flow")
 
+    /**
+     * Graphs that get half the threads (at least 2): the flow head is a
+     * small matmul (P-Q), and the decoder runs alongside the AR loop, so
+     * full pools for both oversubscribe the cores. On the Pixel 6a (#15
+     * "B") 2 decoder threads instead of 4 rendered at the same speed (RTF
+     * 0.613 vs 0.611) with 11% less CPU, audio within 1 LSB.
+     */
+    private val HALF_THREADS = setOf("flow", "dec")
+
     fun resolve(threads: Int, knob: (String) -> String?): Map<String, PocketGraphConfig> {
         val xnnpack = graphSet(knob("pocket.xnnpack"), default = GRAPHS.toSet())
         val spin = graphSet(knob("pocket.spin"), default = emptySet())
         return GRAPHS.associateWith { g ->
-            val defaultThreads = if (g == "flow") (threads / 2).coerceAtLeast(2) else threads
+            val defaultThreads = if (g in HALF_THREADS) (threads / 2).coerceAtLeast(2) else threads
             PocketGraphConfig(
                 threads = knob("pocket.$g.threads")?.toIntOrNull()?.takeIf { it > 0 } ?: defaultThreads,
                 xnnpack = g in xnnpack,

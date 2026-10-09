@@ -334,10 +334,9 @@ open class PocketEngine @Inject constructor(
         // handles each.
         // Users can override via Settings → Performance → Thread count.
         Log.i(TAG, "ORT intraOpNumThreads=$intraOpThreads (manual setting or autodetect)")
-        // P-Q: flow_lm_flow is a 1-frame Euler net — over-parallelising it
-        // wakes the whole pool just to do a small matmul, so it gets half
-        // the threads (at least 2). Per-graph settings and their debug A/B
-        // knobs: [PocketSessionPlan].
+        // flow_lm_flow (a small matmul, P-Q) and mimi_decoder (running
+        // alongside the AR loop, #15) get half the threads, at least 2.
+        // Per-graph settings and their debug A/B knobs: [PocketSessionPlan].
         val knob = { key: String -> EngineDevKnobs.get(ctx.filesDir, key) }
         val plan = PocketSessionPlan.resolve(intraOpThreads, knob)
         profileRequestsLeft = knob("pocket.ortProfile")?.toIntOrNull() ?: 0
