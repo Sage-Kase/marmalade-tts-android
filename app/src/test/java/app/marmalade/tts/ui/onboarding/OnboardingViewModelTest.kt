@@ -375,19 +375,35 @@ class OnboardingViewModelTest {
     }
 
     @Test
-    fun fastDeviceLabelsKokoroWithoutMovingTheCards() = runTest {
-        val vm = newViewModel(
-            deviceProbe = FakeDeviceProbe(
-                DeviceProbe(measuredKittenRtf = 0.28, computeScore = 12.39),
-            ),
-        )
+    fun fastDeviceLabelsPocketOrOnPlayKokoroWithoutMovingTheCards() = runTest {
+        val vm = newViewModel(deviceProbe = FakeDeviceProbe(FAST_PHONE))
 
         val cards = vm.engines.first { cards -> cards.any { it.fit != null } }
 
         // The verdict moves the pill, never the cards: catalog order holds.
         assertEquals(CATALOG_CARDS, cards.map { it.descriptor.name })
-        assertEquals(EngineFit.RECOMMENDED, cards.first { it.descriptor.name == KOKORO }.fit)
+        // Issue #19: Pocket where the build offers it, Kokoro on Play.
+        val expected = if (BuildConfig.FLAVOR == "play") KOKORO else POCKET
+        assertEquals(
+            listOf(expected),
+            cards.filter { it.fit == EngineFit.RECOMMENDED }.map { it.descriptor.name },
+        )
         assertEquals(EngineFit.FINE, cards.first { it.descriptor.name == KITTEN }.fit)
+    }
+
+    @Test
+    fun aFreshAliasDefaultsToTheRecommendedEngineWhenInstalled() = runTest {
+        val vm = newViewModel(
+            installer = DiskInstaller(engines = setOf(KITTEN, KOKORO, POCKET), packs = emptySet()),
+            deviceProbe = FakeDeviceProbe(FAST_PHONE),
+        )
+        val rec = vm.recommendation.first { it != null }!!
+
+        vm.seedAliasDefaults()
+
+        val engine = vm.aliasEditorState.first { it.engine.isNotEmpty() }.engine
+        assertEquals(rec.recommended, engine)
+        assertEquals(if (BuildConfig.FLAVOR == "play") KOKORO else POCKET, engine)
     }
 
     @Test
@@ -489,6 +505,9 @@ class OnboardingViewModelTest {
     }
 
     private companion object {
+        /** Renders Pocket and Kokoro comfortably (twice the Pixel 6a reference). */
+        val FAST_PHONE = DeviceProbe(measuredKittenRtf = 0.13, computeScore = 20.0)
+
         const val KITTEN = KittenDirectVoiceCatalog.ENGINE
         const val KOKORO = KokoroDirectVoiceCatalog.ENGINE
         const val KOKORO_DE = KokoroGermanVoiceCatalog.ENGINE
