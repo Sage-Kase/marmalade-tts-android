@@ -782,6 +782,9 @@ open class PocketEngine @Inject constructor(
         var lastFrameNs = 0L
         var firstFrameNs = 0L
         var stepsTimed = 0
+        // Chunk 0's voice prompt (phase 1) when it wasn't cached: later chunks
+        // never pay it, so the hold's per-chunk prefill leaves it out.
+        var chunk0PromptMs = 0L
         // Until a slice has been decoded, assume decoding costs what the AR step does.
         val decodeMs = { n: Int -> if (decodeCost.isEmpty) n * arMs else decodeCost.ms(n) }
         val clock = PocketSliceClock(decodeBatch, playedFrameMs, decodeMs, overlap, decodeSafety)
@@ -799,7 +802,11 @@ open class PocketEngine @Inject constructor(
                     val est = (tokens * framesPerToken).toInt()
                     if (i == 0) maxOf(est, chunk0Frames + 1) else est
                 }
-                val prefillMs = (firstFrameNs - job.chunkStartNs) / 1e6 - arMs
+                // arMs, firstFrameNs, chunk0Frames and chunk0PromptMs are the AR
+                // thread's, read here unsynchronised: all were written before
+                // this slice was submitted, and a stale arMs only skews one
+                // estimate (benign).
+                val prefillMs = (firstFrameNs - job.chunkStartNs) / 1e6 - arMs - chunk0PromptMs
                 val holdMs = PocketStreamPlan.holdMs(
                     estFrames, decodeBatch, arMs, prefillMs, decodeMs, overlap, playedFrameMs, decodeSafety,
                 ).coerceAtMost(STREAM_HOLD_CAP_MS)
@@ -862,7 +869,8 @@ open class PocketEngine @Inject constructor(
                     val index = if (n > 0) clock.submitted(n, System.nanoTime() / 1e6).first else -1
                     submit(DecodeJob(idx, slice++, index, flat, n, last, chunkStartNs, if (last) chunkFrames else 0))
                 }
-                generateChunkLatents(bundle, voiceEmb, miniChunk, idx) { latent ->
+                val onPrompt = { ms: Long -> if (idx == 0) chunk0PromptMs = ms }
+                generateChunkLatents(bundle, voiceEmb, miniChunk, idx, onPrompt) { latent ->
                     val nowNs = System.nanoTime()
                     if (chunkFrames > 0) {
                         val interval = (nowNs - lastFrameNs) / 1e6
@@ -899,6 +907,8 @@ open class PocketEngine @Inject constructor(
         voiceEmb: FloatArray,
         miniChunk: String,
         chunkIdx: Int,
+        /** Time spent running the voice prompt (0 when cached). */
+        onPrompt: (Long) -> Unit,
         onLatent: suspend (FloatArray) -> Unit,
     ) {
         val tokenizer = tokenizer ?: error("tokenizer missing")
@@ -919,6 +929,8 @@ open class PocketEngine @Inject constructor(
         for (p in phases) {
             Log.d(PERF_TAG, "pocket chunk=$chunkIdx prefill ${p.name}=${p.ms}ms${p.detail?.let { " ($it)" } ?: ""}")
         }
+        val prompt = phases.first()
+        onPrompt(if (prompt.detail == "cached") 0L else prompt.ms)
         try {
             arLoop(ar, miniChunk, chunkIdx, onLatent)
         } finally {
