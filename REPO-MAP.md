@@ -221,8 +221,9 @@ When investigating **{concern}**, start at **{files}**:
     ~half of ALBERT's time.
   - **An English-only student** (#14's 4-layer width-256 encoder with a
     512-wide output, distilled from Kokoro's ALBERT on half #14's corpus):
-    within the X2 lines on English (0.14 frames/token, 3.6 Hz, WER equal),
-    NOT on ja/zh, so other languages keep ALBERT. On the 6a ALBERT alone is
+    within the X2 lines on English (0.14 frames/token, 3.6 Hz, WER equal;
+    a width-192, 2.0M version passes too, 0.16 / 3.9 Hz, but saves only
+    ~14 ms more), NOT on ja/zh, so other languages keep ALBERT. On the 6a ALBERT alone is
     645 ms at 240 tokens, the student 40 ms; the planner with it 245/645 ms
     at 80/240 tokens (today's 433/1244).
   - Every lighter planner (int8 or student ALBERT) on the 6a sometimes
