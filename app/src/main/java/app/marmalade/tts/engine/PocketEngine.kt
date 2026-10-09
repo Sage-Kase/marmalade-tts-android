@@ -22,7 +22,6 @@ import app.marmalade.tts.engine.pocket.PocketTokenizer
 import app.marmalade.tts.engine.pocket.bindStateInputs
 import app.marmalade.tts.engine.pocket.enableStatePinning
 import app.marmalade.tts.engine.pocket.initStates
-import app.marmalade.tts.engine.pocket.PocketStatesSnapshot
 import app.marmalade.tts.engine.pocket.PocketCacheShapes
 import app.marmalade.tts.engine.pocket.PocketMimiBatch
 import app.marmalade.tts.engine.pocket.PocketDecodeCost
@@ -33,8 +32,6 @@ import app.marmalade.tts.engine.pocket.PocketStateCarry
 import app.marmalade.tts.engine.pocket.StateFrame
 import app.marmalade.tts.engine.pocket.PocketTimes
 import app.marmalade.tts.engine.pocket.resetStatesToInit
-import app.marmalade.tts.engine.pocket.restoreStates
-import app.marmalade.tts.engine.pocket.snapshotStates
 import app.marmalade.tts.engine.pocket.updateStatesFromResult
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
@@ -244,11 +241,10 @@ open class PocketEngine @Inject constructor(
     /**
      * Latent frames per mimi_decoder run (#15 "D"): consecutive batches no
      * larger than [PocketMimiBatch.maxExactBatch], so every frame decodes
-     * exactly as it would alone. Debug knob `pocket.decode` = a frame count,
-     * or `pal` for the old lead-in + 64-frame re-decode (inexact) to A/B.
+     * exactly as it would alone. Debug knob `pocket.decode` = a smaller
+     * frame count.
      */
     private var decodeBatch = 0
-    private var decodePal = false
 
     /**
      * #15 "E": decode and send audio in slices while the AR loop runs
@@ -412,7 +408,6 @@ open class PocketEngine @Inject constructor(
             else -> STREAM_OFF
         }
         val decodeKnob = knob("pocket.decode")
-        decodePal = decodeKnob == "pal"
 
         val files = bundle!!.onnxFiles
         Log.i(TAG, "Loading Pocket bundle (quantization=${bundle!!.quantizationVariant}): " +
@@ -423,7 +418,7 @@ open class PocketEngine @Inject constructor(
             "$g=${c.threads}t${if (c.xnnpack) "+xnn" else ""}${if (c.spin) "+spin" else ""}"
         } + (if (profileDir != null) " ortProfile=$profileRequestsLeft" else "") +
             (seed?.let { " seed=$it" } ?: "") + " carry=${if (zeroCopyState) "zero" else "copy"}" +
-            " voiceCache=$voicePromptCache decode=${if (decodePal) "pal" else "$decodeBatch"} stream=$streamMode" +
+            " voiceCache=$voicePromptCache decode=$decodeBatch stream=$streamMode" +
             " cacheLen=${flowCacheLenKnob ?: if (flowCacheDynamic) "per-voice" else "1000"}" +
             " mimiCap=${PocketMimiBatch.ringCapacity(mimiManifest)}")
         fun session(graph: String, fileName: String): OrtSession {
@@ -810,7 +805,7 @@ open class PocketEngine @Inject constructor(
             // Under the lock: a first-use voice encodes through mimi_encoder.
             val voiceEmb = embeddingForVoice(voiceName)
             seed?.let { random.setSeed(it) }
-            if (streamMode != STREAM_OFF && !decodePal) {
+            if (streamMode != STREAM_OFF) {
                 streamChunks(this@channelFlow, bundle, voiceEmb, miniChunks, playbackRate, streamStartNs, loadWaitMs)
                 if (profileRequestsLeft > 0 && --profileRequestsLeft == 0) endOrtProfiling()
                 return@coroutineScope
@@ -834,9 +829,8 @@ open class PocketEngine @Inject constructor(
             // below) — P-AE's attempt to carry mimi state across chunks for a
             // "continuous trajectory" was reverted as confounded by silent
             // chunk boundaries, so each chunk decodes from a cold codec state.
-            // Within a chunk, P-AL's overlap-discard decode snapshots/restores
-            // this state. Decodes are serialised through pendingDecode's await,
-            // so concurrent mutation is impossible.
+            // Decodes are serialised through pendingDecode's await, so
+            // concurrent mutation is impossible.
             val mimiState = this@PocketEngine.mimiState
                 ?: error("mimi state missing — engine not loaded?")
             resetStatesToInit(mimiState, bundle.mimiStateManifest)
@@ -1294,11 +1288,10 @@ open class PocketEngine @Inject constructor(
         if (latents == null || latents.isEmpty()) {
             return SynthAudio(pcm = ShortArray(0), sampleRate = bundle.sampleRate)
         }
-        // The chunk-start "distorted first word" artifact is handled inside
-        // [runMimiDecoder] by the P-AI graduated decode window (decode the
-        // first few latent frames one at a time, the rest batched). No
-        // warm-prime / trim / fade is needed here — the root cause was the
-        // batched mimi graph corrupting a fresh decode's leading edge.
+        // The chunk-start "distorted first word" artifact was the decoder's
+        // ring buffer overflowing in big batches; [runMimiDecoder]'s exact
+        // batches ([PocketMimiBatch]) never overflow it, so no warm-prime /
+        // trim / fade is needed here.
         val times = PocketTimes()
         val startNs = System.nanoTime()
         val pcmFloat = runMimiDecoder(bundle, latents, mimiState, times)
@@ -2393,72 +2386,19 @@ open class PocketEngine @Inject constructor(
         val pcm = FloatArray(numFrames * spf)
         times?.decodedFrames = numFrames
 
-        // P-AL segmented overlap-discard (see [MIMI_OVERLAP_FRAMES]). Walk the
-        // chunk in MIMI_CHUNK_FRAMES batches; for each, per-frame-decode the
-        // first `overlap` frames (kept, clean, advances state), snapshot at the
-        // batch start, then re-decode the whole batch from that snapshot and
-        // keep only the interior — so no emitted frame sits on a batch's
-        // corrupt leading edge.
-        val overlap = MIMI_OVERLAP_FRAMES
-        val batch = MIMI_CHUNK_FRAMES
-        val one = FloatArray(dim)
-        // Zero-copy (#15 "A"): [mimiState] is only the init source, never
-        // written; the P-AL rewind point is a shared frame, not a copy.
+        // Zero-copy (#15 "A"): [mimiState] is only the init source, never written.
         val carry = if (zeroCopyState) {
             PocketStateCarry(PocketStateCarry.bindSlots(env ?: error("ORT env missing"), bundle.mimiStateManifest, mimiState))
         } else {
             null
         }
-
         try {
-            if (!decodePal) {
-                // #15 "D": consecutive exact batches, nothing decoded twice.
-                for (range in PocketMimiBatch.batches(numFrames, decodeBatch)) {
-                    val n = range.last - range.first + 1
-                    val part = latents.copyOfRange(range.first * dim, (range.last + 1) * dim)
-                    val out = decodeMimiChunk(bundle, part, n, mimiState, carry, times)
-                    System.arraycopy(out, 0, pcm, range.first * spf, out.size)
-                }
-                return pcm
-            }
-            var pos = 0
-            while (pos < numFrames) {
-                // Snapshot state as-of `pos`, then per-frame-decode the lead-in.
-                val snapStartNs = System.nanoTime()
-                val frame = carry?.snapshot()
-                val snapshot: PocketStatesSnapshot? = if (carry == null) snapshotStates(mimiState) else null
-                times?.let { it.decodeStateNs += System.nanoTime() - snapStartNs }
-                try {
-                    val leadEnd = minOf(pos + overlap, numFrames)
-                    for (f in pos until leadEnd) {
-                        System.arraycopy(latents, f * dim, one, 0, dim)
-                        val framePcm = decodeMimiChunk(bundle, one, 1, mimiState, carry, times)
-                        System.arraycopy(framePcm, 0, pcm, f * spf, framePcm.size)
-                    }
-                    // Tail shorter than `overlap`: it's all per-frame, we're done.
-                    if (leadEnd >= numFrames) break
-
-                    // Re-decode [pos, batchEnd) from the snapshot in one batch; keep
-                    // only the interior [leadEnd, batchEnd). The corrupt edge falls on
-                    // [pos, leadEnd), which we already emitted clean per-frame.
-                    val restoreStartNs = System.nanoTime()
-                    if (carry != null) carry.restore(frame!!) else restoreStates(mimiState, snapshot!!)
-                    times?.let { it.decodeStateNs += System.nanoTime() - restoreStartNs }
-                    val batchEnd = minOf(pos + batch, numFrames)
-                    val nb = batchEnd - pos
-                    val batchData = FloatArray(nb * dim)
-                    System.arraycopy(latents, pos * dim, batchData, 0, nb * dim)
-                    val batchPcm = decodeMimiChunk(bundle, batchData, nb, mimiState, carry, times)
-                    val keepFromFrame = leadEnd - pos
-                    System.arraycopy(
-                        batchPcm, keepFromFrame * spf,
-                        pcm, leadEnd * spf,
-                        (batchEnd - leadEnd) * spf,
-                    )
-                    pos = batchEnd
-                } finally {
-                    frame?.release()
-                }
+            // #15 "D": consecutive exact batches, nothing decoded twice.
+            for (range in PocketMimiBatch.batches(numFrames, decodeBatch)) {
+                val n = range.last - range.first + 1
+                val part = latents.copyOfRange(range.first * dim, (range.last + 1) * dim)
+                val out = decodeMimiChunk(bundle, part, n, mimiState, carry, times)
+                System.arraycopy(out, 0, pcm, range.first * spf, out.size)
             }
         } finally {
             carry?.close()
@@ -2643,64 +2583,16 @@ open class PocketEngine @Inject constructor(
         )
 
         /**
-         * Mimi decoder chunk size (latent frames). Originally 15 (~1.2 s @
-         * 12.5 fps) — kept per-call work small for memory safety when each
-         * top-level chunk got a fresh mimi state. After P-B (mimi state
-         * persists across stream chunks) the sub-chunking inside a single
-         * top-level chunk strictly costs JNI overhead — we re-bind 56
-         * state tensors and rebuild the input map per 15-frame batch when
-         * one call could digest the whole 60-80-frame chunk in one shot.
-         * Bumped to 64 to absorb most chunks in one call; the loop stays
-         * as a safety net for the rare > 64-frame chunk.
-         *
-         * P-X (reverted): bumping to `Int.MAX_VALUE` caused a chunk-start
-         * audio glitch — empirically the mimi decoder's output isn't
-         * bit-identical for `decode([1..72])` vs `decode([1..64])
-         * decode([65..72])` even though the model is causal+stateful.
-         * Suspect some N-dependent normalisation or batch-internal
-         * smoothing. Keep at 64; the 1-2 sub-iter case for 65-128 frame
-         * chunks is acceptable JNI overhead.
+         * The exported mimi_decoder is not window-invariant: a batch longer
+         * than its attention ring holds overflows it and corrupts the
+         * batch's early frames (the old "distorted first word"). History:
+         * P-X (one whole-chunk batch) glitched; P-AI decoded a per-frame
+         * ramp then batches; P-AL (alpha.12) re-decoded 64-frame batches
+         * behind an 8-frame per-frame lead-in, which still corrupted
+         * frames 8–26 of long sentences. #15 "D" found the cause, a 1000-slot
+         * ring at 16 decoder steps per frame, and decodes in batches that
+         * fit it ([PocketMimiBatch.maxExactBatch]).
          */
-        // Batch size for the BULK of a chunk's mimi decode (after the
-        // graduated ramp — see [MIMI_RAMP_FRAMES]).
-        private const val MIMI_CHUNK_FRAMES = 64
-
-        /**
-         * P-AI — graduated decode window. P-AH proved per-frame decode
-         * (window=1) is perfect but slow, while batched decode corrupts the
-         * leading edge of a fresh mimi stream (the "distorted first word").
-         * The bulk of a batch decodes fine once the conv state is warm.
-         *
-         * So decode the first [MIMI_RAMP_FRAMES] latent frames one at a time
-         * (clean onset), then the remainder in [MIMI_CHUNK_FRAMES]-sized
-         * batches (fast). Recovers most of the batched speed while keeping
-         * the cold leading edge clean. Tune down toward the minimum that
-         * stays clean. 0 = pure batched (the old buggy behaviour).
-         */
-        private const val MIMI_RAMP_FRAMES = 8
-
-        /**
-         * P-AL — segmented overlap-discard decode. P-AK (pure per-frame) is
-         * clean but ~3× slower (RTF ~1.45). P-AJ's frozen-latent sweep proved
-         * each batched run() corrupts only its LEADING edge while the interior
-         * matches per-frame — BUT the corruption LENGTH grows with the batch
-         * window (cold 64-frame ≈ 7 frames, cold 80-frame ≈ 21). So a single
-         * whole-chunk batch's corrupt tail outruns a fixed discard (it surfaced
-         * on "plan" ~frame 20). Cap the batch instead:
-         *
-         * Walk the chunk in [MIMI_CHUNK_FRAMES]-frame batches. For each batch,
-         * per-frame-decode the first [MIMI_OVERLAP_FRAMES] frames (clean, kept,
-         * and they advance the state), snapshot the state at the batch start,
-         * then re-decode the whole batch from that snapshot and keep only the
-         * INTERIOR (frames at/after the per-frame lead-in). The batch's corrupt
-         * edge (≤7 frames for a 64-batch) lands on the discarded lead-in, which
-         * we already have clean from the per-frame pass. Every emitted frame is
-         * per-frame or batch-interior — never a batch leading edge.
-         *
-         * MIMI_OVERLAP_FRAMES (8) is the discard/lead-in margin over the
-         * observed ≤7-frame 64-batch corruption.
-         */
-        private const val MIMI_OVERLAP_FRAMES = 8
 
         /**
          * P-T diagnostic toggle. When true, every Pocket session gets
@@ -2736,9 +2628,7 @@ open class PocketEngine @Inject constructor(
         private const val FLOW_MAIN_PINNED_OUTPUTS = false
 
         // The chunk-start "distorted first word" artifact is fixed at its
-        // root by the P-AI graduated decode window in [runMimiDecoder] (the
-        // exported mimi graph corrupts the leading edge of a batched decode;
-        // decoding the first few frames one at a time avoids it). The earlier
+        // root by exact decode batches in [runMimiDecoder]. The earlier
         // mask-the-symptom knobs — MIMI_COLD_START_TRIM_MS (P-AA), warm-prime
         // MIMI_WARMUP_FRAMES (P-AF), and a never-wired CHUNK_FADE_IN_MS (P-AB)
         // — were all removed once the real cause was found.
@@ -2753,13 +2643,11 @@ open class PocketEngine @Inject constructor(
          * chunk-start artefact (frame 0's BOS-substituted conditioning + a
          * single Euler step could land off-manifold → ~1 degraded word). BUT
          * that artefact was later ROOT-CAUSED (P-AC/P-AL, 2026-06) to the mimi
-         * decoder not being window-invariant, and fixed properly by the P-AL
-         * segmented overlap-discard decode (shipped alpha.12). So the reason
-         * for 4 is now superseded — reverted to upstream's 1 to reclaim ~3× of
-         * the per-frame flow_lm_flow work (a real RTF win). NOTE: verify on
-         * device that chunk-start audio stays clean at 1 now that P-AL owns
-         * that glitch — if a frame-0 artefact returns, that's a separate
-         * conditioning bug to fix at the source, not a reason to re-inflate steps.
+         * decoder not being window-invariant (fixed by exact decode batches,
+         * #15 "D"). So the reason for 4 is superseded — reverted to upstream's
+         * 1 to reclaim ~3× of the per-frame flow_lm_flow work (a real RTF
+         * win). If a frame-0 artefact returns, that's a separate conditioning
+         * bug to fix at the source, not a reason to re-inflate steps.
          */
         private const val LSD_DECODE_STEPS = 1
 
