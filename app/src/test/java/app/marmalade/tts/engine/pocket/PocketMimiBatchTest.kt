@@ -61,4 +61,23 @@ class PocketMimiBatchTest {
         assertEquals(1000, PocketCacheShapes.flowLenFor(800, 50, 234))
         assertEquals(4, PocketMimiBatch.maxExactBatch(PocketCacheShapes.DYNAMIC_MIMI_CAPACITY))
     }
+
+    @Test
+    fun `flow rows are the cache axis of the shipped manifest`() {
+        val flow = listOf(spec(0, longArrayOf(1), PocketBundle.StateDtype.INT64), spec(1, longArrayOf(2, 1, 1000, 16, 64)))
+        assertEquals(1000, PocketCacheShapes.flowRows(flow))
+        assertEquals(448, PocketCacheShapes.flowRows(PocketCacheShapes.flowLm(flow, 448)))
+    }
+
+    @Test
+    fun `frame budget stops the AR loop where the flow cache is full`() {
+        // #23 on the 6a: a 30 s cloned voice (BOS + 375 rows) and a 400-char URL
+        // (277 tokens) leave 347 rows; the shipped graph threw at frame 348.
+        assertEquals(347, PocketCacheShapes.frameBudget(500, 1000, 376, 277))
+        // Normal chunks keep their estimate: alba, a full 50-token chunk.
+        assertEquals(234, PocketCacheShapes.frameBudget(234, 1000, 126, 50))
+        assertEquals(234, PocketCacheShapes.frameBudget(234, 448, 162, 50))
+        // A prompt and text that already fill the cache leave nothing, not a negative cap.
+        assertEquals(0, PocketCacheShapes.frameBudget(234, 448, 400, 50))
+    }
 }

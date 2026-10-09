@@ -16,6 +16,7 @@ import app.marmalade.tts.engine.pocket.PocketClonedVoice
 import app.marmalade.tts.engine.pocket.PocketClonedVoiceStore
 import app.marmalade.tts.engine.pocket.PocketClonedVoiceSummary
 import app.marmalade.tts.engine.pocket.PocketStates
+import app.marmalade.tts.engine.pocket.PocketTokenSplit
 import app.marmalade.tts.engine.pocket.PocketTokenizer
 import app.marmalade.tts.engine.pocket.initStates
 import app.marmalade.tts.engine.pocket.PocketCacheShapes
@@ -998,7 +999,8 @@ open class PocketEngine @Inject constructor(
      *  2. Split on sentence boundaries `[.!?]` followed by whitespace.
      *  3. Any sentence exceeding [maxTokens] sub-splits on `,;:`.
      *  4. Any sub-segment still exceeding [maxTokens] falls through to
-     *     greedy word packing.
+     *     greedy word packing ([PocketTokenSplit.byWords]; a single word
+     *     over the limit is cut into pieces).
      *  5. Greedy bin-pack consecutive segments into chunks ≤ maxTokens.
      *
      * Returns a list of textual chunks (each safe to feed to
@@ -1019,7 +1021,10 @@ open class PocketEngine @Inject constructor(
             .filter { it.isNotEmpty() }
         if (sentences.isEmpty()) return emptyList()
 
-        // Step 2: refine — sub-split oversized sentences.
+        // Step 2: refine — sub-split oversized sentences. Word pieces are
+        // measured as [generateChunkLatents] encodes them (a trailing `.` is
+        // one more token), so no piece goes over the limit there.
+        val pieceTokens = { piece: String -> tokenizer.encode(preprocessForPocket(piece, bundle)).size }
         val segments = ArrayList<String>(sentences.size * 2)
         for (s in sentences) {
             val n = tokenizer.encode(s).size
@@ -1035,11 +1040,11 @@ open class PocketEngine @Inject constructor(
                     if (tokenizer.encode(p).size <= maxTokens) {
                         segments.add(p)
                     } else {
-                        segments.addAll(splitByWordsToTokenLimit(p, tokenizer, maxTokens))
+                        segments.addAll(PocketTokenSplit.byWords(p, maxTokens, pieceTokens))
                     }
                 }
             } else {
-                segments.addAll(splitByWordsToTokenLimit(s, tokenizer, maxTokens))
+                segments.addAll(PocketTokenSplit.byWords(s, maxTokens, pieceTokens))
             }
         }
 
@@ -1065,43 +1070,6 @@ open class PocketEngine @Inject constructor(
         }
         if (cur.isNotEmpty()) chunks.add(cur.toString())
         return chunks
-    }
-
-    /**
-     * Last-resort word splitter for sentences/clauses that exceed
-     * [maxTokens] even after `,;:` splitting. Greedy: walks words,
-     * re-encodes the running buffer each step; emits a chunk and resets
-     * whenever the buffer would exceed [maxTokens].
-     *
-     * A single word exceeding [maxTokens] (rare — URLs, hash strings)
-     * still emits as its own chunk; the engine warns and proceeds.
-     */
-    private fun splitByWordsToTokenLimit(
-        text: String,
-        tokenizer: PocketTokenizer,
-        maxTokens: Int,
-    ): List<String> {
-        val words = text.split(WHITESPACE_REGEX).filter { it.isNotEmpty() }
-        if (words.isEmpty()) return emptyList()
-        val out = ArrayList<String>(words.size / 5 + 1)
-        var cur = StringBuilder()
-        for (w in words) {
-            val candidate = if (cur.isEmpty()) w else "$cur $w"
-            if (tokenizer.encode(candidate).size <= maxTokens) {
-                cur = StringBuilder(candidate)
-            } else {
-                if (cur.isNotEmpty()) {
-                    out.add(cur.toString())
-                    cur = StringBuilder(w)
-                } else {
-                    // single overlong word — emit alone, reset.
-                    out.add(w)
-                    cur = StringBuilder()
-                }
-            }
-        }
-        if (cur.isNotEmpty()) out.add(cur.toString())
-        return out
     }
 
     override fun release() {
@@ -1562,13 +1530,19 @@ open class PocketEngine @Inject constructor(
             throw t
         }
 
+        val estimate = estimateMaxFrames(bundle, tokens.size)
+        val cacheRows = cacheLen ?: PocketCacheShapes.flowRows(bundle.flowLmStateManifest)
+        val maxFrames = PocketCacheShapes.frameBudget(estimate, cacheRows, promptRows, tokens.size)
+        if (maxFrames < estimate) {
+            Log.w(TAG, "Frame cap $estimate cut to $maxFrames: flow cache $cacheRows rows, prompt $promptRows, tokens ${tokens.size}")
+        }
         return ArSession(
             bundle = bundle,
             ort = ort,
             main = main,
             flow = flow,
             carry = carry,
-            maxFrames = estimateMaxFrames(bundle, tokens.size),
+            maxFrames = maxFrames,
             framesAfterEos = framesAfterEosFor(bundle, originalText),
             previousLatent = FloatArray(bundle.latentDim) { Float.NaN },
         )
@@ -2186,9 +2160,6 @@ open class PocketEngine @Inject constructor(
 
         /** Sub-sentence boundary: `,`, `;`, or `:` followed by whitespace. */
         private val COMMA_SPLIT_REGEX = Regex("(?<=[,;:])\\s+")
-
-        /** Generic whitespace splitter for word-level fallback. */
-        private val WHITESPACE_REGEX = Regex("\\s+")
 
         // Stochastic noise source for the flow/Euler sampler (nextGaussian()
         // per Euler step). NOTE: this is a STATIC companion singleton — shared
