@@ -19,13 +19,10 @@ class PocketTimes {
     var flowNs = 0L
     var frames = 0
 
-    /** `mimi_decoder` single-frame runs (the P-AL lead-in) and their count. */
-    var leadNs = 0L
-    var leadRuns = 0
-    /** `mimi_decoder` batched runs and their count. */
-    var batchNs = 0L
-    var batchRuns = 0
-    /** Decoder state snapshot + restore (P-AL), and the decoder state carry. */
+    /** `mimi_decoder` runs (one per slice) and their count. */
+    var decodeRunNs = 0L
+    var decodeRuns = 0
+    /** Binding the decoder's inputs and carrying its state. */
     var decodeStateNs = 0L
     var decodedFrames = 0
 
@@ -41,7 +38,7 @@ class PocketTimes {
 
     fun decodeLine(chunkIdx: Int, decodeMs: Long): String =
         "pocket chunk=$chunkIdx prof decode=${decodeMs}ms frames=$decodedFrames " +
-            "lead=${ms(leadNs)}ms/${leadRuns}runs batch=${ms(batchNs)}ms/${batchRuns}runs " +
+            "runs=${ms(decodeRunNs)}ms/$decodeRuns " +
             "state=${ms(decodeStateNs)}ms"
 
     private fun ms(ns: Long): Long = ns / 1_000_000

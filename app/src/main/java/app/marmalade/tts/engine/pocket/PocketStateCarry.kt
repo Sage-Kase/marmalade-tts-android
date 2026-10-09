@@ -8,8 +8,8 @@ import ai.onnxruntime.OrtSession
  * One set of state tensors, and whatever has to be closed once nothing uses
  * them any more: the `OrtSession.Result` that produced them, or the tensor
  * wrappers bound over an init [PocketStates]. Reference-counted, so a
- * snapshot (the decoder's P-AL rewind point, the voice-prompt cache) can
- * share a frame with the live carry without copying a byte.
+ * snapshot (the voice-prompt cache) can share a frame with the live carry
+ * without copying a byte.
  */
 class StateFrame(
     val tensors: Map<String, OnnxTensor>,
@@ -76,15 +76,8 @@ class PocketStateCarry(private var frame: StateFrame) : AutoCloseable {
         old.release()
     }
 
-    /** A rewind point sharing the current frame; [StateFrame.release] it when done. */
+    /** The current frame, shared; [StateFrame.release] it when done. */
     fun snapshot(): StateFrame = frame.retain()
-
-    /** Go back to [snap] (still owned by the caller, who releases it as usual). */
-    fun restore(snap: StateFrame) {
-        val old = frame
-        frame = snap.retain()
-        old.release()
-    }
 
     override fun close() = frame.release()
 

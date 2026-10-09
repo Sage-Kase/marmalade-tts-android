@@ -25,23 +25,17 @@ class PocketStateCarryTest {
     }
 
     @Test
-    fun `a snapshot keeps its frame alive across a restore`() {
-        val first = Owner()
-        val second = Owner()
-        val carry = PocketStateCarry(StateFrame(emptyMap(), first))
+    fun `a snapshot outlives the carry it came from`() {
+        // The voice-prompt cache (#15 "C") keeps phase 1's frame after that chunk's carry closes.
+        val owner = Owner()
+        val carry = PocketStateCarry(StateFrame(emptyMap(), owner))
         val snap = carry.snapshot()
-        // The carry moves on to another frame (as advance would) …
-        val moved = StateFrame(emptyMap(), second)
-        carry.restore(moved)
-        moved.release()
-        assertEquals(0, first.closed)
-        // … and rewinds to the snapshot: the frame it left is closed, the snapshot isn't.
-        carry.restore(snap)
-        assertEquals(1, second.closed)
-        assertEquals(0, first.closed)
-        snap.release()
-        assertEquals(0, first.closed)
         carry.close()
-        assertEquals(1, first.closed)
+        assertEquals(0, owner.closed)
+        // A later chunk starts from it and closes its own reference.
+        PocketStateCarry(snap.retain()).close()
+        assertEquals(0, owner.closed)
+        snap.release()
+        assertEquals(1, owner.closed)
     }
 }

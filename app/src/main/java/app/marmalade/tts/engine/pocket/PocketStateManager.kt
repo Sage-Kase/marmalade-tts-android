@@ -26,10 +26,15 @@ import java.nio.ByteOrder
 // tensors that was ~50 MB of memcpy traffic per AR frame; with the direct-
 // buffer path the same data stays in native memory across frames.
 //
-// Why we still allocate a fresh OnnxTensor per call: `OrtSession.Result.close()`
-// invalidates every tensor it owns, including inputs we passed in (some
-// ORT versions; safer to assume always). Reusing input tensors across
-// calls is a separate experiment for a later iteration.
+// This copying path is now only used by the developer engine and the quant
+// bench; the shipped engine carries state without copying (PocketStateCarry,
+// #15 "A"). It allocates a fresh OnnxTensor per call because it was once
+// believed that `OrtSession.Result.close()` also invalidates the input
+// tensors passed to that run. The carry relies on the opposite, and it
+// holds on ORT-Android 1.26: a Result's close() frees only the tensors it
+// owns. The cached voice-prompt frame is an input to every chunk's phase 2
+// and stays valid while those runs' Results are closed (bit-exact on the
+// Pixel 6a, #15).
 //
 // Lazy growth: cache slots have fixed shape from the manifest, but a few
 // "current_end" / "previous" slots start empty ([0] or [..., 0]) and grow
@@ -86,11 +91,11 @@ class PocketStateSlot(
      * wrap it in an OnnxTensor. The tensor is created fresh per call
      * (see file-level comment); only the buffer's memory is reused.
      *
-     * P-M experiment (caching this tensor across calls) crashed with
-     * SIGSEGV on ORT-Android 1.26: `OrtSession.Result.close()` DOES
-     * invalidate the input tensors' native handles, leaving the Java
-     * wrapper as a stale pointer for the next `session.run`. The comment
-     * at file head was right — keep the per-call alloc.
+     * The P-M experiment (caching this tensor across calls) crashed with
+     * SIGSEGV on ORT-Android 1.26 and was blamed on `Result.close()`
+     * invalidating inputs; #15's carry shows that isn't so (see the file
+     * head), so the crash had another cause, never pinned down. The
+     * per-call alloc stays for this copying path.
      */
     fun bindAsTensor(env: OrtEnvironment): OnnxTensor {
         val numElements = elementCount(shape)

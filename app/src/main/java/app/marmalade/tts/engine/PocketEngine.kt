@@ -66,13 +66,15 @@ import kotlinx.coroutines.withContext
  *               (cached to disk after first encode)
  *
  *   flow_lm phase 1 (voice cond):  sequence=[1,0,32]  +  text_embeds=BOS++voice_emb
+ *               (its state cached per voice, #15 "C")
  *   flow_lm phase 2 (text cond):   sequence=[1,0,32]  +  text_embeds=text_embeds
  *   flow_lm phase 3 (autoregressive, per latent frame):
  *      sequence=[1,1,32] (NaN→BOS first step, then previous latent)
  *      → conditioning [1,1024] + eos_logit [1,1]
  *      → Euler-integrated flow_lm_flow: x_{t+1} = x_t + flow(c,s,t,x)·(1/steps)
  *      → emit latent, check EOS
- *   mimi_decoder(all latents) → float PCM @ 24 kHz → PCM16
+ *   mimi_decoder, a slice of latents at a time while the AR loop runs
+ *      (#15 "E", [streamChunks]) → float PCM @ 24 kHz → PCM16
  *
  * Voice cloning (v0.3.0): users supply WAV; same `mimi_encoder` path,
  * with the resulting embedding written to `cloned_voices/<id>.bin`.
@@ -84,7 +86,8 @@ import kotlinx.coroutines.withContext
  *
  * Thread-safety: model loading is gated by a coroutine [Mutex]; synthesis
  * itself is gated by [Mutex.withLock] so concurrent `synthesize` calls
- * serialise (the model's KV cache state isn't reentrant).
+ * serialise (the model's KV cache state isn't reentrant). Within one
+ * request the decoder runs on a second coroutine, on its own state.
  */
 @Singleton
 open class PocketEngine @Inject constructor(
@@ -1840,11 +1843,7 @@ open class PocketEngine @Inject constructor(
             }
             carry.advance(bundle.mimiStateManifest, result)
             if (times != null) {
-                if (numFrames == 1) {
-                    times.leadNs += runEndNs - runStartNs; times.leadRuns++
-                } else {
-                    times.batchNs += runEndNs - runStartNs; times.batchRuns++
-                }
+                times.decodeRunNs += runEndNs - runStartNs; times.decodeRuns++
                 times.decodeStateNs += (runStartNs - bindStartNs) + (System.nanoTime() - runEndNs)
             }
             return out
@@ -2061,18 +2060,6 @@ open class PocketEngine @Inject constructor(
         )
 
         /**
-         * The exported mimi_decoder is not window-invariant: a batch longer
-         * than its attention ring holds overflows it and corrupts the
-         * batch's early frames (the old "distorted first word"). History:
-         * P-X (one whole-chunk batch) glitched; P-AI decoded a per-frame
-         * ramp then batches; P-AL (alpha.12) re-decoded 64-frame batches
-         * behind an 8-frame per-frame lead-in, which still corrupted
-         * frames 8–26 of long sentences. #15 "D" found the cause, a 1000-slot
-         * ring at 16 decoder steps per frame, and decodes in batches that
-         * fit it ([PocketMimiBatch.maxExactBatch]).
-         */
-
-        /**
          * P-T diagnostic toggle. When true, every Pocket session gets
          * VERBOSE ORT logging (level 0). Captures kernel placement at
          * session-create so we can see which ops escape XNNPACK. Flip back
@@ -2081,11 +2068,18 @@ open class PocketEngine @Inject constructor(
          */
         private const val VERBOSE_ORT_DIAGNOSTIC = false
 
-        // The chunk-start "distorted first word" artifact is fixed at its
-        // root by exact decode batches in [runMimiDecoder]. The earlier
-        // mask-the-symptom knobs — MIMI_COLD_START_TRIM_MS (P-AA), warm-prime
-        // MIMI_WARMUP_FRAMES (P-AF), and a never-wired CHUNK_FADE_IN_MS (P-AB)
-        // — were all removed once the real cause was found.
+        // The exported mimi_decoder is not window-invariant: a batch longer
+        // than its attention ring holds overflows it and corrupts the batch's
+        // early frames (the old "distorted first word"). History: P-X (one
+        // whole-chunk batch) glitched; P-AI decoded a per-frame ramp then
+        // batches; P-AL (alpha.12) re-decoded 64-frame batches behind an
+        // 8-frame per-frame lead-in, which still corrupted frames 8–26 of long
+        // sentences. #15 "D" found the cause, a 1000-slot ring at 16 decoder
+        // steps per frame, and every slice now fits it
+        // ([PocketMimiBatch.maxExactBatch], [decodeMimiChunk]). The earlier
+        // mask-the-symptom knobs (MIMI_COLD_START_TRIM_MS P-AA, warm-prime
+        // MIMI_WARMUP_FRAMES P-AF, a never-wired CHUNK_FADE_IN_MS P-AB) were
+        // all removed once the real cause was found.
 
         /**
          * Euler integration steps for flow_lm_flow. **Upstream ships 1** —

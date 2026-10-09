@@ -17,13 +17,13 @@ class PocketTimesTest {
     }
 
     @Test
-    fun `the decode line counts lead-in and batched runs`() {
+    fun `the decode line counts the decoder runs`() {
         val t = PocketTimes().apply {
-            leadNs = 800_000_000; leadRuns = 8; batchNs = 300_000_000; batchRuns = 1
+            decodeRunNs = 1_100_000_000; decodeRuns = 3
             decodeStateNs = 100_000_000; decodedFrames = 30
         }
         assertEquals(
-            "pocket chunk=0 prof decode=1250ms frames=30 lead=800ms/8runs batch=300ms/1runs state=100ms",
+            "pocket chunk=0 prof decode=1250ms frames=30 runs=1100ms/3 state=100ms",
             t.decodeLine(0, 1250),
         )
     }
