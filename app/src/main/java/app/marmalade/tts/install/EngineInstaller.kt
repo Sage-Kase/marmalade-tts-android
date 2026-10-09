@@ -669,8 +669,12 @@ open class EngineInstaller @Inject constructor(
      * `assets/engines-seed/<engineName>/`, instead of downloading it. Used to
      * make the default engine work instantly and offline on first run.
      *
-     * No-op (returns success) if the engine is already installed — the copy
-     * is a first-run cost, not a per-launch one. Otherwise recursively copies
+     * No-op (returns success) if the engine is already installed from this
+     * seed — the copy is a first-run cost, not a per-launch one. "This seed"
+     * means the layout check passes and the installed copy of the seed's
+     * content fingerprint ([SEED_FINGERPRINT]) matches the APK's byte for
+     * byte, so an app update that changes the baked files re-copies them
+     * exactly once (issue #17). Otherwise recursively copies
      * the asset tree into a scratch dir, atomically swaps it into place,
      * stamps the install meta from the catalog descriptor, and runs the same
      * post-install layout check the download path uses.
@@ -693,11 +697,13 @@ open class EngineInstaller @Inject constructor(
         val finalDir = engineDirFor(engineName)
         val scratchDir = scratchDirFor(engineName)
 
-        // Already installed (downloaded or previously seeded) — leave it.
+        // Already installed from this seed — leave it.
         // The directory check comes first, as in probeEngine: verifyLayout's
         // install-meta bootstrap writes into the directory, which on a first
         // run doesn't exist yet (logged as an ENOENT warning on every seed).
-        if (finalDir.isDirectory && verifyLayout(descriptor, finalDir) is InstallState.Installed) {
+        if (finalDir.isDirectory && verifyLayout(descriptor, finalDir) is InstallState.Installed &&
+            seedFingerprintMatches(assets, engineName, finalDir)
+        ) {
             sf.value = InstallState.Installed
             return@withLock Result.success(Unit)
         }
@@ -742,17 +748,31 @@ open class EngineInstaller @Inject constructor(
     }
 
     /**
-     * Re-seed [engineName] when it is installed but its files no longer pass
-     * the layout check — an app update changed the baked bundle (1.2: Kitten's
-     * kitten.onnx became planner.onnx + gen.onnx + genstats/) or the files
-     * were damaged. An engine the user uninstalled stays uninstalled, and a
-     * copy that verifies is left alone ([seedFromAssets] is a no-op for it).
+     * Re-seed [engineName] when it is installed but not from the APK's
+     * current seed: an app update changed the baked files (1.2: Kitten's
+     * kitten.onnx became planner.onnx + gen.onnx + genstats/; #17: a new
+     * planner.onnx, seen through [SEED_FINGERPRINT]) or the files were
+     * damaged. An engine the user uninstalled stays uninstalled, and a copy
+     * of the current seed is left alone ([seedFromAssets] is a no-op for it).
      */
     open suspend fun refreshSeed(assets: AssetManager, engineName: String): Result<Unit> =
         if (engineDirFor(engineName).isDirectory) seedFromAssets(assets, engineName) else Result.success(Unit)
 
     private fun hasSeed(assets: AssetManager, engineName: String): Boolean =
         !assets.list("$SEED_ASSET_DIR/$engineName").isNullOrEmpty()
+
+    /**
+     * Whether [dir]'s copy of the seed's [SEED_FINGERPRINT] equals the APK's.
+     * A seed without one always matches (the layout check alone decides); an
+     * install without one (seeded before #17, or downloaded) doesn't.
+     */
+    private fun seedFingerprintMatches(assets: AssetManager, engineName: String, dir: File): Boolean {
+        val baked = runCatching {
+            assets.open("$SEED_ASSET_DIR/$engineName/$SEED_FINGERPRINT").use { it.readBytes() }
+        }.getOrNull() ?: return true
+        val installed = File(dir, SEED_FINGERPRINT)
+        return installed.isFile && installed.readBytes().contentEquals(baked)
+    }
 
     /**
      * Recursively copy an APK asset subtree at [assetPath] into [dest].
@@ -1721,6 +1741,11 @@ open class EngineInstaller @Inject constructor(
         // APK assets subdir holding baked engine trees (Apache model+voices
         // committed). See [seedFromAssets].
         private const val SEED_ASSET_DIR = "engines-seed"
+
+        // A seed's content fingerprint: the SHA-256 of every other file in
+        // it (made by scripts/kitten-stream/split.py, pinned to the files by
+        // EngineInstallerSeedTest). Copied with the seed like any file.
+        internal const val SEED_FINGERPRINT = "SHA256SUMS"
 
         // String shown in the per-engine progress UI while the archive is
         // downloading. v0.1's per-file labels are gone with the per-file

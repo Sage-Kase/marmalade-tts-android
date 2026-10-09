@@ -79,7 +79,10 @@ Full detail, including the MIT notice for the weights:
   the **Thorsten-Voice dataset**, which he recorded and released
   **CC0** himself. **Apache-2.0**.
   https://huggingface.co/Thorsten-Voice/Kokoro
-- **KittenTTS** (nano) — KittenML. Apache-2.0.
+- **KittenTTS** (nano) — KittenML. Apache-2.0. The APK's copy uses a
+  smaller text encoder trained by Marmalade to stand in for Kitten's
+  ALBERT, on public-domain books (PG-19) and CC0 sentences (Common Voice
+  sentence collector).
 - **Pocket TTS** — Kyutai. Model/inference code MIT; voices per-license
   (above). https://github.com/kyutai-labs/pocket-tts
 - **rhasspy/piper-voices** — the VITS checkpoints the VITS Marmalade

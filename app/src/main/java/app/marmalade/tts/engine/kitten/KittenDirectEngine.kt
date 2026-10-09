@@ -55,7 +55,11 @@ import kotlinx.coroutines.withContext
 // IPA-convention mismatches degraded quality.)
 //
 // Streaming (issue #10, from the #3/#9 prototype): the model is shipped cut
-// in two (scripts/kitten-stream/split.py, nothing retrained). Each chunk is
+// in two (scripts/kitten-stream/split.py). Since #17 the planner's text model
+// is the X2 student, a 4-layer encoder (3.4M weights) trained to give
+// Kitten's duration and pitch predictors what its ALBERT did (5.8M, 12
+// passes of one shared layer, issue #14); the rest is Kitten's own weights,
+// nothing retrained. Each chunk is
 // planned ONCE — the planner graph runs the text model, durations, pitch, the
 // decoder's frame-rate front and the harmonic source with the sentence's one
 // style row — and the generator graph (iSTFTNet, ~98% of the decoder's time)
@@ -68,7 +72,7 @@ import kotlinx.coroutines.withContext
 // what the unsplit model did, each extra one ~120 ms on a Pixel 8a (#5).
 //
 // Bundle layout (`${filesDir}/engines/kitten-direct-v0_8/`):
-//   planner.onnx, gen.onnx            — the two graphs (15M params between them)
+//   planner.onnx, gen.onnx            — the two graphs (8.2M + 3.4M params)
 //   genstats/<name>.bin               — float32 [2, 3456] generator norm table per voice
 //   voices/<name>.bin                 — float32 [N, 256] style table per voice
 //   phonemizer/                       — legacy (espeak data + ≤v14 .so);
@@ -137,8 +141,9 @@ private val SPEED_PRIORS = mapOf(
 )
 
 /**
- * Kitten's internal BERT submodule has `position_embeddings.weight`
- * shape `[512, 128]` — at most 512 positions. With the
+ * The planner's text model has a 512-row position embedding (Kitten's
+ * ALBERT did, and the X2 student that replaced it in #17 keeps the
+ * limit) — at most 512 positions. With the
  * `[0, ...phonemes..., 10, 0]` wrapping that's 3 reserved positions,
  * leaving 509 for actual phonemes. We cap a few below that to be safe.
  */
@@ -186,7 +191,7 @@ open class KittenDirectEngine @Inject constructor(
      * Soft cap for per-chunk char count. Under the F rules chunks are
      * clause fragments (never word-split), so this cap only matters for
      * a single over-long fragment, which is emitted whole; [ipaPieces]
-     * re-splits one whose IPA would blow past Kitten's BERT 512-position
+     * re-splits one whose IPA would blow past the planner's 512-position
      * limit ([MAX_PHONEMES_PER_CHUNK]).
      *
      * The per-sentence style row (text-length lookup on the PRE-SPLIT
@@ -287,9 +292,13 @@ open class KittenDirectEngine @Inject constructor(
         shrinkArena = EngineDevKnobs.get(ctx.filesDir, "shrink") != "false"
         plannerSession = buildSessionOptions(intraOpThreads).use { createSession(ort, it, plannerFile) }
         genSession = buildSessionOptions(intraOpThreads, generator = true).use { createSession(ort, it, genFile) }
+        // split.py writes what the planner holds into its doc_string (#17).
+        val textModel = if (runCatching { plannerSession?.metadata?.description }.getOrNull()
+                ?.contains("X2 student") == true
+        ) "X2 student" else "ALBERT"
         Log.i(
             TAG,
-            "streaming render: planner (CPU EP) + generator (CPU EP, spinning), threads $intraOpThreads, slices ${KittenStreamSlicing.FIRST_SLICE_FRAMES}, " +
+            "streaming render: planner (CPU EP, text model $textModel) + generator (CPU EP, spinning), threads $intraOpThreads, slices ${KittenStreamSlicing.FIRST_SLICE_FRAMES}, " +
                 "${KittenStreamSlicing.SLICE_FRAMES}, doubling to ${KittenStreamSlicing.MAX_SLICE_FRAMES} frames, " +
                 "context ${KittenStreamSlicing.CONTEXT_FRAMES}",
         )
@@ -327,9 +336,9 @@ open class KittenDirectEngine @Inject constructor(
     /**
      * Both graphs run on ORT's plain CPU EP (issue #13 "A"; the planner had
      * XNNPACK until then). XNNPACK keeps its own packed copy of a weight for
-     * every use of a shared layer, and the planner's ALBERT text model uses
-     * one shared layer at every depth: +280 MB of resident memory against +35 MB on
-     * the CPU EP (#12 "X1", Pixel 8a), and not faster.
+     * every use of a shared layer, and the planner's text model was then
+     * ALBERT, one shared layer at every depth: +280 MB of resident memory
+     * against +35 MB on the CPU EP (#12 "X1", Pixel 8a), and not faster.
      *
      * The [generator] graph also spins its intra-op threads (issue #10,
      * Pixel 8a, Bella, B1 set): streamed RTF 0.49 → 0.43 (CPU EP only) →
@@ -389,8 +398,8 @@ open class KittenDirectEngine @Inject constructor(
      * Synthesize the full input as one merged PCM buffer. Delegates to
      * [synthesizeStream] + concat so the chunking logic lives in one
      * place — every caller (TTS services, benchmark batched mode) gets
-     * sentence chunking automatically without having to know KittenTTS's
-     * 512-position BERT limit.
+     * sentence chunking automatically without having to know the planner's
+     * 512-position limit.
      */
     override suspend fun synthesize(
         text: String,
@@ -420,7 +429,7 @@ open class KittenDirectEngine @Inject constructor(
      * (one session pair, non-reentrant).
      *
      * Chunks are never word-split, so a run-on sentence can phonemize
-     * past the 512-position BERT limit; [ipaPieces] then re-splits it
+     * past the planner's 512-position limit; [ipaPieces] then re-splits it
      * into pieces under [MAX_PHONEMES_PER_CHUNK] rather than truncating.
      */
     override fun synthesizeStream(
@@ -508,8 +517,9 @@ open class KittenDirectEngine @Inject constructor(
 
     /**
      * [text] phonemized — one piece, or several when its IPA would pass the
-     * BERT position-embedding cap (a tail past it trips an
-     * ORT_INVALID_ARGUMENT on `/bert/Expand`). The chunker never word-splits
+     * text model's position-embedding cap (a tail past it trips an
+     * ORT_INVALID_ARGUMENT on `x2//pos/Gather`; `/bert/Expand` before #17).
+     * The chunker never word-splits
      * a sentence, and Kitten's IPA expansion varies per phrase, so a run-on
      * can still overflow. Truncating used to drop the tail silently;
      * re-split at clause marks → whitespace → hard cut instead. The stream

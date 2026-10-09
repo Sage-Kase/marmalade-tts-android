@@ -12,14 +12,22 @@ This project follows [Semantic Versioning](https://semver.org/).
 - **Kitten starts speaking sooner**: the built-in Kitten voices now
   stream each sentence in short slices (half a second, then one, two and
   four seconds) instead of rendering the whole sentence or clause before
-  the first sound. The model is the same Kitten Nano 0.8, cut into two
-  parts so the voice part can render piece by piece; nothing was
-  retrained. Stopping or skipping cuts the render in flight short, as
-  before.
+  the first sound. The model is Kitten Nano 0.8, cut into two parts so the
+  voice part can render piece by piece. Stopping or skipping cuts the
+  render in flight short, as before.
 - An installed Kitten from an earlier version is replaced from the copy
   inside the app the first time the new version starts (no download),
   and installing Kitten from the Engines screen copies it from the app
   instead of downloading it.
+- **Kitten plans each sentence faster, and the app is about 9 MB
+  smaller**: Kitten's text-reading step now uses a small model trained
+  for Marmalade (3.4 million weights instead of ALBERT's 5.8 million) that
+  gives Kitten the same timing and pitch to within a few milliseconds and
+  hertz. On a Pixel 6a, planning a sentence takes about 200 ms instead of
+  350 ms, the first sound comes about 190 ms sooner (360 ms instead of
+  550 ms), Kitten loads in about 0.6 s instead of 1.0 s, and it renders
+  about 13% faster. An installed Kitten is updated from the copy inside
+  the app the first time the new version starts, once (no download).
 - **Kitten uses much less memory**: about 230 MB less once loaded (on a
   Pixel 8a, about 110 MB instead of 340 MB), at the same speed.
 - **Kokoro gives memory back between sentences**: about 180 MB less is

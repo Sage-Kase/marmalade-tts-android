@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Check the shipped streaming pair against the model it was cut from.
 
-    verify.py <kitten.onnx> <bundle>
+    verify.py <kitten.onnx> <student.onnx> <bundle>
 
 For every voice and every corpus.json chunk, from ONE planning pass (the
 harmonic source's random draws seeded, so every render below shares them):
 
-  split   kitten.onnx vs planner.onnx + the generator with real InstanceNorm:
-          max |difference| of the waveform. The cut itself must be exact.
+  split   kitten.onnx with the X2 student in ALBERT's place (split.with_student)
+          vs planner.onnx + the generator with real InstanceNorm: max
+          |difference| of the waveform. The cut itself must be exact.
   seams   the app's streamed render (KittenStreamSlicing's schedule: 0.5 s,
           1 s, doubling to 4 s, 4 frames of context, speech frames only) vs
           the same fixed-statistics generator run as one slice: SNR in dB.
@@ -17,6 +18,10 @@ harmonic source's random draws seeded, so every render below shares them):
           per-voice norm statistics); compare it with
   noise   two unsplit renders with different random draws, same measure:
           Kitten's own run-to-run variation.
+  x2 dur  the planner's durations vs Kitten's own (ALBERT) planner: mean
+          |difference| in frames (25 ms) per token. Issue #14's pass line: <= ~0.5.
+  x2 F0   pitch with ALBERT's durations fed to both text models: mean
+          |difference| in Hz over ALBERT's voiced frames. Pass line: <= ~10.
 
 Prints one row per voice (means over the corpus; seams = worst chunk).
 """
@@ -74,19 +79,23 @@ def mel_diff(a, b):
     return float(np.abs(mel_db(a) - mel_db(b)).mean())
 
 
-def main(kitten, bundle):
+def main(kitten, student, bundle):
     m = split.load_kitten(kitten)
     seeded = lambda model, seed: split.session(split.seeded(model, seed), threads=4)
-    whole = onnx.load(kitten)
+    whole = split.with_student(m, student)
+    ins = ["input_ids", "style", "speed"]
+    albert_dur = split.session(split.cut(m, ins, ["duration"]), threads=4)
+    albert_f0 = split.session(split.cut(m, ins + ["duration"], [split.F0]), threads=4)
+    student_f0 = split.session(split.cut(whole, ins + ["duration"], [split.F0]), threads=4)
     planner_model = onnx.load(bundle / "planner.onnx")
     true_gen = split.session(split.cut(m, [split.X, split.S128, split.HAR], ["waveform"]), threads=4)
     gen = split.session(bundle / "gen.onnx", threads=4)
     corpus = __import__("json").loads((split.HERE / "corpus.json").read_text())
-    print("voice   split max|Δ|   seams min SNR   stats mel dB   noise mel dB")
+    print("voice   split max|Δ|   seams min SNR   stats mel dB   noise mel dB   x2 dur   x2 F0 Hz")
     for voice in split.VOICES:
         W, W2, P = seeded(whole, 1.0), seeded(whole, 2.0), seeded(planner_model, 1.0)
         gn = np.fromfile(bundle / "genstats" / f"{voice}.bin", "<f4").reshape(2, -1)
-        split_d, snrs, stats, noise = [], [], [], []
+        split_d, snrs, stats, noise, x2_dur, x2_f0 = [], [], [], [], [], []
         for case in corpus:
             ids = np.array([case["ids"]], np.int64)
             feed = {"input_ids": ids, "style": split.style_row(bundle / "voices", voice, case["row_text"]),
@@ -111,11 +120,16 @@ def main(kitten, bundle):
             snrs.append(10 * np.log10((want ** 2).sum() / max((err ** 2).sum(), 1e-30)))
             stats.append(mel_diff(streamed, unsplit[FRAME * a:FRAME * b]))
             noise.append(mel_diff(other[FRAME * a:FRAME * b], ref[FRAME * a:FRAME * b]))
-        print(f"{voice:7} {max(split_d):12.2e} {min(snrs):14.1f} {np.mean(stats):14.2f} {np.mean(noise):14.2f}",
-              flush=True)
+            teacher = albert_dur.run(None, feed)[0]
+            x2_dur.append(float(np.abs(dur - teacher.reshape(-1)).mean()))
+            f0a = albert_f0.run(None, dict(feed, duration=teacher))[0].reshape(-1)
+            f0s = student_f0.run(None, dict(feed, duration=teacher))[0].reshape(-1)
+            x2_f0.append(float(np.abs(f0s - f0a)[f0a > 10].mean()))
+        print(f"{voice:7} {max(split_d):12.2e} {min(snrs):14.1f} {np.mean(stats):14.2f} {np.mean(noise):14.2f}"
+              f" {np.mean(x2_dur):8.3f} {np.mean(x2_f0):10.2f}", flush=True)
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
+    if len(sys.argv) != 4:
         sys.exit(__doc__)
-    main(Path(sys.argv[1]), Path(sys.argv[2]))
+    main(*map(Path, sys.argv[1:]))

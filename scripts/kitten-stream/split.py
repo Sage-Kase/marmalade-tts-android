@@ -6,6 +6,8 @@
                    front (exact InstanceNorm over the whole chunk) and the
                    harmonic source (its phase is a cumsum over the chunk and it
                    holds the model's only random draws). Runs once per chunk.
+                   The text model is the X2 student (issue #17), not Kitten's
+                   ALBERT: see with_student.
     gen.onnx       x, s128, har, gn -> waveform
                    The iSTFTNet generator, ~98% of the decoder's time. Each of
                    its 36 InstanceNorms is replaced by y = x * a + b with
@@ -18,24 +20,32 @@
                    real generator's activations over corpus.json (17 chunks of
                    the B1 sentence set, phone-exact token ids).
 
-Nothing is retrained: both graphs are node subsets of kitten.onnx with its
-weights unchanged (the norm rewrite only re-wires the 36 norm layers), so
-the Apache-2.0 model licence carries over as-is. Each graph's doc_string
-states that it was modified and how (Apache-2.0 section 4(b)).
+Kitten's own weights are unchanged (the norm rewrite only re-wires the 36
+norm layers). The one replaced part is ALBERT + bert_encoder, the text model:
+the planner carries Marmalade's X2 student in its place, a 4-layer encoder
+(3.4M weights) trained to map the same token ids to the same [T, 128] output
+(issue #14, ~/coding/scratch/x2-encoder; issue #17 put it here). Kitten is
+Apache-2.0 and each graph's doc_string states that it was modified and how
+(Apache-2.0 section 4(b)).
 
 Usage (onnx 1.23.1, onnxruntime 1.30.0, numpy):
-    split.py graphs <kitten.onnx> <bundle>   writes planner.onnx + gen.onnx
-    split.py stats  <kitten.onnx> <bundle>   writes genstats/*.bin (reads voices/)
-    split.py check  <bundle>                 compares the bundle with SHA256SUMS
+    split.py graphs <kitten.onnx> <student.onnx> <bundle>   writes planner.onnx + gen.onnx
+    split.py stats  <kitten.onnx> <student.onnx> <bundle>   writes genstats/*.bin (reads voices/)
+    split.py check  <bundle>                                compares the bundle with its SHA256SUMS
 <bundle> is app/src/main/assets/engines-seed/kitten-direct-v0_8. kitten.onnx is
 the file that directory held up to issue #10 (git show 993bf52:<bundle>/kitten.onnx),
-also in the v22 kitten-direct-v0_8.tar.gz engine bundle.
+also in the v22 kitten-direct-v0_8.tar.gz engine bundle. student.onnx is the d256
+student's export (x2-encoder/runs/d256/student.onnx, export_onnx.py, opset 17);
+the planner holds it byte for byte apart from names and the opset-20 conversion.
 
 `graphs` is pure protobuf surgery and byte-deterministic. `stats` seeds the
 harmonic source's two random nodes and runs single-threaded, so it reproduces
 the committed tables on the same onnxruntime version; float kernels can differ
 across CPUs and versions in the last bits, which is why the tables are
-committed data, not build outputs. Issue #10 (graph cut from issue #3).
+committed data, not build outputs. The bundle's SHA256SUMS (every file but
+itself) doubles as the seed's content fingerprint: EngineInstaller re-copies an
+installed Kitten whose copy of it differs, so it must change with any file. Issue #10 (graph cut from issue #3; student
+from issues #14 and #17).
 """
 import hashlib
 import json
@@ -48,11 +58,14 @@ from onnx import TensorProto, helper, numpy_helper
 
 HERE = Path(__file__).parent
 KITTEN_SHA256 = "320564d2615f235de972ca27a7f39551c94185cfa24ca85b07a29084135f1e5e"
+STUDENT_SHA256 = "82882272d529afda79e08992e50b0449968ebfc9213533a64a29fdbb873fea07"
 
 # Graph-boundary tensors (KittenDirectEngine's GEN_* constants).
 X = "/decoder/decode.3/Mul_output_0"        # [1, 256, 2T] decoder-front output
 S128 = "/Unsqueeze_12_output_0"             # [1, 128] decoder half of the style row
 HAR = "/decoder/generator/m_source/l_tanh/Tanh_output_0"  # [1, 600T, 1] source at 24 kHz
+TEXT = "/bert_encoder/Add_output_0"         # [1, T, 128] ALBERT + bert_encoder: the student's slot
+F0 = "/F0_proj/Conv_output_0"               # [1, 1, 2F] pitch at 80 Hz (verify.py only)
 
 VOICES = ["bella", "jasper", "luna", "bruno", "rosie", "hugo", "kiki", "leo"]
 # KittenDirectEngine.SPEED_PRIORS: the model speed every app render uses.
@@ -156,8 +169,8 @@ def fixed_norms(gen):
 
 
 NOTICE = ("Derived from KittenML kitten-tts-nano-0.8 (kitten.onnx, Apache-2.0, "
-          "Copyright (c) KittenML contributors). Modified by Marmalade TTS: {}. "
-          "Weights unchanged; made by scripts/kitten-stream/split.py.")
+          "Copyright (c) KittenML contributors). Modified by Marmalade TTS: {}; "
+          "made by scripts/kitten-stream/split.py.")
 
 
 def with_notice(model, change):
@@ -171,16 +184,62 @@ def load_kitten(path):
     return onnx.shape_inference.infer_shapes(onnx.load(path))
 
 
-def graphs(kitten, out):
+def with_student(m, student_path):
+    """[m] (kitten.onnx) with ALBERT + bert_encoder replaced by the X2 student.
+
+    The student maps input_ids to d_en [1, 128, T]; a Transpose turns that into
+    TEXT [1, T, 128], the tensor bert_encoder produced, so every consumer
+    (duration encoder, pitch/energy) reads it unchanged. The student's names get
+    an "x2/" prefix and its opset-17 graph is converted to kitten.onnx's 20.
+    ALBERT's nodes stay in the returned model but nothing reads them, so cut()
+    leaves them out."""
+    if sha256(student_path) != STUDENT_SHA256:
+        sys.exit(f"{student_path}: not the shipped X2 d256 student (sha256 {STUDENT_SHA256})")
+    from onnx import version_converter
+    opset = next(o.version for o in m.opset_import if o.domain in ("", "ai.onnx"))
+    st = version_converter.convert_version(onnx.load(student_path), opset).graph
+    (d_en,) = [o.name for o in st.output]
+    rename = lambda t: t if t in ("", "input_ids") else "x2/" + t
+    nodes = []
+    for n in st.node:
+        c = onnx.NodeProto()
+        c.CopyFrom(n)
+        c.name = "x2/" + n.name
+        c.input[:] = [rename(i) for i in n.input]
+        c.output[:] = [rename(o) for o in n.output]
+        nodes.append(c)
+    nodes.append(helper.make_node("Transpose", [rename(d_en)], [TEXT], name="x2/to_text", perm=[0, 2, 1]))
+    inits = []
+    for i in st.initializer:
+        c = onnx.TensorProto()
+        c.CopyFrom(i)
+        c.name = rename(i.name)
+        inits.append(c)
+
+    out = onnx.ModelProto()
+    out.CopyFrom(m)
+    g = out.graph
+    (at,) = [k for k, n in enumerate(g.node) if TEXT in n.output]
+    old = list(g.node)
+    del g.node[:]
+    g.node.extend(old[:at] + nodes + old[at + 1:])  # student nodes read only input_ids: topological
+    g.initializer.extend(inits)
+    return out
+
+
+def graphs(kitten, student, out):
     out.mkdir(parents=True, exist_ok=True)
     m = load_kitten(kitten)
-    planner = cut(m, ["input_ids", "style", "speed"], [X, S128, HAR, "duration"])
-    onnx.save(with_notice(planner, "the text model, durations, pitch, decoder front and "
-                                   "harmonic source cut out as a separate graph"), out / "planner.onnx")
+    planner = cut(with_student(m, student), ["input_ids", "style", "speed"], [X, S128, HAR, "duration"])
+    onnx.save(with_notice(planner, "the text model (ALBERT + bert_encoder) replaced by Marmalade's "
+                                   "X2 student encoder, trained to reproduce its output; then the text "
+                                   "model, durations, pitch, decoder front and harmonic source cut out "
+                                   "as a separate graph. Kitten's other weights unchanged"),
+              out / "planner.onnx")
     gen, layers, S = fixed_norms(cut(m, [X, S128, HAR], ["waveform"]))
     onnx.save(with_notice(gen, "the iSTFTNet generator cut out as a separate graph, its "
                                "InstanceNormalization layers replaced by a per-channel scale "
-                               "and shift read from the input gn"), out / "gen.onnx")
+                               "and shift read from the input gn. Weights unchanged"), out / "gen.onnx")
     print(f"planner.onnx {sha256(out / 'planner.onnx')}\ngen.onnx {sha256(out / 'gen.onnx')}  "
           f"({len(layers)} norm layers, S={S})")
 
@@ -212,12 +271,12 @@ def style_row(voices_dir, voice, row_text):
     return t[min(len(row_text), len(t) - 1)][None, :]
 
 
-def stats(kitten, out):
+def stats(kitten, student, out):
     """Population mean/var of each generator norm's input, pooled over the corpus
     weighted by frame count, per voice -> genstats/<voice>.bin."""
     m = load_kitten(kitten)
     voices_dir = out / "voices"
-    planner = seeded(cut(m, ["input_ids", "style", "speed"], [X, S128, HAR]))
+    planner = seeded(cut(with_student(m, student), ["input_ids", "style", "speed"], [X, S128, HAR]))
     gen = cut(m, [X, S128, HAR], ["waveform"])
     _, layers, S = fixed_norms(cut(m, [X, S128, HAR], ["waveform"]))
     have = {o.name for o in gen.graph.output}
@@ -261,7 +320,7 @@ def stats(kitten, out):
 
 def check(d):
     bad = 0
-    for line in (HERE / "SHA256SUMS").read_text().splitlines():
+    for line in (d / "SHA256SUMS").read_text().splitlines():
         want, name = line.split()
         got = sha256(d / name) if (d / name).is_file() else "missing"
         if got != want:
@@ -273,10 +332,10 @@ def check(d):
 
 if __name__ == "__main__":
     cmd, *args = sys.argv[1:] or ["help"]
-    if cmd == "graphs" and len(args) == 2:
-        graphs(Path(args[0]), Path(args[1]))
-    elif cmd == "stats" and len(args) == 2:
-        stats(Path(args[0]), Path(args[1]))
+    if cmd == "graphs" and len(args) == 3:
+        graphs(*map(Path, args))
+    elif cmd == "stats" and len(args) == 3:
+        stats(*map(Path, args))
     elif cmd == "check" and len(args) == 1:
         sys.exit(check(Path(args[0])))
     else:
