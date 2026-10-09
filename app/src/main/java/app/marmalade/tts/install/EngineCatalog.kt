@@ -410,7 +410,8 @@ object EngineCatalog {
      * quality fix. The v21 bundle re-rolls the v10 mixed model with the two
      * non-commercial voices removed.
      *
-     * Licensing: the Kyutai model **code** is MIT (not Apache-2.0). Each
+     * Licensing: the Kyutai model **code** is MIT (not Apache-2.0) and its
+     * **weights** are CC-BY-4.0 (huggingface.co/kyutai/pocket-tts). Each
      * predefined voice carries its own data license — the 6 in the bundle
      * are CC0 (`javert`, `marius`) or CC-BY-4.0 (`alba`, `azelma`,
      * `eponine`, `fantine`); the app offers all but `marius` (dropped for

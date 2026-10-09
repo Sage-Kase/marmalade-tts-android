@@ -412,8 +412,19 @@ object LicenseCatalog {
                 "in the bundled text.",
         ),
         Component(
+            key = "pocket-weights",
+            name = "Pocket TTS (Kyutai) — model weights", role = "Neural voice model (English)",
+            shipsIn = "Engine bundle",
+            licenseId = "CC-BY-4.0",
+            copyright = listOf(
+                "\"Pocket TTS\" by Kyutai (https://huggingface.co/kyutai/pocket-tts)",
+            ),
+            note = "Converted to ONNX; the main transformer is quantized to " +
+                "8-bit integers. The model code is MIT (next entry).",
+        ),
+        Component(
             key = "pocket-model",
-            name = "Pocket TTS (Kyutai) — model code", role = "Neural voice model (English)",
+            name = "Pocket TTS (Kyutai) — model code", role = "Inference design of the voice model",
             shipsIn = "Engine bundle",
             licenseId = "MIT",
             copyright = listOf("Copyright (c) Kyutai"),

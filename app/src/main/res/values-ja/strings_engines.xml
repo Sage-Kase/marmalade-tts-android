@@ -203,5 +203,5 @@
 
     <string name="engine_pocket_tagline">最も表現力があり、個性的な英語ボイス。</string>
     <string name="engine_pocket_desc">動作は重いものの、英語のボイスは最も表現力があります。内蔵ボイスは 6 種類。ハイエンド端末ではなめらかに再生されますが、ミドルレンジや古い端末では途切れることがあります。英語のみ。Kyutai Labs のモデルを、クリアな音質のために混合精度でビルドしたものです。</string>
-    <string name="engine_pocket_license">モデルのコードは MIT、ランタイム（onnxruntime-android）も MIT。ボイスは CC0 / CC-BY-4.0。GPL コンポーネントはありません。</string>
+    <string name="engine_pocket_license">モデルの重みは CC-BY-4.0、モデルのコードは MIT、ランタイム（onnxruntime-android）も MIT。ボイスは CC0 / CC-BY-4.0。GPL コンポーネントはありません。</string>
 </resources>

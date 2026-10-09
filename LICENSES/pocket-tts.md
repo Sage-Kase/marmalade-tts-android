@@ -9,19 +9,39 @@ Three upstream projects contribute to the downloaded bundle. **None of
 them are GPL** — this is the only engine in the catalog without GPL
 contamination from the phonemizer path.
 
-## 1. Acoustic model — kyutai-labs/pocket-tts
+## 1. Acoustic model — kyutai/pocket-tts
+
+The model has two licences: Kyutai's **code** is MIT, and the trained
+**weights** are CC-BY-4.0. The bundle's ONNX graphs are the weights,
+converted, so CC-BY-4.0 is the licence that governs them.
+
+### Weights (CC-BY-4.0)
 
 - **Files:** `flow_lm_main_int8.onnx`, `flow_lm_flow.onnx`,
   `mimi_encoder.onnx`, `mimi_decoder.onnx`, `text_conditioner.onnx`,
-  `bundle.json`, `bos_before_voice.npy`
+  `bos_before_voice.npy`
+- **Upstream:** https://huggingface.co/kyutai/pocket-tts (model card
+  licence: `cc-by-4.0`, checked 2026-10-09)
+- **License:** **CC-BY-4.0** — full text in
+  [`full-texts/CC-BY-4.0.txt`](full-texts/CC-BY-4.0.txt).
+- **Attribution:** "Pocket TTS" by Kyutai,
+  https://huggingface.co/kyutai/pocket-tts, licensed CC-BY-4.0.
+- **Changes made:** converted from the released checkpoint to five ONNX
+  graphs (via the KevinAHM/pocket-tts-onnx export, below); the main
+  transformer (`flow_lm_main`) is quantized to 8-bit integers, the other
+  graphs stay 32-bit float.
+
+### Code (MIT)
+
 - **Upstream:** https://github.com/kyutai-labs/pocket-tts
-- **License:** **MIT License** (the model/inference code is MIT — not
-  Apache-2.0).
+- **License:** **MIT License** (not Apache-2.0). It covers the
+  inference design the ONNX graphs were traced from and the app's
+  Kotlin Pocket pipeline follows; `bundle.json` (the graphs' state
+  manifest) comes from the export tooling.
 - **Notice:** Copyright (c) Kyutai. Released under the MIT License.
 
-> The model **weights** and the **voice prompts** are distributed
-> separately from the code; the per-voice data licenses are below and
-> govern the `voices/*.wav` files, not the MIT code license.
+> The **voice prompts** carry their own per-voice data licenses, below;
+> they govern the `voices/*.wav` files.
 
 ## 2. Predefined voices — per-voice data licenses
 
@@ -64,9 +84,9 @@ This attribution is also recorded in [`../CREDITS.md`](../CREDITS.md).
 ## 3. Tokenizer — SentencePiece model file
 
 - **File:** `tokenizer.model`
-- **Upstream:** ships with the Pocket TTS export; trained alongside the
-  model on the same data
-- **License:** MIT (inherited from Pocket TTS). Marmalade does **not**
+- **Upstream:** published with the weights at
+  https://huggingface.co/kyutai/pocket-tts; trained alongside the model
+- **License:** CC-BY-4.0, with the weights (section 1). Marmalade does **not**
   depend on the SentencePiece library — `PocketTokenizer` is a pure-Kotlin
   reimplementation of the SentencePiece Unigram decode. SentencePiece
   (Apache-2.0, https://github.com/google/sentencepiece) is referenced only

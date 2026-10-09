@@ -207,5 +207,5 @@
 
     <string name="engine_pocket_tagline">सबसे भावपूर्ण और दमदार अंग्रेज़ी वॉइस।</string>
     <string name="engine_pocket_desc">भारी है, पर अंग्रेज़ी की सबसे भावपूर्ण वॉइस देता है — 6 वॉइस पहले से मौजूद। फ़्लैगशिप फ़ोन पर बिना रुकावट चलता है; मिड-रेंज और पुराने हार्डवेयर पर अटक सकता है। सिर्फ़ अंग्रेज़ी। Kyutai Labs का मॉडल, साफ़ आउटपुट के लिए मिक्स्ड-प्रिसिज़न बिल्ड में।</string>
-    <string name="engine_pocket_license">MIT मॉडल कोड + MIT रनटाइम (onnxruntime-android); वॉइस CC0 / CC-BY-4.0। कोई GPL घटक नहीं।</string>
+    <string name="engine_pocket_license">CC-BY-4.0 मॉडल वेट्स, MIT मॉडल कोड + MIT रनटाइम (onnxruntime-android); वॉइस CC0 / CC-BY-4.0। कोई GPL घटक नहीं।</string>
 </resources>

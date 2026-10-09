@@ -210,5 +210,5 @@
 
     <string name="engine_pocket_tagline">As vozes em inglês mais expressivas e cheias de personalidade.</string>
     <string name="engine_pocket_desc">Pesado, mas com as vozes em inglês mais expressivas — 6 vozes integradas. Reproduz sem falhas em celulares top de linha; pode engasgar em aparelhos intermediários e mais antigos. Só em inglês. O modelo da Kyutai Labs em uma build de precisão mista, para um som limpo.</string>
-    <string name="engine_pocket_license">Código do modelo MIT + runtime MIT (onnxruntime-android); vozes CC0 / CC-BY-4.0. Sem componentes GPL.</string>
+    <string name="engine_pocket_license">Pesos do modelo CC-BY-4.0, código do modelo MIT + runtime MIT (onnxruntime-android); vozes CC0 / CC-BY-4.0. Sem componentes GPL.</string>
 </resources>

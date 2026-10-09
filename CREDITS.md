@@ -86,8 +86,11 @@ Full detail, including the MIT notice for the weights:
   smaller text encoder trained by Marmalade to stand in for Kitten's
   ALBERT, on public-domain books (PG-19) and CC0 sentences (Common Voice
   sentence collector).
-- **Pocket TTS** — Kyutai. Model/inference code MIT; voices per-license
-  (above). https://github.com/kyutai-labs/pocket-tts
+- **Pocket TTS** — Kyutai. Model weights CC-BY-4.0
+  (https://huggingface.co/kyutai/pocket-tts; converted to ONNX, main
+  transformer quantized to 8-bit); model/inference code MIT
+  (https://github.com/kyutai-labs/pocket-tts); voices per-license
+  (above).
 - **rhasspy/piper-voices** — the VITS checkpoints the VITS Marmalade
   engine's voice packs are built from (Michael Hansen / Rhasspy, MIT).
   Only the *voice data* is used: the app's inference is its own, and no
