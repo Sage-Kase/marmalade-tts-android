@@ -240,11 +240,12 @@ object EngineCatalog {
     private const val KITTEN_DIRECT_INSTALLED_SIZE_BYTES: Long = 78_417_260L
     private const val KOKORO_DIRECT_INSTALLED_SIZE_BYTES: Long = 306_030_873L
     private const val KOKORO_DE_INSTALLED_SIZE_BYTES: Long = 183_180_788L
-    // v21 bundle: 6 commercial-safe voices (cosette/jean dropped — CC-BY-NC-4.0).
-    private const val POCKET_TTS_INSTALLED_SIZE_BYTES: Long = 217_288_756L
+    // v27 bundle: english_2026-09 weights, symbolic-cache graphs, the same 6
+    // commercial-safe voices as v21 (cosette/jean dropped — CC-BY-NC-4.0).
+    private const val POCKET_TTS_INSTALLED_SIZE_BYTES: Long = 217_241_717L
     // The clean-reference dev engine still pins the older 8-voice v10 archive
-    // (~1.6 MB larger); it's developer-only, so the small estimate drift is
-    // immaterial.
+    // (2026-04 weights, ~1.6 MB larger); it's developer-only, so the small
+    // estimate drift is immaterial.
     private const val POCKET_TTS_DEV_INSTALLED_SIZE_BYTES: Long = POCKET_TTS_INSTALLED_SIZE_BYTES
 
     /**
@@ -395,7 +396,8 @@ object EngineCatalog {
     )
 
     /**
-     * Pocket TTS English v2026_04 (`pocket-tts-en-v2026_04-mixed`). Kyutai
+     * Pocket TTS English (`pocket-tts-en-v2026_09-mixed`, engines release
+     * v27). Kyutai
      * Labs' Latent Space Diffusion model, run on Microsoft
      * `onnxruntime-android` directly (no sherpa-onnx in this path). 6
      * commercial-safe predefined voices (the upstream 8 minus `cosette`
@@ -407,8 +409,19 @@ object EngineCatalog {
      * (`mimi_decoder`), encoder (`mimi_encoder`), flow head (`flow_lm_flow`)
      * and text conditioner at fp32. v9 of this bundle blanket-quantized
      * everything and the result was audibly tinny; the mixed variant is the
-     * quality fix. The v21 bundle re-rolls the v10 mixed model with the two
+     * quality fix. The v21 bundle re-rolled the v10 mixed model with the two
      * non-commercial voices removed.
+     *
+     * v27 (issue #31) carries Kyutai's `english_2026-09` weights (a
+     * robustness re-distillation of 2026-04; the flow head and the Mimi codec
+     * are unchanged, so `flow_lm_flow` and the decoder are byte-identical to
+     * v21) and ships the #15 "F" graphs with a symbolic cache axis as its
+     * default `flow_lm_main`/`mimi_decoder` (`*_dyncache.onnx`, declared in
+     * bundle.json). The engine name keeps `v2026_04`: it is the id aliases
+     * and the default voice point at, and an install of v21 shows as
+     * Outdated (archive sha differs) until the user updates, which replaces
+     * the directory, voice_cache included (cached embeddings depend on the
+     * weights).
      *
      * Licensing: the Kyutai model **code** is MIT (not Apache-2.0) and its
      * **weights** are CC-BY-4.0 (huggingface.co/kyutai/pocket-tts). Each
@@ -422,15 +435,15 @@ object EngineCatalog {
      */
     private val POCKET_TTS_EN: EngineDescriptor = EngineDescriptor(
         name = "pocket-tts-en-v2026_04",
-        displayName = "Pocket TTS (English, 2026-04)",
+        displayName = "Pocket TTS (English, 2026-09)",
         descriptionRes = R.string.engine_pocket_desc,
-        downloadSizeBytes = 97_291_178L,
+        downloadSizeBytes = 97_891_040L,
         installedSizeBytes = POCKET_TTS_INSTALLED_SIZE_BYTES,
         isRecommended = false,
         archive = EngineArchive(
-            url = "https://github.com/maxwhipw/marmalade-tts-android-engines/releases/download/v21/pocket-tts-en-v2026_04-mixed.tar.bz2",
-            sha256 = "3a3ed2810afbae1f963f4f4e3ebde767c2d3c7c622cc544f23170f0ca755b452",
-            sizeBytes = 97_291_178L,
+            url = "https://github.com/maxwhipw/marmalade-tts-android-engines/releases/download/v27/pocket-tts-en-v2026_09-mixed.tar.bz2",
+            sha256 = "e6d03fc2c57c950e290f93adf86f30aaff7e079bdf7e91fdaf6f575b09da6aef",
+            sizeBytes = 97_891_040L,
             archiveRoot = "pocket-tts-en/",
         ),
         licenseNotice = "LICENSES/pocket-tts.md",

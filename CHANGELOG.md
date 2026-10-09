@@ -6,6 +6,12 @@ This project follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- **Pocket uses Kyutai's September 2026 English model**, retrained to
+  cope better with text that has no full stop at the end. The new Pocket
+  download also sizes the model's working memory to each sentence. On a
+  Pixel 6a, Pocket starts speaking sooner (about 0.37 s instead of
+  0.55 s), renders about 18% faster and needs about 200 MB less memory at
+  its peak. An installed Pocket offers the update on the Engines screen.
 - **No pause between paragraphs**: when Marmalade reads an article or a
   long shared text, one paragraph now runs straight into the next instead
   of stopping briefly at every paragraph break.

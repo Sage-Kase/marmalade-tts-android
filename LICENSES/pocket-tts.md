@@ -1,7 +1,8 @@
 # Pocket TTS model — third-party license notice
 
 The Pocket TTS model is **not bundled in the APK**. It is downloaded
-on-demand from `marmalade-tts-android-engines` (release `v21`) into
+on-demand from `marmalade-tts-android-engines` (release `v27`,
+`pocket-tts-en-v2026_09-mixed.tar.bz2`; v21 before it) into
 `${filesDir}/engines/pocket-tts-en-v2026_04/` when the user opts in via
 the onboarding wizard or Settings → Engines.
 
@@ -17,11 +18,24 @@ converted, so CC-BY-4.0 is the licence that governs them.
 
 ### Weights (CC-BY-4.0)
 
-- **Files:** `flow_lm_main_int8.onnx`, `flow_lm_flow.onnx`,
-  `mimi_encoder.onnx`, `mimi_decoder.onnx`, `text_conditioner.onnx`,
-  `bos_before_voice.npy`
+- **Files:** `flow_lm_main_int8_dyncache.onnx`, `flow_lm_flow.onnx`,
+  `mimi_encoder.onnx`, `mimi_decoder_dyncache.onnx`,
+  `text_conditioner.onnx`, `bos_before_voice.npy`
+- **Model version:** `english_2026-09` (v21 carried `english_2026-04`).
 - **Upstream:** https://huggingface.co/kyutai/pocket-tts (model card
-  licence: `cc-by-4.0`, checked 2026-10-09)
+  licence: `cc-by-4.0`, checked 2026-10-09). The 2026-09 weights were
+  taken from Kyutai's ungated copy,
+  https://huggingface.co/kyutai/pocket-tts-without-voice-cloning (same
+  licence; it zeroes only the Mimi encoder). The Mimi encoder comes from
+  the 2026-04 export at https://huggingface.co/KevinAHM/pocket-tts-onnx
+  (`cc-by-4.0`, ungated; byte-identical to v21's `mimi_encoder.onnx`): the
+  codec is the same in both versions, every Mimi tensor outside the
+  encoder is bit-identical, so only the speaker projection was replaced.
+- **Kyutai's prohibited-use statement:** both Kyutai repositories ask
+  that the model not be used for voice impersonation or cloning without
+  explicit and lawful consent, for deception, or for unlawful or harmful
+  content. The licence itself is CC-BY-4.0; the app has no cloning
+  feature enabled (see "Voice cloning" below).
 - **License:** **CC-BY-4.0** — full text in
   [`full-texts/CC-BY-4.0.txt`](full-texts/CC-BY-4.0.txt).
 - **Attribution:** "Pocket TTS" by Kyutai,
@@ -29,7 +43,10 @@ converted, so CC-BY-4.0 is the licence that governs them.
 - **Changes made:** converted from the released checkpoint to five ONNX
   graphs (via the KevinAHM/pocket-tts-onnx export, below); the main
   transformer (`flow_lm_main`) is quantized to 8-bit integers, the other
-  graphs stay 32-bit float.
+  graphs stay 32-bit float; the 2026-09 speaker projection is placed in
+  the 2026-04 Mimi encoder graph; the main transformer's and the
+  decoder's cache length is made a variable dimension (`*_dyncache`), with
+  the weights unchanged.
 
 ### Code (MIT)
 
@@ -98,6 +115,11 @@ This attribution is also recorded in [`../CREDITS.md`](../CREDITS.md).
   conditioner) and the `bundle.json` state-manifest format derive from
   the export pipeline at https://github.com/KevinAHM/pocket-tts-onnx
   (Apache-2.0).
+- The v27 graphs were exported with KevinAHM's exporter,
+  `pocket-tts-onnx-export` (MIT, derived from Kyutai's MIT code; local
+  copy at commit `b25d4a7`). Run on the 2026-04 weights, it reproduces
+  v21's graphs exactly. Both GitHub repositories returned 404 on
+  2026-10-09; no tooling code is in the bundle or the app.
 
 ## Runtime
 
