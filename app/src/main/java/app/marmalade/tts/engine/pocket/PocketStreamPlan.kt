@@ -214,7 +214,7 @@ class PocketDecodeCost(private val capacity: Int = 8) {
 
 /**
  * Holds a request's first slices until a release time, then sends
- * everything (the streamed equivalent of the old K-chunk pre-roll).
+ * everything: the head start a render slower than playback needs.
  * [releaseAtMs] is set once, when the first slice is ready
  * ([PocketStreamPlan.holdMs]); until then slices are held.
  */

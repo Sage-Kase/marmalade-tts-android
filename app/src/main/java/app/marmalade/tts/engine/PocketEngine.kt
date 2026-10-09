@@ -38,11 +38,9 @@ import javax.inject.Singleton
 import kotlin.math.sqrt
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ProducerScope
 import kotlinx.coroutines.coroutineScope
@@ -191,12 +189,12 @@ open class PocketEngine @Inject constructor(
     private var decodeBatch = 0
 
     /**
-     * #15 "E": decode and send audio in slices while the AR loop runs
-     * ([streamChunks]). [STREAM_OVERLAP] decodes on a second thread, so the
-     * decoder's time hides behind the next frames' AR steps. Debug knob
-     * `pocket.stream` = `off` | `inline` | `overlap`.
+     * #15 "E": audio is decoded and sent in slices while the AR loop runs
+     * ([streamChunks]). [STREAM_OVERLAP] (the default) decodes on a second
+     * thread, so the decoder's time hides behind the next frames' AR steps;
+     * debug knob `pocket.stream=inline` decodes on the AR thread instead.
      */
-    private var streamMode = STREAM_OFF
+    private var streamMode = STREAM_OVERLAP
 
     /** The decoder's measured cost per slice size, for the first-sound hold (decoder thread only). */
     private val decodeCost = PocketDecodeCost()
@@ -347,11 +345,7 @@ open class PocketEngine @Inject constructor(
         seed = knob("pocket.seed")?.toLongOrNull()
         flowCacheLenKnob = knob("pocket.cacheLen")?.toIntOrNull()
         val mimiCapKnob = knob("pocket.mimiCap")?.toIntOrNull()
-        streamMode = when (knob("pocket.stream")) {
-            "inline" -> STREAM_INLINE
-            "overlap" -> STREAM_OVERLAP
-            else -> STREAM_OFF
-        }
+        streamMode = if (knob("pocket.stream") == "inline") STREAM_INLINE else STREAM_OVERLAP
         val decodeKnob = knob("pocket.decode")
 
         val files = bundle!!.onnxFiles
@@ -594,43 +588,13 @@ open class PocketEngine @Inject constructor(
     }
 
     /**
-     * Streaming variant — per-chunk batched pipeline with adaptive
-     * pre-roll. Architecture (alpha.7, replaces the within-chunk
-     * frame-streaming pattern that stuttered under sub-realtime
-     * generation):
-     *
-     *   text ─► chunkPocketByTokens ─► mini-chunks (≤ MAX_TOKENS each)
-     *           (sentence-aware,            │
-     *            token-counted)             ▼
-     *                              ┌────────────────────────┐
-     *                              │ For each mini-chunk:   │
-     *                              │   - fresh flow_lm state│
-     *                              │   - fresh mimi state   │  ← matches upstream
-     *                              │   - run AR to EOS      │     _decode_audio_worker
-     *                              │   - mimi_decode whole  │
-     *                              │   - emit 1 SynthAudio  │
-     *                              └────────────────────────┘
-     *
-     * Each emitted SynthAudio is a fully-formed PCM buffer; the
-     * AudioTrack consumer plays it without underrun. Inter-chunk
-     * gaps only appear if the next chunk isn't ready when the
-     * current chunk's audio drains.
-     *
-     * Adaptive pre-roll: while generating chunk 0, we measure the
-     * wall-time of frames 2..5 (skipping frame 0 — which carries
-     * ORT JIT/warmup cost — and frame 1 conservatively). The
-     * MAX of those samples is our per-frame steady-state estimate.
-     * From that we compute K = how many chunks to buffer before
-     * the first emit:
-     *
-     *   deficitMs = max(0, perFrameMaxMs − frameBudgetMs)
-     *   K = ceil(totalChunks × deficitMs / frameBudgetMs), capped at 3
-     *
-     * If gen is at or above realtime (deficitMs == 0), K = 1 and
-     * chunks emit as they're ready. If gen is sub-realtime, K grows
-     * so the buffer never fully drains before all chunks complete.
-     * TTFA pays the K×gen cost; we cap K at 3 so TTFA stays bounded
-     * (≈ 3 × 3 s gen on slow hardware).
+     * Render [text] chunk by chunk (sentence-sized mini-chunks of at most
+     * [PocketBundle.maxTokenPerChunk] tokens; each starts from fresh
+     * flow_lm and mimi state, matching upstream's `_decode_audio_worker`),
+     * sending audio in slices as it is decoded ([streamChunks], #15 "E").
+     * The whole-chunk pipeline with its adaptive K-chunk pre-roll
+     * (alpha.7) was removed in #15: streaming started sound 5× sooner on
+     * the 6a and never ran dry.
      */
     override fun synthesizeStream(
         text: String,
@@ -688,8 +652,8 @@ open class PocketEngine @Inject constructor(
         }
 
         // Everything that touches an ORT session runs under synthLock, and the
-        // pipelined mimi decode below is a child of this inner coroutineScope
-        // rather than of the channelFlow's producer scope. That way, when the
+        // decoder coroutine ([streamChunks]) is a child of this inner
+        // coroutineScope rather than of the channelFlow's producer scope. That way, when the
         // AR loop throws (Stop's ensureActive, the release check), the scope
         // cancels and then WAITS for an in-flight decode before withLock
         // releases — otherwise release() could close mimi_decoder mid-run()
@@ -698,156 +662,7 @@ open class PocketEngine @Inject constructor(
             // Under the lock: a first-use voice encodes through mimi_encoder.
             val voiceEmb = embeddingForVoice(voiceName)
             seed?.let { random.setSeed(it) }
-            if (streamMode != STREAM_OFF) {
-                streamChunks(this@channelFlow, bundle, voiceEmb, miniChunks, playbackRate, streamStartNs, loadWaitMs)
-                if (profileRequestsLeft > 0 && --profileRequestsLeft == 0) endOrtProfiling()
-                return@coroutineScope
-            }
-            var prerollChunks = 1
-            val buffered = ArrayList<SynthAudio>(MAX_PREROLL_CHUNKS)
-            // Pipelining: when sub-realtime (K > 1), kick off chunk N's mimi
-            // decode on a worker thread while chunk N+1's AR loop runs.
-            // [pendingDecode] holds the previous chunk's in-flight decode
-            // (chunkIdx, deferred audio) — awaited before the next emit.
-            // Disjoint ORT sessions (flow_lm_* on the main coroutine,
-            // mimi_decoder on the worker) make this safe; the win is total
-            // synth time, not TTFA, so we gate to K > 1 to avoid delaying
-            // chunk-0 emit on realtime workloads.
-            var pendingDecode: Pair<Int, Deferred<SynthAudio>>? = null
-
-            // Each chunk decodes from the engine-level init state (read-only),
-            // a cold codec state: P-AE's attempt to carry mimi state across
-            // chunks for a "continuous trajectory" was reverted as confounded
-            // by silent chunk boundaries.
-            val mimiState = this@PocketEngine.mimiState
-                ?: error("mimi state missing — engine not loaded?")
-
-            // Local helper: emit a finished chunk's audio per the K-buffer
-            // policy. Lambda (not local fun) so we can suspend on `send`.
-            // P-A diagnostic: track inter-send producer gap; counts mini-
-            // chunks emitted to downstream (incl. buffered flushes).
-            var prevSendNs = 0L
-            var firstEmitted = false
-            val emitOrBuffer: suspend (SynthAudio, Int) -> Unit = { audio, chunkIdx ->
-                if (chunkIdx < prerollChunks - 1 && chunkIdx < miniChunks.size - 1) {
-                    buffered.add(audio)
-                } else {
-                    // Flush previously-buffered chunks (in order), then this one.
-                    for (b in buffered) {
-                        val gMs = if (prevSendNs == 0L) -1L else (System.nanoTime() - prevSendNs) / 1_000_000
-                        Log.d(PERF_TAG, "pocket emit(buf) audio=${b.pcm.size * 1000L / b.sampleRate}ms gap=${gMs}ms")
-                        if (!firstEmitted) {
-                            val ttfa = (System.nanoTime() - streamStartNs) / 1_000_000
-                            Log.d(PERF_TAG, "pocket TTFA=${ttfa}ms (loadWait=${loadWaitMs}ms + producePath=${ttfa - loadWaitMs}ms) K=$prerollChunks")
-                            firstEmitted = true
-                        }
-                        this@channelFlow.send(b)
-                        prevSendNs = System.nanoTime()
-                    }
-                    buffered.clear()
-                    val gapMs = if (prevSendNs == 0L) -1L else (System.nanoTime() - prevSendNs) / 1_000_000
-                    val audioMs = audio.pcm.size * 1000L / audio.sampleRate
-                    Log.d(PERF_TAG, "pocket emit chunkIdx=$chunkIdx audio=${audioMs}ms gap=${gapMs}ms K=$prerollChunks")
-                    if (!firstEmitted) {
-                        val ttfa = (System.nanoTime() - streamStartNs) / 1_000_000
-                        Log.d(PERF_TAG, "pocket TTFA=${ttfa}ms (loadWait=${loadWaitMs}ms + producePath=${ttfa - loadWaitMs}ms) K=$prerollChunks")
-                        firstEmitted = true
-                    }
-                    this@channelFlow.send(audio)
-                    prevSendNs = System.nanoTime()
-                }
-            }
-
-            for ((idx, miniChunk) in miniChunks.withIndex()) {
-                val isFirst = idx == 0
-                val frameTimes = if (isFirst) ArrayList<Long>(8) else null
-
-                // 1. AR loop for this chunk (synchronous on current coroutine).
-                val arStartNs = System.nanoTime()
-                val latents = generateChunkLatents(
-                    bundle = bundle,
-                    voiceEmb = voiceEmb,
-                    miniChunk = miniChunk,
-                    frameTimes = frameTimes,
-                    chunkIdx = idx,
-                )
-                val arMs = (System.nanoTime() - arStartNs) / 1_000_000
-                Log.d(PERF_TAG, "pocket chunk=$idx ar=${arMs}ms (text='${miniChunk.take(40)}${if (miniChunk.length > 40) "…" else ""}')")
-
-                // 2. After chunk 0, calculate K from observed frame times.
-                //
-                // Originally used the raw max of frames[1..4]. That triggered
-                // K=2 on any single-frame hiccup (e.g. 93ms outlier when the
-                // sustained average was 60ms — well under the 80ms budget),
-                // doubling TTFA for no real reason. Switched to a
-                // trimmed-max: sort, drop the single worst frame, take the
-                // max of the remaining 3. Still conservative — a SUSTAINED
-                // sub-realtime workload trips K>1 — but a one-off cold-cache
-                // spike doesn't.
-                if (isFirst && frameTimes != null && frameTimes.size >= 5) {
-                    val window = frameTimes.subList(1, 5)
-                    val trimmedMaxMs = window.sortedDescending().drop(1).first()
-                    // The budget is per PLAYED frame: a downstream time-
-                    // stretch (playbackRate > 1) drains each rendered frame
-                    // in frameDuration / playbackRate, so the deficit — and
-                    // K — must be judged against that shorter clock.
-                    val frameBudgetMs = 1000.0 / bundle.frameRate /
-                        playbackRate.coerceAtLeast(0.01f)
-                    val deficitMs = (trimmedMaxMs - frameBudgetMs).coerceAtLeast(0.0)
-                    prerollChunks = if (deficitMs == 0.0) {
-                        1
-                    } else {
-                        Math.ceil(miniChunks.size * deficitMs / frameBudgetMs)
-                            .toInt()
-                            .coerceIn(1, MAX_PREROLL_CHUNKS)
-                    }
-                    Log.d(
-                        TAG,
-                        "Adaptive pre-roll: chunk0 frames[1..4]=$window (raw frames=$frameTimes), " +
-                            "trimmedMax=${trimmedMaxMs}ms, deficit=${deficitMs}ms, " +
-                            "K=$prerollChunks chunk(s) of ${miniChunks.size} total",
-                    )
-                }
-
-                // 3. Drain any previously-pending decode (await + emit/buffer).
-                // Done BEFORE starting this chunk's decode so the await happens
-                // in the gap between iterations (typically the deferred is
-                // already complete by now thanks to the AR loop overlap).
-                pendingDecode?.let { (prevIdx, prevJob) ->
-                    val prevAudio = prevJob.await()
-                    emitOrBuffer(prevAudio, prevIdx)
-                }
-                pendingDecode = null
-
-                // 4. Decide whether to pipeline THIS chunk's decode or run
-                // it synchronously. Gate on K > 1 (sub-realtime regime where
-                // total-time savings matter more than first-emit latency)
-                // AND not the last chunk (no pipelining benefit on the tail).
-                val canPipeline = prerollChunks > 1 && idx < miniChunks.size - 1
-                if (canPipeline) {
-                    pendingDecode = idx to async(Dispatchers.Default) {
-                        val decodeStartNs = System.nanoTime()
-                        val out = decodeChunkAudio(bundle, latents, mimiState, idx)
-                        val decodeMs = (System.nanoTime() - decodeStartNs) / 1_000_000
-                        Log.d(PERF_TAG, "pocket chunk=$idx decode=${decodeMs}ms (pipelined)")
-                        out
-                    }
-                } else {
-                    val decodeStartNs = System.nanoTime()
-                    val audio = decodeChunkAudio(bundle, latents, mimiState, idx)
-                    val decodeMs = (System.nanoTime() - decodeStartNs) / 1_000_000
-                    Log.d(PERF_TAG, "pocket chunk=$idx decode=${decodeMs}ms (sync)")
-                    emitOrBuffer(audio, idx)
-                }
-            }
-
-            // Drain any remaining pending decode after the last iteration.
-            pendingDecode?.let { (prevIdx, prevJob) ->
-                val prevAudio = prevJob.await()
-                emitOrBuffer(prevAudio, prevIdx)
-            }
-            // Defensive — buffered should be empty after the loop's flush logic.
-            for (b in buffered) this@channelFlow.send(b)
+            streamChunks(this@channelFlow, bundle, voiceEmb, miniChunks, playbackRate, streamStartNs, loadWaitMs)
             if (profileRequestsLeft > 0 && --profileRequestsLeft == 0) endOrtProfiling()
         } }
     }.flowOn(Dispatchers.Default)
@@ -1035,7 +850,7 @@ open class PocketEngine @Inject constructor(
                     val index = if (n > 0) clock.submitted(n, System.nanoTime() / 1e6).first else -1
                     submit(DecodeJob(idx, slice++, index, flat, n, last, chunkStartNs, if (last) chunkFrames else 0))
                 }
-                generateChunkLatents(bundle, voiceEmb, miniChunk, frameTimes = null, chunkIdx = idx) { latent ->
+                generateChunkLatents(bundle, voiceEmb, miniChunk, idx) { latent ->
                     val nowNs = System.nanoTime()
                     if (chunkFrames > 0) {
                         val interval = (nowNs - lastFrameNs) / 1e6
@@ -1063,28 +878,17 @@ open class PocketEngine @Inject constructor(
     }
 
     /**
-     * AR loop for one mini-chunk. Returns the flat latent buffer (frames
-     * concatenated along time) or `null` if the chunk produced no frames.
-     *
-     * Was a single `generateChunkBatched` before v0.3.0-alpha.7; the
-     * streaming path can pipeline this chunk's AR with the *previous*
-     * chunk's mimi decode (see [synthesizeStream]). The two phases use
-     * disjoint ORT sessions (`flow_lm_main` + `flow_lm_flow` here;
-     * `mimi_decoder` in [decodeChunkAudio]) so they can safely run
-     * concurrently.
-     *
-     * If [frameTimes] is non-null, the per-frame wall-clock (ms) of
-     * each AR step is appended (caller uses these for adaptive pre-roll
-     * on the first chunk).
+     * AR loop for one mini-chunk: each latent frame goes to [onLatent] as
+     * it is generated. Uses `flow_lm_main` + `flow_lm_flow` only, so it can
+     * run while `mimi_decoder` decodes earlier frames on another thread.
      */
     private suspend fun generateChunkLatents(
         bundle: PocketBundle,
         voiceEmb: FloatArray,
         miniChunk: String,
-        frameTimes: MutableList<Long>?,
-        chunkIdx: Int = -1,
-        onLatent: (suspend (FloatArray) -> Unit)? = null,
-    ): FloatArray? {
+        chunkIdx: Int,
+        onLatent: suspend (FloatArray) -> Unit,
+    ) {
         val tokenizer = tokenizer ?: error("tokenizer missing")
         val preprocessed = preprocessForPocket(miniChunk, bundle)
         val tokens = tokenizer.encode(preprocessed)
@@ -1104,22 +908,20 @@ open class PocketEngine @Inject constructor(
             Log.d(PERF_TAG, "pocket chunk=$chunkIdx prefill ${p.name}=${p.ms}ms${p.detail?.let { " ($it)" } ?: ""}")
         }
         try {
-            return arLoop(ar, bundle, miniChunk, frameTimes, chunkIdx, onLatent)
+            arLoop(ar, miniChunk, chunkIdx, onLatent)
         } finally {
             ar.carry.close()
         }
     }
 
-    /** [generateChunkLatents]' frame loop, from a primed [ar] to the flat latents. */
+    /** [generateChunkLatents]' frame loop, from a primed [ar]. */
     private suspend fun arLoop(
         ar: ArSession,
-        bundle: PocketBundle,
         miniChunk: String,
-        frameTimes: MutableList<Long>?,
         chunkIdx: Int,
-        onLatent: (suspend (FloatArray) -> Unit)?,
-    ): FloatArray? {
-        val latents = ArrayList<FloatArray>(ar.maxFrames)
+        onLatent: suspend (FloatArray) -> Unit,
+    ) {
+        var frames = 0
         // P-AD diagnostics: track latent magnitude + EOS so a glitchy chunk's
         // logcat distinguishes the two leading theories (per adversarial
         // review): (1) EOS-failure → over-generation (eosFired=false,
@@ -1136,24 +938,20 @@ open class PocketEngine @Inject constructor(
             // until the current mini-chunk finished its full AR loop.
             coroutineContext.ensureActive()
             check(!releaseRequested.get()) { "Pocket engine released mid-synthesis" }
-            val tStart = System.currentTimeMillis()
             val step = stepAr(ar) ?: break
-            if (frameTimes != null && frameTimes.size < 8) {
-                frameTimes.add(System.currentTimeMillis() - tStart)
-            }
             for (v in step.latent) {
                 if (!v.isFinite()) { sawNonFinite = true; continue }
                 val a = if (v < 0f) -v else v
                 if (a > peakLatentAbs) peakLatentAbs = a
             }
-            latents.add(step.latent)
-            onLatent?.invoke(step.latent)
+            frames++
+            onLatent(step.latent)
         }
 
         Log.d(PERF_TAG, ar.times.arLine(chunkIdx, (System.nanoTime() - loopStartNs) / 1_000_000))
 
         // Per-chunk summary. WARN on the two failure signatures; INFO otherwise.
-        val summary = "Pocket chunk $chunkIdx: frames=${latents.size}/${ar.maxFrames} " +
+        val summary = "Pocket chunk $chunkIdx: frames=$frames/${ar.maxFrames} " +
             "eosFired=${ar.eosFired}@${ar.eosFiredAtFrame} " +
             "peakLatentAbs=${"%.2f".format(peakLatentAbs)} nonFinite=$sawNonFinite " +
             "text=\"${miniChunk.take(48)}\""
@@ -1162,46 +960,6 @@ open class PocketEngine @Inject constructor(
         } else {
             Log.i(TAG, summary)
         }
-
-        if (latents.isEmpty()) return null
-        val flat = FloatArray(latents.size * bundle.latentDim)
-        var pos = 0
-        for (l in latents) {
-            System.arraycopy(l, 0, flat, pos, bundle.latentDim)
-            pos += bundle.latentDim
-        }
-        return flat
-    }
-
-    /**
-     * Run the mimi decoder on a flat latent buffer and convert to PCM16.
-     * `null` input → empty audio (caller filters empty chunks).
-     *
-     * Safe to invoke from a background coroutine while the AR loop runs
-     * on disjoint sessions — this is the streaming-path pipeline that
-     * overlaps chunk N's mimi decode with chunk N+1's AR loop. It mutates
-     * the engine-level [mimiState], though, so at most one decode may be
-     * in flight, and it must finish before [synthLock] is released (see
-     * the coroutineScope in [synthesizeStream]).
-     */
-    private fun decodeChunkAudio(
-        bundle: PocketBundle,
-        latents: FloatArray?,
-        mimiState: PocketStates,
-        chunkIdx: Int,
-    ): SynthAudio {
-        if (latents == null || latents.isEmpty()) {
-            return SynthAudio(pcm = ShortArray(0), sampleRate = bundle.sampleRate)
-        }
-        // The chunk-start "distorted first word" artifact was the decoder's
-        // ring buffer overflowing in big batches; [runMimiDecoder]'s exact
-        // batches ([PocketMimiBatch]) never overflow it, so no warm-prime /
-        // trim / fade is needed here.
-        val times = PocketTimes()
-        val startNs = System.nanoTime()
-        val pcmFloat = runMimiDecoder(bundle, latents, mimiState, times)
-        Log.d(PERF_TAG, times.decodeLine(chunkIdx, (System.nanoTime() - startNs) / 1_000_000))
-        return SynthAudio(pcm = floatToPcm16(pcmFloat), sampleRate = bundle.sampleRate)
     }
 
     /**
@@ -2061,23 +1819,19 @@ open class PocketEngine @Inject constructor(
     }
 
     /**
-     * Non-streaming mimi decoder: chunks [latents] internally to keep
-     * memory bounded for long inputs, but produces all PCM up front.
-     * Used by [synthesize]; the streaming path calls [decodeMimiChunk]
-     * directly with its own chunking + state lifecycle.
+     * Decode [latents] whole, from [mimiState] (the warmup's decode; the
+     * streamed render decodes slice by slice in [streamChunks]).
      */
     private fun runMimiDecoder(
         bundle: PocketBundle,
         latents: FloatArray,
-        mimiState: PocketStates = initStates(mimiManifest),
-        times: PocketTimes? = null,
+        mimiState: PocketStates,
     ): FloatArray {
         if (latents.isEmpty()) return FloatArray(0)
         val numFrames = latents.size / bundle.latentDim
         val dim = bundle.latentDim
         val spf = bundle.samplesPerFrame
         val pcm = FloatArray(numFrames * spf)
-        times?.decodedFrames = numFrames
 
         // [mimiState] is only the init source, never written (#15 "A").
         val carry = PocketStateCarry(PocketStateCarry.bindSlots(env ?: error("ORT env missing"), bundle.mimiStateManifest, mimiState))
@@ -2086,7 +1840,7 @@ open class PocketEngine @Inject constructor(
             for (range in PocketMimiBatch.batches(numFrames, decodeBatch)) {
                 val n = range.last - range.first + 1
                 val part = latents.copyOfRange(range.first * dim, (range.last + 1) * dim)
-                val out = decodeMimiChunk(bundle, part, n, carry, times)
+                val out = decodeMimiChunk(bundle, part, n, carry, times = null)
                 System.arraycopy(out, 0, pcm, range.first * spf, out.size)
             }
         } finally {
@@ -2341,7 +2095,6 @@ open class PocketEngine @Inject constructor(
          */
         private const val NOISE_CLAMP_ABS = 3.0f
 
-        const val STREAM_OFF = "off"
         const val STREAM_INLINE = "inline"
         const val STREAM_OVERLAP = "overlap"
 
@@ -2371,7 +2124,7 @@ open class PocketEngine @Inject constructor(
          */
         const val CLONED_VOICE_PREFIX = "cloned-"
 
-        // -- chunking + pre-roll knobs (synthesizeStream) -----------------
+        // -- chunking knobs (synthesizeStream) -----------------------------
         //
         // Pocket adopted KokoroDirect's former chunking discipline
         // (sentence-only, char-bound, minChars-merge; Kokoro has since moved
@@ -2391,27 +2144,10 @@ open class PocketEngine @Inject constructor(
          * into a single ~150-char chunk doubles the AR loop's wall-clock
          * for that chunk, which exceeds the prior chunk's audio duration
          * and starves the consumer (audible gap). Set to 40 so sentences
-         * 40+ chars emit alone — keeps per-chunk size variance low so the
-         * adaptive pre-roll's K=1 holds without underrun. Truly tiny
-         * sentences ("Yes.") still merge.
+         * 40+ chars emit alone — keeps per-chunk size variance low. Truly
+         * tiny sentences ("Yes.") still merge.
          */
         private const val POCKET_MIN_CHARS_PER_CHUNK = 40
-
-        /**
-         * Adaptive pre-roll ceiling. The K formula scales with the
-         * per-frame deficit and the chunk count; on slow devices it
-         * would otherwise demand 4+ chunks of buffering. We cap it
-         * to keep TTFA bounded.
-         *
-         * Calibration: at the fp32-mimi precision shipped with v0.3.0-
-         * alpha.7, a typical 15-frame chunk takes ~2.25 s wall-time on
-         * Pixel 8a (Tensor G3) when the per-frame deficit is 80 ms+.
-         * Cap K at 2 ⇒ worst-case TTFA ≈ 4.5 s, vs the older int8
-         * timing where K=3 fit a 3 s budget. The int8 budget no longer
-         * applies; the trade-off is now stutter risk (lower K) vs
-         * startup delay (higher K).
-         */
-        private const val MAX_PREROLL_CHUNKS = 2
 
         /** Sentence boundary: `.`, `!`, or `?` followed by whitespace. */
         private val SENTENCE_SPLIT_REGEX = Regex("(?<=[.!?])\\s+")
