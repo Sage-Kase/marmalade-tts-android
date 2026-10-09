@@ -10,7 +10,7 @@ package app.marmalade.tts.engine.pocket
  */
 object PocketLineBreaks {
 
-    private val LINE_BREAK = Regex("""([.!?,;:]['")\]]*)?[ \t]*\n\s*""")
+    private val LINE_BREAK = Regex("""([.!?,;:]['")\]]*)?[ \t\r]*\n\s*""")
 
     fun apply(text: String): String =
         LINE_BREAK.replace(text) { m -> if (m.groupValues[1].isNotEmpty()) m.groupValues[1] + " " else ". " }

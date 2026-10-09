@@ -29,4 +29,11 @@ class PocketLineBreaksTest {
     fun `a quote without punctuation still gets a break`() {
         assertEquals("He said \"hi\". Next", PocketLineBreaks.apply("He said \"hi\"\nNext"))
     }
+
+    @Test
+    fun `windows line endings read like plain ones`() {
+        assertEquals("Hello. World", PocketLineBreaks.apply("Hello.\r\nWorld"))
+        assertEquals("a, b", PocketLineBreaks.apply("a,\r\nb"))
+        assertEquals("Title. Body", PocketLineBreaks.apply("Title\r\n\r\nBody"))
+    }
 }
