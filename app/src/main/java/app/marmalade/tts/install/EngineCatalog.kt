@@ -403,9 +403,11 @@ object EngineCatalog {
      * non-commercial voices removed.
      *
      * Licensing: the Kyutai model **code** is MIT (not Apache-2.0). Each
-     * predefined voice carries its own data license — the 6 we ship are
-     * CC0 (`javert`, `marius`) or CC-BY-4.0 (`alba`, `azelma`, `eponine`,
-     * `fantine`); attribution for the CC-BY voices is in CREDITS.md. No
+     * predefined voice carries its own data license — the 6 in the bundle
+     * are CC0 (`javert`, `marius`) or CC-BY-4.0 (`alba`, `azelma`,
+     * `eponine`, `fantine`); the app offers all but `marius` (dropped for
+     * quality, issue #19); attribution for the CC-BY voices is in
+     * CREDITS.md. No
      * espeak dependency — Pocket phonemizes upstream of the ONNX export, so
      * this is the only catalog entry without GPL contamination.
      */

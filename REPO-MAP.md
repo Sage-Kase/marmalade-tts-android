@@ -230,6 +230,17 @@ When investigating **{concern}**, start at **{files}**:
   `probeInstalledVoiceAssets` (sideloaded = installed), `VoicePath` and the
   alias editor's engine list. Bundles stay sideloaded (no catalog entry); a
   debug-only engine goes through the seam, never into `EngineCatalog`.
+- **Retired voices** (issue #19): a voice dropped from a catalog goes in
+  that catalog's `retiredVoices` (retired id → replacement id, same
+  engine), and `migrateRetiredVoices` (`data/RetiredEngines.kt`) applies it
+  on every start, release too, after the reseed: aliases keep their ids and
+  move with `VoiceAliasDao.repointVoice`, the default voice follows, the
+  row is deleted. Today: Pocket's `marius` → `alba` (its WAV stays in the
+  bundle, unread), mirrored for the clean twin by
+  `PocketDevVoiceCatalog.retiredVoices`. `PocketVoiceCatalog.OFFER_VCTK_VOICES`
+  is the one-line switch that would retire `azelma`/`eponine`/`fantine` the
+  same way. The installer's Pocket layout check requires a WAV per offered
+  voice only.
 - **Kitten streams** (issue #10, `engine/kitten/KittenDirectEngine.kt`):
   the baked bundle is `planner.onnx` + `gen.onnx` + `genstats/<voice>.bin`
   + `voices/<voice>.bin`, cut from upstream's `kitten.onnx` by

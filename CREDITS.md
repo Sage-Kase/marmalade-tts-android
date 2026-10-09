@@ -8,7 +8,7 @@ attribution that some licenses (notably CC-BY-4.0) require.
 
 ## Voice data — attribution required
 
-The Pocket engine ships 6 predefined reference voices. Two carry
+The Pocket engine offers 5 predefined reference voices. Two sources carry
 **CC-BY-4.0**, which requires attribution:
 
 - **VCTK Corpus** — `azelma`, `eponine`, `fantine` are derived from the
@@ -18,9 +18,9 @@ The Pocket engine ships 6 predefined reference voices. Two carry
 - **Alba Mackenna** — the `alba` voice, released by Kyutai under
   **CC-BY-4.0** (`kyutai/tts-voices`, `alba-mackenna/`).
 
-Two more (`javert`, `marius`) come from the **Unmute Voice Donation
-Project** and are **CC0** — no attribution required, but the volunteers
-who donated their voices have our thanks.
+One more (`javert`) comes from the **Unmute Voice Donation Project**
+and is **CC0** — no attribution required, but the volunteers who donated
+their voices have our thanks.
 
 The upstream `cosette` (Expresso) and `jean` (EARS) voices are
 **CC-BY-NC-4.0 (non-commercial)** and are **not shipped**. Full mapping:

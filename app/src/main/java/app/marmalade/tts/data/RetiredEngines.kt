@@ -38,3 +38,26 @@ internal suspend fun migrateRetiredEngines(
     retiredVoiceReplacement(settings.defaultVoiceId.first(), retired)?.let { settings.setDefaultVoiceId(it) }
     for (engine in retired.keys) voices.deleteByEngine(engine)
 }
+
+/**
+ * Move everything that points at a retired voice onto its replacement
+ * (retired voice id → replacement voice id, same engine), the voice-level
+ * twin of [migrateRetiredEngines] (issue #19: Pocket's `marius` dropped for
+ * quality, replaced by `alba`). Aliases move with
+ * [VoiceAliasDao.repointVoice] and keep their ids, so the primary alias,
+ * per-app routes and fallback pointers follow them; the default voice moves
+ * the same way; the retired voice rows go, so nothing offers them.
+ * Idempotent (a second run finds nothing to move) and a no-op for an empty
+ * [retired].
+ */
+internal suspend fun migrateRetiredVoices(
+    retired: Map<String, String>,
+    aliases: VoiceAliasDao,
+    voices: VoiceMetaDao,
+    settings: SettingsRepository,
+) {
+    if (retired.isEmpty()) return
+    for ((from, to) in retired) aliases.repointVoice(from, to)
+    retired[settings.defaultVoiceId.first()]?.let { settings.setDefaultVoiceId(it) }
+    for (from in retired.keys) voices.deleteById(from)
+}

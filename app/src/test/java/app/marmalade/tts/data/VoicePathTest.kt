@@ -77,11 +77,11 @@ class VoicePathTest {
     @Test
     fun `pocket voice key renders capitalized`() {
         val path = resolver.resolve(
-            PocketVoiceCatalog.voiceId("marius"),
+            PocketVoiceCatalog.voiceId("javert"),
             PocketVoiceCatalog.ENGINE,
         )
 
-        assertEquals("Marius", path.voice)
+        assertEquals("Javert", path.voice)
     }
 
     @Test

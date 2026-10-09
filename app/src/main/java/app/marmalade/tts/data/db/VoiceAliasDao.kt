@@ -55,4 +55,14 @@ interface VoiceAliasDao {
             "WHERE engine = :fromEngine"
     )
     suspend fun repointEngine(fromEngine: String, toEngine: String)
+
+    /**
+     * Move every alias on voice [fromVoiceId] onto [toVoiceId]. Only for two
+     * voices of the same engine (the `engine` column is left alone): a
+     * retired voice moving onto its replacement, e.g. Pocket's `marius` →
+     * `alba` (issue #19). Aliases keep their id, so per-app routes and
+     * fallback pointers survive.
+     */
+    @Query("UPDATE voice_alias SET voiceId = :toVoiceId WHERE voiceId = :fromVoiceId")
+    suspend fun repointVoice(fromVoiceId: String, toVoiceId: String)
 }

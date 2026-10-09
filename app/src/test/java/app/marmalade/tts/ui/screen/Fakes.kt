@@ -285,6 +285,9 @@ internal class FakeDao(private val voices: List<VoiceMeta>) : VoiceMetaDao {
     override suspend fun deleteByEngine(engine: String) {
         throw UnsupportedOperationException("read-only fake")
     }
+    override suspend fun deleteById(id: String) {
+        throw UnsupportedOperationException("read-only fake")
+    }
 }
 
 /**
@@ -335,6 +338,12 @@ internal class FakeAliasDao(
                 engine = toEngine,
                 voiceId = toEngine + alias.voiceId.removePrefix(fromEngine),
             )
+        }
+    }
+
+    override suspend fun repointVoice(fromVoiceId: String, toVoiceId: String) {
+        state.value = state.value.map { alias ->
+            if (alias.voiceId == fromVoiceId) alias.copy(voiceId = toVoiceId) else alias
         }
     }
 }
