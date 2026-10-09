@@ -375,7 +375,7 @@ When investigating **{concern}**, start at **{files}**:
   `session.intra_op_thread_affinities` for the streaming graphs). The plan
   line names the encoder (`enc=`), the load line both files.
 - **Pocket streams** (issue #15, `engine/PocketEngine.kt` + `engine/pocket/`;
-  F-Droid only). Five graphs: text_conditioner, mimi_encoder (voice prompt),
+  both flavors since #29). Five graphs: text_conditioner, mimi_encoder (voice prompt),
   flow_lm_main (the AR transformer, int8, 6 KV caches of 1000 rows), flow_lm_flow
   (one LSD step), mimi_decoder (56 state slots). Per mini-chunk: fresh flow_lm
   state from the voice prompt, AR frames at 12.5 Hz, each latent frame decoded
@@ -701,8 +701,9 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   `candidates` (Pocket where the build offers it, else Kokoro; then Kitten)
   predicted at RTF ≤ 0.8 (= `SpeedPerfWarning`'s headroom) takes the one
   Recommended pill; others are FINE up to 0.9, then MAY_BE_SLOW; Kitten is
-  never warned. Flavor-aware only through `EngineCatalog.visibleTo`, so
-  Pocket reaching Play (dropping `fdroidOnly`) needs no recommender change.
+  never warned. Flavor-aware only through `EngineCatalog.visibleTo`; since
+  Pocket reached Play (#29) both builds offer the same engines, so a phone
+  gets the same pill on either (the Pixel 6a: Pocket, predicted 0.58).
   `predictedRtf` feeds the speed-up warning before measured RTFs accrue.
 - Re-bench before changing a cost or a `SpeedTier`: the probe's in-app RTF
   (screen on, fast cores) is lower than the bench service's (screen off),

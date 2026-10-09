@@ -66,9 +66,8 @@ data class EngineRecommendation(
  * … Kitten for people with slower phones; people know what Kokoro is"):
  * the first of [candidates] predicted to keep up comfortably
  * ([RECOMMENDED_MAX_RTF]) takes the pill, else the baked Kitten. Pocket is
- * the candidate where the build offers it (F-Droid); where it doesn't
- * (Play, today: `EngineDescriptor.fdroidOnly`) Kokoro stands in, as before.
- * Making Pocket visible on Play is the whole switch — no change here.
+ * the candidate where the build offers it — both flavors since issue #29
+ * (Max, 2026-10-09); a build without it would fall back to Kokoro.
  */
 object EngineRecommender {
 

@@ -154,10 +154,11 @@ dependency and no paywall (the Pro IAP was removed in 1.0.0-beta.1).
 Neither flavor has its own source set. The only differences are driven
 by `BuildConfig.FLAVOR`:
 
-- **Engine catalog:** engines marked `fdroidOnly` (Pocket TTS and its
-  developer twin) are hidden from every user-facing list in the Play
-  build, so its catalog matches its store listing. Routing still
-  resolves them by name (`EngineCatalog.visibleTo` vs `byName`).
+- **Engine catalog:** engines marked `fdroidOnly` (today only the Pocket
+  developer twin; Pocket itself ships on both since 2026-10-09) are hidden
+  from every user-facing list in the Play build, so its catalog matches
+  its store listing. Routing still resolves them by name
+  (`EngineCatalog.visibleTo` vs `byName`).
 - **Voice packs:** unreleased packs (`VoicePack.released = false`) are
   never listed in the Play build, developer mode included
   (`VoicePackCatalog.showsUnreleased`). With that, developer mode reveals

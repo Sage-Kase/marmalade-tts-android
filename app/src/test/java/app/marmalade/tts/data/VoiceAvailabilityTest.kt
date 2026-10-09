@@ -219,16 +219,29 @@ class VoiceAvailabilityTest {
     }
 
     @Test
-    fun playNeverOffersAnFdroidOnlyEnginesVoices() {
-        // Pocket is fdroidOnly: hidden from every user-facing list on Play,
-        // including voices left on disk by carried-over F-Droid data.
+    fun playOffersPocketsVoicesButNeverAnFdroidOnlyEnginesVoices() {
+        // Pocket ships on both flavors (issue #29). Its developer twin is
+        // fdroidOnly: hidden from every user-facing list on Play, developer
+        // mode or not, including voices left on disk by carried-over
+        // F-Droid data.
         val pocket = PocketVoiceCatalog.ENGINE
+        val pocketDev = PocketDevVoiceCatalog.ENGINE
         val pocketVoice = row(pocket, "$pocket:javert")
+        val devVoice = row(pocketDev, "$pocketDev:javert")
         val kokoro = row("kokoro-direct-v1_0", "kokoro-direct-v1_0:af_bella")
-        val assets = InstalledVoiceAssets(engines = setOf(pocket, "kokoro-direct-v1_0"), packs = emptySet())
-        val all = listOf(pocketVoice, kokoro)
+        val assets = InstalledVoiceAssets(
+            engines = setOf(pocket, pocketDev, "kokoro-direct-v1_0"),
+            packs = emptySet(),
+        )
+        val all = listOf(pocketVoice, devVoice, kokoro)
 
-        assertEquals(listOf(kokoro), all.pickableVoices(assets, showDeveloper = false, flavor = "play"))
-        assertEquals(all, all.pickableVoices(assets, showDeveloper = false, flavor = "fdroid"))
+        for (showDeveloper in listOf(false, true)) {
+            assertEquals(
+                listOf(pocketVoice, kokoro),
+                all.pickableVoices(assets, showDeveloper, flavor = "play"),
+            )
+        }
+        assertEquals(listOf(pocketVoice, kokoro), all.pickableVoices(assets, showDeveloper = false, flavor = "fdroid"))
+        assertEquals(all, all.pickableVoices(assets, showDeveloper = true, flavor = "fdroid"))
     }
 }
