@@ -65,6 +65,20 @@ object PocketCacheShapes {
 
     const val MAX_FLOW_CACHE = 1000
 
+    /** Rows in flow_lm_main's KV caches `[2,1,L,16,64]` as [manifest] declares them. */
+    fun flowRows(manifest: List<PocketBundle.StateSpec>): Int =
+        manifest.filter(::isCache).minOfOrNull { it.shape[2].toInt() }
+            ?: error("flow_lm state manifest has no KV cache")
+
+    /**
+     * AR frames a chunk may run (#23): its estimate [maxFrames], but no more
+     * than the cache rows left after the voice prompt and the text tokens.
+     * Each frame writes one row, and flow_lm_main throws once the cache is
+     * full instead of dropping old rows.
+     */
+    fun frameBudget(maxFrames: Int, cacheRows: Int, promptRows: Int, tokens: Int): Int =
+        minOf(maxFrames, cacheRows - promptRows - tokens).coerceAtLeast(0)
+
     private fun isCache(spec: PocketBundle.StateSpec) =
         spec.dtype == PocketBundle.StateDtype.FLOAT32 && spec.shape.size == 5
 

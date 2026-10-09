@@ -323,6 +323,15 @@ When investigating **{concern}**, start at **{files}**:
     iff `16·B + 249 ≤ capacity`. Larger batches overwrite keys still needed and
     corrupt early frames SILENTLY (the old P-AL 64-frame re-decode garbled
     frames 8–32 of long sentences; probably the old "distorted word" reports).
+  - **Every AR frame needs a flow_lm cache row** (#23): the voice prompt
+    (BOS + up to 375 rows for a 30 s clone), the chunk's tokens and one row
+    per frame must fit in the cache (1000 rows shipped); past it
+    flow_lm_main throws a Reshape error and the request fails. So a word
+    over the chunk's token limit (URL, hash) is cut into pieces
+    (`PocketTokenSplit`; it and the chunk packing count tokens after
+    `preprocessForPocket`, whose trailing `.` is a token), and the
+    frame cap is cut to the rows left (`PocketCacheShapes.frameBudget`,
+    logs `Frame cap … cut to …`).
   - **Streamed render** (`streamChunks`, "E"): frames go to the decoder in
     slices while the AR loop runs; by default the decoder runs on its own
     coroutine (`pocket.stream=inline` decodes on the AR thread). The decoder's
