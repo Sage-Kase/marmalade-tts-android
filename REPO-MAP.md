@@ -298,7 +298,13 @@ When investigating **{concern}**, start at **{files}**:
     `mimiState`) are only read, never refilled: refilling the decoder's slots one
     value at a time cost ~0.95 s per sentence. ORT never writes a graph input.
   - **The voice prompt runs once per voice** (`voicePrompt`, "C"): phase 1 has
-    no randomness, so later chunks start from its cached state frame.
+    no randomness, so later chunks start from its cached state frame. It holds
+    ~49 MB native while the engine is loaded (the 1000-row cache; ~22 MB at
+    448 rows with "F"), freed by `release()` (residency evicts idle engines)
+    and on deleting that cloned voice. Dropping it after every request was
+    measured on the 6a and rejected: first sound +190 ms, CPU +10%, and idle
+    PSS no lower (799 vs 774 MB, mean of 2: the native heap keeps the freed
+    memory and re-running phase 1 grows it).
   - **Decode batches of at most 46 frames are exact** (`PocketMimiBatch`, "D"):
     the export bakes mimi's attention ring at 1000 slots, and the decoder writes
     16 steps per latent frame with a 250-step lookback, so a batch B is exact
@@ -307,7 +313,12 @@ When investigating **{concern}**, start at **{files}**:
     frames 8–32 of long sentences; probably the old "distorted word" reports).
   - **Streamed render** (`streamChunks`, "E"): frames go to the decoder in
     slices while the AR loop runs; by default the decoder runs on its own
-    coroutine (`pocket.stream=inline` decodes on the AR thread). Slices are
+    coroutine (`pocket.stream=inline` decodes on the AR thread). The decoder's
+    job queue holds 2 slices (`DECODE_QUEUE`), so when the Narrator's
+    read-ahead permit closes the AR loop stops too: past it the engine renders
+    at most `ENGINE_AHEAD_CHUNKS` (8, now counting slices) + 4 slices, about
+    30 s or 6 sentences of long text on the 6a (an unlimited queue rendered
+    the whole segment). Slices are
     cut by deadline (`PocketSliceClock`): the first at 6 frames, each later
     one when waiting one more frame would let playback run dry (min 4 frames,
     max the exact batch). Fixed doubling slices (6/12/24/46) stalled in 13

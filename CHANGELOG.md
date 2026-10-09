@@ -39,7 +39,7 @@ This project follows [Semantic Versioning](https://semver.org/).
   copies its whole voice state twice for every 80 ms of audio. On a
   Pixel 6a with the screen off, the wait before the first sound went from
   over a minute to about half a second, and a minute of speech takes
-  about 36 s to render instead of about 22 minutes, almost never with a
+  about 36 s to render instead of about 23 minutes, almost never with a
   gap (one 0.02 s pause in 28 test sentences, none in six long
   paragraphs): it keeps a few seconds of audio ready in case the phone
   briefly slows the decoder down.
