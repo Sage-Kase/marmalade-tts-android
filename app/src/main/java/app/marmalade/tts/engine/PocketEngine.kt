@@ -19,8 +19,6 @@ import app.marmalade.tts.engine.pocket.PocketClonedVoiceStore
 import app.marmalade.tts.engine.pocket.PocketClonedVoiceSummary
 import app.marmalade.tts.engine.pocket.PocketStates
 import app.marmalade.tts.engine.pocket.PocketTokenizer
-import app.marmalade.tts.engine.pocket.bindStateInputs
-import app.marmalade.tts.engine.pocket.enableStatePinning
 import app.marmalade.tts.engine.pocket.initStates
 import app.marmalade.tts.engine.pocket.PocketCacheShapes
 import app.marmalade.tts.engine.pocket.PocketMimiBatch
@@ -31,8 +29,6 @@ import app.marmalade.tts.engine.pocket.PocketStreamPlan
 import app.marmalade.tts.engine.pocket.PocketStateCarry
 import app.marmalade.tts.engine.pocket.StateFrame
 import app.marmalade.tts.engine.pocket.PocketTimes
-import app.marmalade.tts.engine.pocket.resetStatesToInit
-import app.marmalade.tts.engine.pocket.updateStatesFromResult
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.nio.ByteBuffer
@@ -148,60 +144,11 @@ open class PocketEngine @Inject constructor(
     private var flowLmFlowSession: OrtSession? = null
 
     /**
-     * P-V step 1 — flow_lm_main output introspection. Set when [doLoad]
-     * creates the session. The previous P-R attempt failed because the
-     * state manifest enumerates more entries than the model actually
-     * emits as outputs, and `run(inputs, pinnedOutputs)`/3-arg `run`
-     * both validate against the model's real output count.
-     *
-     * [flowMainRealOutputs] is the model's actual output-name set
-     * (`session.outputNames`). [flowMainPinnableSpecs] is the subset of
-     * the state manifest where the output exists AND the shape is
-     * fully fixed (no `0` or growing dims) — only those slots can be
-     * safely pinned to a pre-allocated buffer.
-     */
-    private var flowMainRealOutputs: Set<String> = emptySet()
-    private var flowMainPinnableSpecs: List<PocketBundle.StateSpec> = emptyList()
-
-    /**
-     * P-V — outputs requested through the Result (NOT pinned). The
-     * 3-arg `session.run(inputs, requestedOutputs, pinnedOutputs)`
-     * validates that `requested.size + pinned.size == model.outputs`,
-     * and the two sets MUST be disjoint. So this is the set of real
-     * outputs minus the pinned output names — i.e. `conditioning`,
-     * `eos_logit`, and the growing state outputs that we still need
-     * to memcpy.
-     */
-    private var flowMainRequestedNonPinned: Set<String> = emptySet()
-
-    /**
-     * P-Y — engine-level mimi_decoder state map (56 slots). Previously
-     * allocated fresh per stream; the freshly-discarded direct
-     * ByteBuffers from the previous synth piled up waiting on Cleaner
-     * because direct buffers don't pressure the Java heap — three
-     * adversarial reviewers converged on this as the root cause of the
-     * "Pocket gets way slower after just 1 run" report.
-     *
-     * Allocated once at engine load. `resetStatesToInit(...)` re-fills
-     * values in-place at the start of each synth — zero per-synth
-     * allocations.
-     *
-     * NOTE: the flow_lm half of P-Y (plus P-Z's AR-step scratch and
-     * P-Z's runFlowLmMainAr entry point) was reverted by the P-Y bisect
-     * — [startArSession] builds fresh flow_lm state per chunk. The
-     * reverted machinery lived on here as write-only fields holding
-     * MB-scale pinned buffers until the 2026-07-11 audit removed it;
-     * see git history and docs/PERF-IDEAS-pocket-2026-06.md item 5 for
-     * the planned reattempt.
+     * mimi_decoder's init state (56 slots), allocated once at load. Every
+     * chunk's decode starts from it through a [PocketStateCarry]; ORT only
+     * reads graph inputs, so it is never refilled (#15 "A").
      */
     private var mimiState: PocketStates? = null
-
-    /**
-     * #15 "A": carry flow_lm and mimi state from run to run without copying
-     * (see [PocketStateCarry]). Debug knob `pocket.carry=copy` restores the
-     * copying path for an A/B.
-     */
-    private var zeroCopyState = false
 
     /**
      * mimi state shapes to initialise from: the bundle's manifest, or ring
@@ -211,8 +158,8 @@ open class PocketEngine @Inject constructor(
     private var mimiManifest: List<PocketBundle.StateSpec> = emptyList()
 
     /**
-     * Zero-copy path only: the flow_lm init states chunks start from
-     * (read-only), by KV-cache length: one entry for the shipped graph, one
+     * The flow_lm init states chunks start from (read-only, like
+     * [mimiState]), by KV-cache length: one entry for the shipped graph, one
      * per voice-sized length for a graph with a symbolic cache axis.
      */
     private val flowInitStates = HashMap<Int, PocketStates>()
@@ -230,13 +177,11 @@ open class PocketEngine @Inject constructor(
      * #15 "C": flow_lm's state right after the voice prompt (phase 1), for
      * the last voice used, so later chunks skip re-running the prompt. Phase
      * 1 has no randomness, so starting from it is exact. One voice only
-     * (~49 MB native); zero-copy path only; debug knob
-     * `pocket.voiceCache=false` turns it off. Touched under [synthLock].
+     * (~49 MB native with the shipped 1000-row cache). Touched under [synthLock].
      */
     private var voicePrompt: VoicePrompt? = null
 
     private class VoicePrompt(val embedding: FloatArray, val cacheLen: Int?, val frame: StateFrame)
-    private var voicePromptCache = false
 
     /**
      * Latent frames per mimi_decoder run (#15 "D"): consecutive batches no
@@ -398,8 +343,6 @@ open class PocketEngine @Inject constructor(
         profileRequestsLeft = knob("pocket.ortProfile")?.toIntOrNull() ?: 0
         val profileDir = if (profileRequestsLeft > 0) File(ctx.filesDir, "bench/ortprof").apply { mkdirs() } else null
         seed = knob("pocket.seed")?.toLongOrNull()
-        zeroCopyState = knob("pocket.carry") != "copy"
-        voicePromptCache = zeroCopyState && knob("pocket.voiceCache") != "false"
         flowCacheLenKnob = knob("pocket.cacheLen")?.toIntOrNull()
         val mimiCapKnob = knob("pocket.mimiCap")?.toIntOrNull()
         streamMode = when (knob("pocket.stream")) {
@@ -417,8 +360,7 @@ open class PocketEngine @Inject constructor(
         fun logPlan() = Log.i(TAG, "session plan: " + plan.entries.joinToString(" ") { (g, c) ->
             "$g=${c.threads}t${if (c.xnnpack) "+xnn" else ""}${if (c.spin) "+spin" else ""}"
         } + (if (profileDir != null) " ortProfile=$profileRequestsLeft" else "") +
-            (seed?.let { " seed=$it" } ?: "") + " carry=${if (zeroCopyState) "zero" else "copy"}" +
-            " voiceCache=$voicePromptCache decode=$decodeBatch stream=$streamMode" +
+            (seed?.let { " seed=$it" } ?: "") + " decode=$decodeBatch stream=$streamMode" +
             " cacheLen=${flowCacheLenKnob ?: if (flowCacheDynamic) "per-voice" else "1000"}" +
             " mimiCap=${PocketMimiBatch.ringCapacity(mimiManifest)}")
         fun session(graph: String, fileName: String): OrtSession {
@@ -436,7 +378,6 @@ open class PocketEngine @Inject constructor(
         mimiEncoderSession = session("enc", file("enc", files.mimiEncoder))
         mimiDecoderSession = session("dec", file("dec", files.mimiDecoder))
         flowLmMainSession = session("main", file("main", files.flowLmMain))
-        introspectFlowMainOutputs(bundle!!, flowLmMainSession!!)
         flowLmFlowSession = session("flow", file("flow", files.flowLmFlow))
 
         // #15 "F": graphs exported with a symbolic cache axis take shorter
@@ -453,9 +394,6 @@ open class PocketEngine @Inject constructor(
         decodeBatch = (decodeKnob?.toIntOrNull() ?: exact).coerceIn(1, exact)
         logPlan()
 
-        // P-Y — engine-level mimi state map. Allocated once, reset per
-        // synth. (flow_lm state is built fresh per chunk in
-        // startArSession — the P-Y bisect reverted its engine-level half.)
         mimiState = initStates(mimiManifest)
 
         // Publish only after every field a sibling caller's synth path
@@ -466,50 +404,6 @@ open class PocketEngine @Inject constructor(
         // P-D: warmup runs async — see KittenDirectEngine for details.
         warmupJob = warmupScope.launch {
             synthLock.withLock { warmupSynth() }
-        }
-    }
-
-    /**
-     * P-V step 1 — read the model's real output names from
-     * `session.outputNames`, filter the state manifest to the subset
-     * where the output exists AND the shape is fully fixed. Logs the
-     * three relevant sets so we can confirm the pin candidates before
-     * step 2 actually rewires `runFlowLmMain` to the 3-arg `run` path.
-     *
-     * Why this matters: agent round-3 review found `OrtSession.outputNames`
-     * is exposed on ORT-Android 1.26 — the previous P-R failures
-     * (`Session did not return X` and `Unexpected number of requested
-     * outputs`) were both consequences of NOT calling this. The manifest
-     * is built from the upstream Python that knew about input-only state
-     * slots; the exported model has fewer outputs.
-     */
-    private fun introspectFlowMainOutputs(bundle: PocketBundle, session: OrtSession) {
-        val real = session.outputNames.toSet()
-        val manifestNames = bundle.flowLmStateManifest.map { it.outputName }.toSet()
-        val pinnable = bundle.flowLmStateManifest.filter {
-            it.outputName in real && it.shape.all { d -> d > 0 }
-        }
-        val notInRealOutputs = manifestNames - real
-        val growingButReal = bundle.flowLmStateManifest
-            .filter { it.outputName in real && !it.shape.all { d -> d > 0 } }
-            .map { "${it.outputName}${it.shape.toList()}" }
-
-        flowMainRealOutputs = real
-        flowMainPinnableSpecs = pinnable
-        // Pre-compute the disjoint complement so [runFlowLmMain] doesn't
-        // do set algebra in the hot loop.
-        val pinnedNames = pinnable.map { it.outputName }.toSet()
-        flowMainRequestedNonPinned = real - pinnedNames
-
-        Log.i(TAG, "flow_lm_main outputs: real=${real.size} manifest=${manifestNames.size} " +
-            "pinnable=${pinnable.size} skipped(growing)=${growingButReal.size} " +
-            "skipped(not_in_real)=${notInRealOutputs.size}")
-        Log.d(TAG, "flow_lm_main real outputs: $real")
-        if (notInRealOutputs.isNotEmpty()) {
-            Log.d(TAG, "flow_lm_main manifest entries with no model output: $notInRealOutputs")
-        }
-        if (growingButReal.isNotEmpty()) {
-            Log.d(TAG, "flow_lm_main manifest entries growing (not pinnable): $growingButReal")
         }
     }
 
@@ -526,11 +420,9 @@ open class PocketEngine @Inject constructor(
         return OrtSession.SessionOptions().apply {
             setIntraOpNumThreads(cfg.threads)
             setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
-            // Memory-pattern optimization restored — bisect confirmed it
-            // doesn't fix the intermittent middle-chunk glitch in
-            // isolation, and disabling it tanks RTF significantly. The
-            // chunk-boundary glitch was its interaction with
-            // [FLOW_MAIN_PINNED_OUTPUTS], which is now off.
+            // Memory-pattern optimization: disabling it tanks RTF. (Its
+            // interaction with output pinning, P-V, caused a chunk-boundary
+            // glitch; pinning was reverted and later removed, #15.)
             setMemoryPatternOptimization(true)
             // P-T: flip [VERBOSE_ORT_DIAGNOSTIC] to true and run one synth to
             // capture node placement in logcat (filter `adb logcat -s onnxruntime`).
@@ -612,7 +504,7 @@ open class PocketEngine @Inject constructor(
                     latents.add(step.latent)
                 }
             } finally {
-                ar.carry?.close()
+                ar.carry.close()
             }
             if (latents.isNotEmpty()) {
                 val flat = FloatArray(latents.size * bundle.latentDim)
@@ -799,8 +691,7 @@ open class PocketEngine @Inject constructor(
         // AR loop throws (Stop's ensureActive, the release check), the scope
         // cancels and then WAITS for an in-flight decode before withLock
         // releases — otherwise release() could close mimi_decoder mid-run()
-        // (native SIGSEGV), or a quick restart's resetStatesToInit would race
-        // the orphaned decode's writes into the shared [mimiState].
+        // (native SIGSEGV).
         synthLock.withLock { coroutineScope {
             // Under the lock: a first-use voice encodes through mimi_encoder.
             val voiceEmb = embeddingForVoice(voiceName)
@@ -822,18 +713,12 @@ open class PocketEngine @Inject constructor(
             // chunk-0 emit on realtime workloads.
             var pendingDecode: Pair<Int, Deferred<SynthAudio>>? = null
 
-            // Engine-level mimi state, REUSED across synths (P-Y — the 56
-            // direct ByteBuffers are allocated once at load, not per call;
-            // `resetStatesToInit` only refills them). NOTE: state VALUES are
-            // reset to init at the START OF EACH CHUNK (the per-chunk reset
-            // below) — P-AE's attempt to carry mimi state across chunks for a
-            // "continuous trajectory" was reverted as confounded by silent
-            // chunk boundaries, so each chunk decodes from a cold codec state.
-            // Decodes are serialised through pendingDecode's await, so
-            // concurrent mutation is impossible.
+            // Each chunk decodes from the engine-level init state (read-only),
+            // a cold codec state: P-AE's attempt to carry mimi state across
+            // chunks for a "continuous trajectory" was reverted as confounded
+            // by silent chunk boundaries.
             val mimiState = this@PocketEngine.mimiState
                 ?: error("mimi state missing — engine not loaded?")
-            resetStatesToInit(mimiState, bundle.mimiStateManifest)
 
             // Local helper: emit a finished chunk's audio per the K-buffer
             // policy. Lambda (not local fun) so we can suspend on `send`.
@@ -937,12 +822,6 @@ open class PocketEngine @Inject constructor(
                 // total-time savings matter more than first-emit latency)
                 // AND not the last chunk (no pipelining benefit on the tail).
                 val canPipeline = prerollChunks > 1 && idx < miniChunks.size - 1
-                // P-AE REVERTED (carry-state was confounded by silent chunk
-                // boundaries → carried history ≈ zeros, inconclusive). Back
-                // to per-chunk reset; P-AF (warm-prime inside decodeChunkAudio)
-                // now fills the conv history with the chunk's own onset.
-                // Per-chunk reset is safe: chunk N-1's decode was awaited above.
-                resetStatesToInit(mimiState, bundle.mimiStateManifest)
                 if (canPipeline) {
                     pendingDecode = idx to async(Dispatchers.Default) {
                         val decodeStartNs = System.nanoTime()
@@ -998,16 +877,12 @@ open class PocketEngine @Inject constructor(
         suspend fun decode(job: DecodeJob) {
             if (job.slice == 0) {
                 close()
-                if (zeroCopyState) {
-                    carry = PocketStateCarry(PocketStateCarry.bindSlots(env ?: error("ORT env missing"), bundle.mimiStateManifest, init))
-                } else {
-                    resetStatesToInit(init, bundle.mimiStateManifest)
-                }
+                carry = PocketStateCarry(PocketStateCarry.bindSlots(env ?: error("ORT env missing"), bundle.mimiStateManifest, init))
                 times = PocketTimes()
                 chunkDecodeNs = 0L
             }
             val t0 = System.nanoTime()
-            val pcm = decodeMimiChunk(bundle, job.latents, job.frames, init, carry, times)
+            val pcm = decodeMimiChunk(bundle, job.latents, job.frames, carry ?: error("no decode in progress"), times)
             val decodeNs = System.nanoTime() - t0
             chunkDecodeNs += decodeNs
             times.decodedFrames += job.frames
@@ -1201,7 +1076,7 @@ open class PocketEngine @Inject constructor(
         try {
             return arLoop(ar, bundle, miniChunk, frameTimes, chunkIdx, onLatent)
         } finally {
-            ar.carry?.close()
+            ar.carry.close()
         }
     }
 
@@ -1690,10 +1565,8 @@ open class PocketEngine @Inject constructor(
         val ort: OrtEnvironment,
         val main: OrtSession,
         val flow: OrtSession,
-        /** Copying path's state (null on the zero-copy path, which uses [carry]). */
-        val flowLmState: PocketStates?,
-        /** Zero-copy path's state (#15 "A"); the caller closes it when the loop ends. */
-        val carry: PocketStateCarry?,
+        /** flow_lm state (#15 "A"); the caller closes it when the loop ends. */
+        val carry: PocketStateCarry,
         val maxFrames: Int,
         val framesAfterEos: Int,
         var previousLatent: FloatArray,
@@ -1755,8 +1628,8 @@ open class PocketEngine @Inject constructor(
     /**
      * Run phase 1 (voice conditioning) and phase 2 (text conditioning),
      * leaving the flow_lm state primed for the autoregressive loop.
-     * Returns the live AR session whose `flowLmState` is the post-
-     * priming state ready for [stepAr] calls.
+     * Returns the live AR session whose `carry` holds the post-priming
+     * state ready for [stepAr] calls.
      *
      * [phases], when non-null, receives a timing span per conditioning
      * phase (P-AM.1 — logged by callers under [PERF_TAG]).
@@ -1773,15 +1646,6 @@ open class PocketEngine @Inject constructor(
         val flow = flowLmFlowSession ?: error("flow_lm_flow session missing")
         val textCond = textCondSession ?: error("text_conditioner session missing")
 
-        // P-Y BISECT: flow_lm path reverted to per-chunk fresh allocation.
-        // The mimi P-Y stayed (it lives in `synthesizeStream`) because the
-        // adversarial reviewer found no static bug in `reset()` but
-        // pinpointed flow_lm-side reuse as the likely cause of the
-        // per-chunk audio glitch — ORT-Android may behave subtly
-        // differently when the same KV-cache direct buffers are passed
-        // across many `session.run` calls (P-Z exhibited a related
-        // symptom with persistent input wrappers). Eats some of the
-        // accumulation win but mimi P-Y still saves 56 buffers per stream.
         // Zero-copy (#15 "A"): every chunk starts from the engine-level init
         // state, which ORT only ever reads, so it is never refilled.
         // The voice prompt's state is cached by embedding identity (#15 "C").
@@ -1796,18 +1660,12 @@ open class PocketEngine @Inject constructor(
         }
         val manifest = cacheLen?.let { PocketCacheShapes.flowLm(bundle.flowLmStateManifest, it) } ?: bundle.flowLmStateManifest
         val cachedPrompt = voicePrompt
-            ?.takeIf { voicePromptCache && it.embedding === voiceEmbedding && it.cacheLen == cacheLen }?.frame
-        val carry = when {
-            cachedPrompt != null -> PocketStateCarry(cachedPrompt.retain())
-            zeroCopyState -> {
-                val init = flowInitStates.getOrPut(cacheLen ?: 0) { initStates(manifest) }
-                PocketStateCarry(PocketStateCarry.bindSlots(ort, bundle.flowLmStateManifest, init))
-            }
-            else -> null
-        }
-        val state = if (carry != null) null else initStates(manifest)
-        if (state != null && FLOW_MAIN_PINNED_OUTPUTS && flowMainPinnableSpecs.isNotEmpty()) {
-            enableStatePinning(state, flowMainPinnableSpecs)
+            ?.takeIf { it.embedding === voiceEmbedding && it.cacheLen == cacheLen }?.frame
+        val carry = if (cachedPrompt != null) {
+            PocketStateCarry(cachedPrompt.retain())
+        } else {
+            val init = flowInitStates.getOrPut(cacheLen ?: 0) { initStates(manifest) }
+            PocketStateCarry(PocketStateCarry.bindSlots(ort, bundle.flowLmStateManifest, init))
         }
         try {
             // PHASE 1: voice conditioning.
@@ -1830,7 +1688,6 @@ open class PocketEngine @Inject constructor(
                     session = main,
                     bundle = bundle,
                     ort = ort,
-                    state = state,
                     carry = carry,
                     sequenceData = FloatArray(0),
                     sequenceShape = longArrayOf(1, 0, bundle.latentDim.toLong()),
@@ -1838,7 +1695,7 @@ open class PocketEngine @Inject constructor(
                     textEmbedsShape = longArrayOf(1, totalFrames.toLong(), bundle.conditioningDim.toLong()),
                     captureConditioning = false,
                 )
-                if (voicePromptCache && carry != null) {
+                run {
                     voicePrompt?.frame?.release()
                     voicePrompt = VoicePrompt(voiceEmbedding, cacheLen, carry.snapshot())
                 }
@@ -1860,7 +1717,6 @@ open class PocketEngine @Inject constructor(
                 session = main,
                 bundle = bundle,
                 ort = ort,
-                state = state,
                 carry = carry,
                 sequenceData = FloatArray(0),
                 sequenceShape = longArrayOf(1, 0, bundle.latentDim.toLong()),
@@ -1876,7 +1732,7 @@ open class PocketEngine @Inject constructor(
                 ),
             )
         } catch (t: Throwable) {
-            carry?.close()
+            carry.close()
             throw t
         }
 
@@ -1885,7 +1741,6 @@ open class PocketEngine @Inject constructor(
             ort = ort,
             main = main,
             flow = flow,
-            flowLmState = state,
             carry = carry,
             maxFrames = estimateMaxFrames(bundle, tokens.size),
             framesAfterEos = framesAfterEosFor(bundle, originalText),
@@ -1914,7 +1769,6 @@ open class PocketEngine @Inject constructor(
             session = ar.main,
             bundle = ar.bundle,
             ort = ar.ort,
-            state = ar.flowLmState,
             carry = ar.carry,
             sequenceData = ar.previousLatent,
             sequenceShape = longArrayOf(1, 1, ar.bundle.latentDim.toLong()),
@@ -1975,27 +1829,20 @@ open class PocketEngine @Inject constructor(
     }
 
     /**
-     * Run flow_lm_main once. Persistent state lives in [state] as Kotlin
-     * arrays and is updated in place from the session outputs (the only
-     * correct lifecycle with the ORT Java API — see PocketStateManager
-     * for why we can't carry OnnxTensor references across calls).
+     * Run flow_lm_main once (#15 "A", zero-copy): the state tensors come
+     * from [carry] and the run's state outputs become its next frame, so no
+     * state byte is copied in Java. Phases 1 + 2 and the AR step build
+     * `sequence` and `text_embeddings` per call (their shapes differ).
      *
      * @param captureConditioning when true, returns the `conditioning`
      *   and `eos_logit` outputs (phase 3 needs them). When false (phases
-     *   1 + 2) returns null and skips the extra copies.
-     */
-    /**
-     * Phases 1 + 2 entry point. Builds `sequence` and `text_embeddings`
-     * tensors via [directFloatTensor] (per-call direct buffers) since
-     * the text shape varies across these calls. Delegates to
-     * [runFlowLmMainWithTensors] for the rest.
+     *   1 + 2) returns null.
      */
     private fun runFlowLmMain(
         session: OrtSession,
         bundle: PocketBundle,
         ort: OrtEnvironment,
-        state: PocketStates?,
-        carry: PocketStateCarry?,
+        carry: PocketStateCarry,
         sequenceData: FloatArray,
         sequenceShape: LongArray,
         textEmbedsData: FloatArray,
@@ -2005,32 +1852,6 @@ open class PocketEngine @Inject constructor(
     ): FlowLmCapture? {
         val seqT = directFloatTensor(ort, sequenceData, sequenceShape)
         val textT = directFloatTensor(ort, textEmbedsData, textEmbedsShape)
-        if (carry != null) {
-            return runFlowLmMainCarry(session, bundle, carry, seqT, textT, captureConditioning, times)
-        }
-        return runFlowLmMainWithTensors(
-            session = session, bundle = bundle, ort = ort, state = state!!,
-            seqT = seqT, textT = textT,
-            captureConditioning = captureConditioning,
-            times = times,
-        )
-    }
-
-    /**
-     * Zero-copy flow_lm_main run (#15 "A"): the state tensors come from
-     * [carry] and the run's state outputs become its next frame, so no
-     * state byte is copied in Java. Closes [seqT] and [textT]; the Result
-     * belongs to [carry] from here on.
-     */
-    private fun runFlowLmMainCarry(
-        session: OrtSession,
-        bundle: PocketBundle,
-        carry: PocketStateCarry,
-        seqT: OnnxTensor,
-        textT: OnnxTensor,
-        captureConditioning: Boolean,
-        times: PocketTimes?,
-    ): FlowLmCapture? {
         try {
             val bindStartNs = System.nanoTime()
             val inputs = LinkedHashMap<String, OnnxTensor>(bundle.flowLmStateManifest.size + 2)
@@ -2068,117 +1889,6 @@ open class PocketEngine @Inject constructor(
             IllegalStateException("flow_lm_main did not return 'eos_logit'")
         } as OnnxTensor
         return FlowLmCapture(conditioning = cond, eosLogit = eosTensor.floatBuffer.get(0))
-    }
-
-    /**
-     * Shared implementation. Owns closing [seqT] and [textT] in finally
-     * regardless of source — the underlying buffers' lifetimes belong
-     * to whoever allocated them (per-call for phases, engine-level for
-     * the AR step).
-     */
-    private fun runFlowLmMainWithTensors(
-        session: OrtSession,
-        bundle: PocketBundle,
-        ort: OrtEnvironment,
-        state: PocketStates,
-        seqT: OnnxTensor,
-        textT: OnnxTensor,
-        captureConditioning: Boolean,
-        times: PocketTimes?,
-    ): FlowLmCapture? {
-        val bindStartNs = System.nanoTime()
-        val inputs = LinkedHashMap<String, OnnxTensor>(state.size + 2)
-        inputs["sequence"] = seqT
-        inputs["text_embeddings"] = textT
-        bindStateInputs(ort, bundle.flowLmStateManifest, state, inputs)
-
-        // P-V — pinning path. For each fixed-shape state slot, pass a
-        // pre-allocated output buffer as a pinned output. ORT writes
-        // directly into it; we then swap the slot's in/out buffers so
-        // the next call's input is what was just written. Saves the
-        // per-frame memcpy (`floatBuffer.put` of every state output back
-        // into the slot's input buffer) AND the `result.get(name)` +
-        // OnnxTensor cast for each pinned slot.
-        //
-        // Falls back to the 1-arg `session.run(inputs)` path when
-        // [FLOW_MAIN_PINNED_OUTPUTS] is false (e.g. introspection not
-        // yet run, or A/B disable).
-        val pinningActive = FLOW_MAIN_PINNED_OUTPUTS && flowMainPinnableSpecs.isNotEmpty()
-        val pinnedOutputs: LinkedHashMap<String, OnnxTensor>? = if (pinningActive) {
-            LinkedHashMap<String, OnnxTensor>(flowMainPinnableSpecs.size).also { map ->
-                for (spec in flowMainPinnableSpecs) {
-                    val slot = state[spec.inputName]
-                        ?: error("State missing for ${spec.inputName}")
-                    map[spec.outputName] = slot.bindAsPinnedOutput(ort)
-                }
-            }
-        } else {
-            null
-        }
-
-        try {
-            val runStartNs = System.nanoTime()
-            val result = if (pinnedOutputs != null) {
-                // 3-arg run: requested + pinned must be DISJOINT and
-                // their sum must equal the model's actual output count.
-                // [flowMainRequestedNonPinned] is precomputed to be
-                // `realOutputs - pinned names` (conditioning, eos_logit,
-                // and the 6 growing state outputs).
-                session.run(inputs, flowMainRequestedNonPinned, pinnedOutputs)
-            } else {
-                session.run(inputs)
-            }
-            val runEndNs = System.nanoTime()
-            try {
-                val capture = if (captureConditioning) readCapture(result, bundle) else null
-                if (pinningActive) {
-                    // Pinned slots: just swap in/out buffers — ORT already
-                    // wrote the new state into the slot's outBuffer. Unpinned
-                    // slots (growing length trackers): memcpy via the
-                    // existing path. Iterate the manifest once; branch per
-                    // spec on whether it's in the pinned set.
-                    val pinnedNames = pinnedOutputs!!.keys
-                    for (spec in bundle.flowLmStateManifest) {
-                        // Defensive: a future bundle could have manifest
-                        // entries whose output the exported model doesn't
-                        // emit (input-only state slots). The current
-                        // Pocket bundle has skipped(not_in_real)=0 but
-                        // skipping here keeps the path safe if that
-                        // changes. Without this, result.get below would
-                        // throw on the first AR step.
-                        if (spec.outputName !in flowMainRealOutputs) continue
-                        if (spec.outputName in pinnedNames) {
-                            state[spec.inputName]!!.swapBuffers()
-                        } else {
-                            val out = result.get(spec.outputName).orElseThrow {
-                                IllegalStateException("Session did not return ${spec.outputName}")
-                            } as OnnxTensor
-                            state[spec.inputName]!!.updateFromOutput(out)
-                        }
-                    }
-                } else {
-                    updateStatesFromResult(bundle.flowLmStateManifest, result, state)
-                }
-                if (times != null) {
-                    times.mainNs += runEndNs - runStartNs
-                    times.mainStateNs += (runStartNs - bindStartNs) + (System.nanoTime() - runEndNs)
-                }
-                return capture
-            } finally {
-                result.close()
-            }
-        } finally {
-            for (t in inputs.values) {
-                try { t.close() } catch (_: Throwable) {}
-            }
-            // Close pinned-output wrappers AFTER the result (their
-            // underlying ByteBuffers stay live; only the JNI wrapper is
-            // released — same per-call lifetime we use for inputs, which
-            // P-M proved is the safe pattern on ORT-Android 1.26).
-            pinnedOutputs?.values?.forEach {
-                try { it.close() } catch (_: Throwable) {}
-            }
-        }
     }
 
     /**
@@ -2270,21 +1980,15 @@ open class PocketEngine @Inject constructor(
     // -- mimi decoder --------------------------------------------------------
 
     /**
-     * Decode a single chunk of [latents] through the mimi_decoder,
-     * mutating [mimiState] in place. Caller is responsible for the
-     * state's full lifecycle (init it once at the start of a synth,
-     * carry it across chunks, let it fall out of scope when done).
-     *
-     * Used by both the batch [runMimiDecoder] (one mimi state, many
-     * chunks) and the streaming path (one mimi state across all
-     * emitted chunks).
+     * Decode [numFrames] latent frames through mimi_decoder, advancing
+     * [carry] (zero-copy, #15 "A": the run's state outputs become the next
+     * run's inputs).
      */
     private fun decodeMimiChunk(
         bundle: PocketBundle,
         latents: FloatArray,
         numFrames: Int,
-        mimiState: PocketStates,
-        carry: PocketStateCarry?,
+        carry: PocketStateCarry,
         times: PocketTimes?,
     ): FloatArray {
         val ort = env ?: error("ORT env missing")
@@ -2294,47 +1998,6 @@ open class PocketEngine @Inject constructor(
             ort, latents,
             longArrayOf(1, numFrames.toLong(), bundle.latentDim.toLong()),
         )
-        if (carry != null) return decodeMimiCarry(session, bundle, latT, numFrames, carry, times, bindStartNs)
-        val inputs = LinkedHashMap<String, OnnxTensor>(mimiState.size + 1)
-        inputs["latent"] = latT
-        bindStateInputs(ort, bundle.mimiStateManifest, mimiState, inputs)
-        try {
-            val out = FloatArray(numFrames * bundle.samplesPerFrame)
-            val runStartNs = System.nanoTime()
-            session.run(inputs).use { result ->
-                val runEndNs = System.nanoTime()
-                val audioTensor = result.get("audio_frame").orElseThrow {
-                    IllegalStateException("mimi_decoder did not return 'audio_frame'")
-                } as OnnxTensor
-                audioTensor.floatBuffer.get(out)
-                updateStatesFromResult(bundle.mimiStateManifest, result, mimiState)
-                if (times != null) {
-                    if (numFrames == 1) {
-                        times.leadNs += runEndNs - runStartNs; times.leadRuns++
-                    } else {
-                        times.batchNs += runEndNs - runStartNs; times.batchRuns++
-                    }
-                    times.decodeStateNs += (runStartNs - bindStartNs) + (System.nanoTime() - runEndNs)
-                }
-            }
-            return out
-        } finally {
-            for (t in inputs.values) {
-                try { t.close() } catch (_: Throwable) {}
-            }
-        }
-    }
-
-    /** [decodeMimiChunk]'s zero-copy path (#15 "A"); closes [latT], hands the Result to [carry]. */
-    private fun decodeMimiCarry(
-        session: OrtSession,
-        bundle: PocketBundle,
-        latT: OnnxTensor,
-        numFrames: Int,
-        carry: PocketStateCarry,
-        times: PocketTimes?,
-        bindStartNs: Long,
-    ): FloatArray {
         try {
             val inputs = LinkedHashMap<String, OnnxTensor>(bundle.mimiStateManifest.size + 1)
             inputs["latent"] = latT
@@ -2386,22 +2049,18 @@ open class PocketEngine @Inject constructor(
         val pcm = FloatArray(numFrames * spf)
         times?.decodedFrames = numFrames
 
-        // Zero-copy (#15 "A"): [mimiState] is only the init source, never written.
-        val carry = if (zeroCopyState) {
-            PocketStateCarry(PocketStateCarry.bindSlots(env ?: error("ORT env missing"), bundle.mimiStateManifest, mimiState))
-        } else {
-            null
-        }
+        // [mimiState] is only the init source, never written (#15 "A").
+        val carry = PocketStateCarry(PocketStateCarry.bindSlots(env ?: error("ORT env missing"), bundle.mimiStateManifest, mimiState))
         try {
             // #15 "D": consecutive exact batches, nothing decoded twice.
             for (range in PocketMimiBatch.batches(numFrames, decodeBatch)) {
                 val n = range.last - range.first + 1
                 val part = latents.copyOfRange(range.first * dim, (range.last + 1) * dim)
-                val out = decodeMimiChunk(bundle, part, n, mimiState, carry, times)
+                val out = decodeMimiChunk(bundle, part, n, carry, times)
                 System.arraycopy(out, 0, pcm, range.first * spf, out.size)
             }
         } finally {
-            carry?.close()
+            carry.close()
         }
         return pcm
     }
@@ -2602,30 +2261,6 @@ open class PocketEngine @Inject constructor(
          * firehose. Inspect with `adb logcat -s onnxruntime`.
          */
         private const val VERBOSE_ORT_DIAGNOSTIC = false
-
-        /**
-         * P-V — when true, runFlowLmMain uses the 3-arg `session.run`
-         * with output pinning for fixed-shape state slots (KV caches).
-         * Saves the per-frame state-buffer memcpy (~tens of MB on Pocket)
-         * AND the per-frame `result.get(name)` lookup for those slots.
-         *
-         * Set to false to A/B against the 1-arg fallback path. Both
-         * paths produce identical state updates — the difference is
-         * how state advances from output to next input.
-         */
-        // P-V REVERTED. Bisect confirmed the chunk-boundary glitch was
-        // pinning's interaction with `setMemoryPatternOptimization(true)`
-        // — ORT-Android's cached memory plan refers to pinned-output
-        // buffer addresses that are fresh per chunk, producing a brief
-        // "write through stale plan" artefact at every chunk start.
-        //
-        // We chose to revert pinning rather than turn off memory-pattern
-        // optimization because the latter tanked RTF significantly while
-        // the former's per-frame gain was modest (~5-10% AR loop). The
-        // residual intermittent middle-chunk glitch matches the
-        // separate GC-pause-AudioTrack-underrun pattern all three
-        // reviewers predicted — addressed elsewhere.
-        private const val FLOW_MAIN_PINNED_OUTPUTS = false
 
         // The chunk-start "distorted first word" artifact is fixed at its
         // root by exact decode batches in [runMimiDecoder]. The earlier

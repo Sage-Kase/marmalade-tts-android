@@ -64,13 +64,6 @@ class PocketStateSlot(
     initialShape: LongArray,
     private val initialFill: PocketBundle.StateFill,
 ) {
-    /**
-     * P-Y — preserved across [reset] so we can restore the slot to its
-     * cold-start shape between synths without re-allocating the slot.
-     * Independent copy of the constructor arg.
-     */
-    private val initialShapeCopy: LongArray = initialShape.copyOf()
-
     /** Current logical shape. Mutated by [updateFromOutput] when growth is observed. */
     var shape: LongArray = initialShape.copyOf()
         private set
@@ -79,18 +72,6 @@ class PocketStateSlot(
     private var capacityElements: Int = maxOf(elementCount(initialShape), 1)
     private var buffer: ByteBuffer = newNativeDirectBuffer(capacityElements * elementBytes)
 
-    /**
-     * P-V — secondary buffer for output-side pinning. Null unless
-     * [enablePinning] is called (only happens for slots whose
-     * output exists in the model's real outputs AND whose shape is
-     * fully fixed, so the buffer never needs to grow). When non-null
-     * the AR loop pins this buffer as the destination for the slot's
-     * output tensor and swaps it with [buffer] after each call — so
-     * the next call's input is what the previous call wrote, with no
-     * memcpy in between.
-     */
-    private var outBuffer: ByteBuffer? = null
-
     init {
         // Fill the buffer's current-shape window with the init value.
         // Capacity may exceed shape (e.g. growing slots padded for headroom);
@@ -98,84 +79,6 @@ class PocketStateSlot(
         // gives us (typically zero, but unspecified — bounded by limit/position
         // so unused bytes never reach ORT).
         fillRange(buffer, dtype, initialFill, elementCount(shape))
-    }
-
-    /**
-     * P-Y — restore the slot to its cold-start condition WITHOUT
-     * re-allocating buffers. Called at the start of each new synth to
-     * replace the old "allocate fresh slot per chunk" pattern. Saves a
-     * direct-buffer allocation per slot per synth (and the matching
-     * native-memory backlog that accumulates while Cleaner runs are
-     * gated by JVM GC).
-     *
-     * Preserves [buffer] and [outBuffer] (if present); restores [shape]
-     * to [initialShapeCopy] and refills both buffers with the slot's
-     * declared init value.
-     */
-    fun reset() {
-        shape = initialShapeCopy.copyOf()
-        // Refill `buffer` over the current-shape window. Capacity is
-        // unchanged — we may have grown above initialShape during a
-        // previous synth (via [updateFromOutput]); the larger buffer is
-        // retained for headroom.
-        fillRange(buffer, dtype, initialFill, elementCount(shape))
-        outBuffer?.let { ob ->
-            fillRange(ob, dtype, initialFill, elementCount(shape))
-        }
-    }
-
-    /**
-     * Allocate the output-side buffer + match it to the input's
-     * init values so the first AR call doesn't see uninitialised bytes
-     * if the model happens to read its own output before writing all
-     * of it. Idempotent; calling twice keeps the first allocation.
-     */
-    fun enablePinning(initialFill: PocketBundle.StateFill) {
-        if (outBuffer != null) return
-        outBuffer = newNativeDirectBuffer(capacityElements * elementBytes).also {
-            fillRange(it, dtype, initialFill, elementCount(shape))
-        }
-    }
-
-    /**
-     * Wrap [outBuffer] in a fresh OnnxTensor for use as a pinned output
-     * in `session.run(inputs, requestedOutputs, pinnedOutputs)`. Caller
-     * owns the tensor's lifecycle (close after run) — but since the
-     * underlying buffer is persistent, the next call reuses the same
-     * memory.
-     *
-     * After the run completes the caller MUST also call [swapBuffers]
-     * so the just-written output becomes the next call's input.
-     *
-     * Throws if [enablePinning] hasn't been called.
-     */
-    fun bindAsPinnedOutput(env: OrtEnvironment): OnnxTensor {
-        val out = outBuffer ?: error("bindAsPinnedOutput called on slot without enablePinning")
-        val numElements = elementCount(shape)
-        out.position(0)
-        out.limit(numElements * elementBytes)
-        return when (dtype) {
-            PocketBundle.StateDtype.FLOAT32 ->
-                OnnxTensor.createTensor(env, out.asFloatBuffer(), shape)
-            PocketBundle.StateDtype.INT64 ->
-                OnnxTensor.createTensor(env, out.asLongBuffer(), shape)
-            PocketBundle.StateDtype.BOOL ->
-                OnnxTensor.createTensor(env, out, shape, OnnxJavaType.BOOL)
-        }
-    }
-
-    /**
-     * Swap the input and output buffers. The just-written output
-     * becomes the next call's input; the old input buffer becomes the
-     * scratch destination for the next call's output. Zero-copy state
-     * advance — replaces what would have been a `floatBuffer.get()`
-     * + `floatBuffer.put()` round-trip in [updateFromOutput].
-     */
-    fun swapBuffers() {
-        val out = outBuffer ?: error("swapBuffers called on slot without enablePinning")
-        val tmp = buffer
-        buffer = out
-        outBuffer = tmp
     }
 
     /**
@@ -249,47 +152,8 @@ class PocketStateSlot(
     }
 }
 
-/** Mutable state map. Owned by the engine, updated in place each call. */
+/** A state map: PocketEngine's read-only init states, or a copy-and-update map (PocketDevEngine, PocketQuantBench). */
 typealias PocketStates = MutableMap<String, PocketStateSlot>
-
-/**
- * Enable output-pinning on each slot listed in [pinnableSpecs]. Idempotent.
- * Called once per AR-session after [initStates] when the engine has
- * decided this state map will be used with pinned outputs.
- */
-fun enableStatePinning(
-    states: PocketStates,
-    pinnableSpecs: List<PocketBundle.StateSpec>,
-) {
-    for (spec in pinnableSpecs) {
-        val slot = states[spec.inputName]
-            ?: error("State missing for ${spec.inputName} — initStates not called?")
-        slot.enablePinning(spec.fill)
-    }
-}
-
-/**
- * P-Y — reset every slot to its cold-start shape + init value in place.
- * Replaces the previous "allocate a fresh state map per chunk/stream"
- * pattern. Per-synth direct-buffer allocations drop from ~30 (flow_lm)
- * + 56 (mimi) to zero.
- *
- * Why this matters: direct ByteBuffers don't pressure the Java heap,
- * so JVM GC stays lazy, so [java.lang.ref.Cleaner] runs are delayed,
- * so the previous synth's buffers' native memory accumulates run-over-
- * run even though they're JVM-unreachable. Reusing the same buffers
- * across synths eliminates the backlog.
- */
-fun resetStatesToInit(
-    states: PocketStates,
-    manifest: List<PocketBundle.StateSpec>,
-) {
-    for (spec in manifest) {
-        val slot = states[spec.inputName]
-            ?: error("State missing for ${spec.inputName} — initStates not called?")
-        slot.reset()
-    }
-}
 
 /**
  * Initialise a fresh state map per [manifest]. Each entry gets its
