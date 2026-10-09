@@ -448,6 +448,21 @@ When investigating **{concern}**, start at **{files}**:
     `*_dyncache` graphs (cache axis −1 in the declared shape), flow_lm's caches
     are sized per voice (`roundUp64(promptRows + tokens + maxFrames)`, ≤ 1000)
     and mimi's ring at 320 (batch ≤ 4). The published bundle doesn't have them.
+  - **Weights versions** (#31): Kyutai's `english_2026-09` only retrained
+    the flow_lm backbone (transformer, text conditioner, speaker projection,
+    EOS head, BOS embeddings). The flow head and the whole Mimi codec are
+    bit-identical to 2026-04, so `flow_lm_flow` and `mimi_decoder` (and the
+    ≤ 46-frame exact batch) carry over unchanged. `mimi_encoder.onnx` bakes
+    the speaker projection in, so a voice embedding (`voice_cache/*.emb`,
+    a cloned voice's `.bin`) belongs to one weights version: never reuse
+    one across versions. Kyutai's gated repo needs an accepted prohibited-use
+    prompt; the ungated `kyutai/pocket-tts-without-voice-cloning` has the
+    same weights with the Mimi encoder zeroed, so an export from it takes
+    the encoder graph from the previous bundle and swaps in the new
+    speaker projection (initializer `val_419`, `[32,1024]` = W^T). Export
+    tooling, configs and checks: `~/coding/scratch/pocket-2026-09/` on
+    chocolate (`tools/`, `README` in `export/` on marmalade); the exporter
+    run on 2026-04 reproduces v21's graphs exactly.
   - Debug knobs (`EngineDevKnobs`): `pocket.xnnpack`, `pocket.spin`,
     `pocket.<text|enc|dec|main|flow>.threads` (`PocketSessionPlan`),
     `pocket.stream=inline`, `pocket.decode=<frames>`, `pocket.decodeSafety`, `pocket.seed` (bit-exact
