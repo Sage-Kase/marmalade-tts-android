@@ -61,6 +61,10 @@ This project follows [Semantic Versioning](https://semver.org/).
   audio starting half a second in was decoded slightly wrong, because
   decoding 64 frames at once overflowed the decoder's memory of recent
   audio. It now decodes in batches small enough to be exact.
+- **Pocket reads long web addresses instead of failing**: a single very
+  long word, such as a web address of a few hundred characters, could
+  stop Pocket partway through the text with a cloned voice made from a
+  long recording. Pocket now reads such a word in pieces.
 - After text you share interrupts an article, the article picks up again
   at the start of the sentence it was in (on-device voices), not partway
   through a word. With a cloud voice it picks up at the start of the
