@@ -181,8 +181,10 @@ data class EngineDescriptor(
     /**
      * F-Droid-flavor exclusive: hidden from every user-facing list in the
      * Play build (Max, 2026-09-06 — the Play catalog is held to a tighter
-     * quality bar). Routing via [EngineCatalog.byName] still resolves it,
-     * so nothing breaks if such an engine is ever present on disk.
+     * quality bar). Only the Pocket developer twin carries it since Pocket
+     * itself reached Play (Max, 2026-10-09, issue #29). Routing via
+     * [EngineCatalog.byName] still resolves it, so nothing breaks if such
+     * an engine is ever present on disk.
      */
     val fdroidOnly: Boolean = false,
     /**
@@ -408,7 +410,8 @@ object EngineCatalog {
      * quality fix. The v21 bundle re-rolls the v10 mixed model with the two
      * non-commercial voices removed.
      *
-     * Licensing: the Kyutai model **code** is MIT (not Apache-2.0). Each
+     * Licensing: the Kyutai model **code** is MIT (not Apache-2.0) and its
+     * **weights** are CC-BY-4.0 (huggingface.co/kyutai/pocket-tts). Each
      * predefined voice carries its own data license — the 6 in the bundle
      * are CC0 (`javert`, `marius`) or CC-BY-4.0 (`alba`, `azelma`,
      * `eponine`, `fantine`); the app offers all but `marius` (dropped for
@@ -436,7 +439,6 @@ object EngineCatalog {
         speedTier = SpeedTier.FAST,
         qualityTier = QualityTier.MOST_EXPRESSIVE,
         languageCodes = listOf("en"),
-        fdroidOnly = true,
     )
 
     /**
@@ -448,7 +450,9 @@ object EngineCatalog {
      * inference path for diagnostics (the chunk-start artefact saga,
      * P-AC). Developer-only so regular users aren't tempted to install
      * a slower diagnostic engine; the two installs live side-by-side
-     * and can be installed/uninstalled independently.
+     * and can be installed/uninstalled independently. F-Droid only: the
+     * regular Pocket ships on both flavors (Max, 2026-10-09, issue #29),
+     * this diagnostic twin stays off Play.
      */
     private val POCKET_TTS_EN_DEV: EngineDescriptor = EngineDescriptor(
         name = "pocket-tts-en-v2026_04-dev",

@@ -1,6 +1,5 @@
 package app.marmalade.tts.ui.onboarding
 
-import app.marmalade.tts.BuildConfig
 import app.marmalade.tts.audio.EffectPreset
 import app.marmalade.tts.data.KittenDirectVoiceCatalog
 import app.marmalade.tts.data.KokoroDirectVoiceCatalog
@@ -375,17 +374,16 @@ class OnboardingViewModelTest {
     }
 
     @Test
-    fun fastDeviceLabelsPocketOrOnPlayKokoroWithoutMovingTheCards() = runTest {
+    fun fastDeviceLabelsPocketWithoutMovingTheCards() = runTest {
         val vm = newViewModel(deviceProbe = FakeDeviceProbe(FAST_PHONE))
 
         val cards = vm.engines.first { cards -> cards.any { it.fit != null } }
 
         // The verdict moves the pill, never the cards: catalog order holds.
         assertEquals(CATALOG_CARDS, cards.map { it.descriptor.name })
-        // Issue #19: Pocket where the build offers it, Kokoro on Play.
-        val expected = if (BuildConfig.FLAVOR == "play") KOKORO else POCKET
+        // Issue #19: Pocket, on both flavors since #29.
         assertEquals(
-            listOf(expected),
+            listOf(POCKET),
             cards.filter { it.fit == EngineFit.RECOMMENDED }.map { it.descriptor.name },
         )
         assertEquals(EngineFit.FINE, cards.first { it.descriptor.name == KITTEN }.fit)
@@ -403,7 +401,7 @@ class OnboardingViewModelTest {
 
         val engine = vm.aliasEditorState.first { it.engine.isNotEmpty() }.engine
         assertEquals(rec.recommended, engine)
-        assertEquals(if (BuildConfig.FLAVOR == "play") KOKORO else POCKET, engine)
+        assertEquals(POCKET, engine)
     }
 
     @Test
@@ -419,9 +417,7 @@ class OnboardingViewModelTest {
         assertEquals(CATALOG_CARDS, cards.map { it.descriptor.name })
         assertEquals(EngineFit.RECOMMENDED, cards.first { it.descriptor.name == KITTEN }.fit)
         assertEquals(EngineFit.MAY_BE_SLOW, cards.first { it.descriptor.name == KOKORO }.fit)
-        cards.firstOrNull { it.descriptor.name == POCKET }?.let {
-            assertEquals(EngineFit.MAY_BE_SLOW, it.fit)
-        }
+        assertEquals(EngineFit.MAY_BE_SLOW, cards.first { it.descriptor.name == POCKET }.fit)
     }
 
     @Test
@@ -522,16 +518,11 @@ class OnboardingViewModelTest {
 
         /**
          * The cards onboarding shows, in catalog order. The native German
-         * Kokoro (`kokoro-de-v1_0`) sits with the Kokoro family and ships on
-         * both flavors. Pocket is
-         * [app.marmalade.tts.install.EngineDescriptor.fdroidOnly], so the
-         * Play flavor's run of this same test file expects it absent. VITS
-         * Marmalade went user-visible for v1.1 (Max, 2026-09-22) and ships on
-         * both flavors, so it now appears last on this list.
+         * Kokoro (`kokoro-de-v1_0`) sits with the Kokoro family. Pocket ships
+         * on both flavors since issue #29. VITS Marmalade went user-visible
+         * for v1.1 (Max, 2026-09-22), so it appears last on this list.
          */
-        val CATALOG_CARDS: List<String> =
-            if (BuildConfig.FLAVOR == "play") listOf(KITTEN, KOKORO, KOKORO_DE, VITS)
-            else listOf(KITTEN, KOKORO, KOKORO_DE, POCKET, VITS)
+        val CATALOG_CARDS: List<String> = listOf(KITTEN, KOKORO, KOKORO_DE, POCKET, VITS)
     }
 }
 

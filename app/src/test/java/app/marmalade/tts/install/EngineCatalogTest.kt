@@ -113,12 +113,13 @@ class EngineCatalogTest {
     }
 
     @Test
-    fun pocketIsFdroidOnly_hiddenFromEveryPlayList() {
-        // Max, 2026-09-06: the Play catalog is quality-controlled — Pocket
-        // (and its diagnostic twin) ship on F-Droid only. Both engines stay
-        // resolvable via byName so nothing on disk ever orphans.
+    fun onlyThePocketDevTwinIsFdroidOnly_pocketShipsOnBothFlavors() {
+        // Max, 2026-09-06: the Play catalog is quality-controlled. Pocket
+        // reached Play on 2026-10-09 (issue #29); its diagnostic twin stays
+        // F-Droid-only. Both engines stay resolvable via byName so nothing
+        // on disk ever orphans.
         assertEquals(
-            setOf("pocket-tts-en-v2026_04", "pocket-tts-en-v2026_04-dev"),
+            setOf("pocket-tts-en-v2026_04-dev"),
             EngineCatalog.all.filter { it.fdroidOnly }.map { it.name }.toSet(),
         )
         for (showDeveloper in listOf(false, true)) {
@@ -127,11 +128,19 @@ class EngineCatalogTest {
                 EngineCatalog.visibleTo(showDeveloper, flavor = "play").none { it.fdroidOnly },
             )
         }
-        assertTrue(
-            "fdroid flavor keeps Pocket visible without developer mode",
-            EngineCatalog.visibleTo(showDeveloper = false, flavor = "fdroid")
-                .any { it.name == "pocket-tts-en-v2026_04" },
+        for (flavor in listOf("play", "fdroid")) {
+            assertTrue(
+                "$flavor flavor lists Pocket without developer mode",
+                EngineCatalog.visibleTo(showDeveloper = false, flavor = flavor)
+                    .any { it.name == "pocket-tts-en-v2026_04" },
+            )
+        }
+        assertEquals(
+            "the flavors offer ordinary users the same engines",
+            EngineCatalog.visibleTo(showDeveloper = false, flavor = "fdroid"),
+            EngineCatalog.visibleTo(showDeveloper = false, flavor = "play"),
         )
+        assertNotNull(EngineCatalog.byName("pocket-tts-en-v2026_04-dev"))
     }
 
     @Test

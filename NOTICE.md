@@ -114,7 +114,8 @@ folder.
 | KittenTTS (nano) | Neural voice model (in the APK as two graphs cut from it, its text encoder replaced by Marmalade's trained "X2 student"; Kitten's other weights unchanged) | APK (baked-in) and engine bundle | Apache-2.0 (see [`LICENSES/kitten-direct.md`](LICENSES/kitten-direct.md)) |
 | Jenny (Dioco) | English VITS voice pack | Voice pack (downloaded) | Custom attribution licenses for the weights (Bryce Beattie) and the training data (Jenny, dioco-group); the voice must be credited "Jenny (Dioco)" (see [`LICENSES/vits-marmalade.md`](LICENSES/vits-marmalade.md)) |
 | Other VITS voice packs (developer mode only) | Ukrainian, Icelandic, Swedish, Kazakh and Norwegian voices | Voice pack (downloaded) | MIT weights; training data license per pack (see [`LICENSES/vits-marmalade.md`](LICENSES/vits-marmalade.md)) |
-| Pocket TTS (Kyutai) — model code | Neural voice model (English) | Engine bundle | **MIT** |
+| Pocket TTS (Kyutai) — model weights | Neural voice model (English), converted to ONNX with its main transformer quantized to 8-bit | Engine bundle | **CC-BY-4.0** (Kyutai, https://huggingface.co/kyutai/pocket-tts — see [`LICENSES/pocket-tts.md`](LICENSES/pocket-tts.md)) |
+| Pocket TTS (Kyutai) — model code | The inference design the ONNX graphs and the app's Pocket pipeline follow | Engine bundle | **MIT** |
 | Pocket TTS predefined voices (6) | Reference voice prompts | Engine bundle | CC0 / CC-BY-4.0 (per voice — see [`LICENSES/pocket-tts.md`](LICENSES/pocket-tts.md)) |
 | open_jtalk dictionary | Japanese MeCab dictionary | Engine bundle | Modified BSD |
 | lexicon-zh (Mandarin G2P) | Han→IPA Mandarin lexicon | Engine bundle | **CC-BY-SA-4.0** (CC-CEDICT-derived via pypinyin — see [`LICENSES/kokoro-direct.md`](LICENSES/kokoro-direct.md)) |

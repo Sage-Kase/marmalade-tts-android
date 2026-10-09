@@ -15,8 +15,8 @@ import org.junit.Test
 /**
  * Policy coverage for [EngineRecommender] (issue #19): Pocket for phones
  * that keep up with it, Kitten for slower ones, Kokoro offered but only
- * recommended where Pocket isn't offered (the Play build today), and
- * exactly one pill.
+ * recommended where Pocket isn't offered (no build since Pocket reached
+ * Play, issue #29), and exactly one pill.
  *
  * Pure logic with no injected collaborators, so these tests construct the
  * probe directly — no DataStore, no fake SettingsRepository (whose
@@ -57,15 +57,18 @@ class EngineRecommenderTest {
 
     // -- the flavors' builds ------------------------------------------------------
 
+    /** A build that doesn't offer Pocket: where Kokoro stands in. */
+    private val noPocket = fdroid - pocket
+
     @Test
-    fun theFlavorsDifferOnlyInPocket() {
-        // If Max puts Pocket on Play, `play` gains it and the Play policy
-        // becomes the F-Droid one with no change to the recommender.
+    fun bothFlavorsOfferPocket() {
+        // Issue #29 (Max, 2026-10-09): Pocket ships on Play too, so the two
+        // builds take the same recommendation.
         assertTrue(pocket in fdroid)
-        assertFalse(pocket in play)
+        assertTrue(pocket in play)
         assertEquals(listOf(pocket, kitten), EngineRecommender.candidates(fdroid))
-        assertEquals(listOf(kokoro, kitten), EngineRecommender.candidates(play))
-        assertEquals(listOf(pocket, kitten), EngineRecommender.candidates(play + pocket))
+        assertEquals(listOf(pocket, kitten), EngineRecommender.candidates(play))
+        assertEquals(listOf(kokoro, kitten), EngineRecommender.candidates(noPocket))
     }
 
     // -- F-Droid: Pocket or Kitten --------------------------------------------------
@@ -127,29 +130,49 @@ class EngineRecommenderTest {
         )
     }
 
-    // -- Play: Kokoro or Kitten (until Pocket is offered there) ---------------------
+    // -- Play: the same as F-Droid ------------------------------------------------
 
     @Test
-    fun playFastPhoneRecommendsKokoro() {
-        val rec = EngineRecommender.recommend(fastPhone, play)!!
-        assertEquals(kokoro, rec.recommended)
-        assertFalse("Play offers no Pocket card", pocket in rec.fits)
-        assertEquals(setOf(kokoro), rec.pills())
+    fun playReferencePhoneRecommendsPocket() {
+        // The Pixel 6a: Pocket predicted at 0.58, under the comfort line.
+        val rec = EngineRecommender.recommend(referencePhone, play)!!
+        assertEquals(pocket, rec.recommended)
+        assertEquals(setOf(pocket), rec.pills())
+        assertEquals(0.58, EngineRecommender.predictedRtf(pocket, referencePhone)!!, 0.005)
+        assertEquals(EngineRecommender.recommend(referencePhone, fdroid), rec)
     }
 
     @Test
-    fun playReferencePhoneRecommendsKitten() {
-        // Kokoro's published render is over the comfort line on a Pixel 6a.
-        val rec = EngineRecommender.recommend(referencePhone, play)!!
-        assertEquals(kitten, rec.recommended)
-        assertEquals(setOf(kitten), rec.pills())
+    fun playFastPhoneRecommendsPocketNotKokoro() {
+        val rec = EngineRecommender.recommend(fastPhone, play)!!
+        assertEquals(pocket, rec.recommended)
+        assertEquals(EngineFit.FINE, rec.fits[kokoro])
     }
 
     @Test
     fun playSlowPhoneRecommendsKitten() {
         val rec = EngineRecommender.recommend(slowPhone, play)!!
         assertEquals(kitten, rec.recommended)
+        assertEquals(EngineFit.MAY_BE_SLOW, rec.fits[pocket])
         assertEquals(EngineFit.MAY_BE_SLOW, rec.fits[kokoro])
+    }
+
+    // -- a build without Pocket: Kokoro or Kitten -----------------------------------
+
+    @Test
+    fun withoutPocketAFastPhoneRecommendsKokoro() {
+        val rec = EngineRecommender.recommend(fastPhone, noPocket)!!
+        assertEquals(kokoro, rec.recommended)
+        assertFalse(pocket in rec.fits)
+        assertEquals(setOf(kokoro), rec.pills())
+    }
+
+    @Test
+    fun withoutPocketTheReferencePhoneRecommendsKitten() {
+        // Kokoro's published render is over the comfort line on a Pixel 6a.
+        val rec = EngineRecommender.recommend(referencePhone, noPocket)!!
+        assertEquals(kitten, rec.recommended)
+        assertEquals(setOf(kitten), rec.pills())
     }
 
     // -- invariants -------------------------------------------------------------

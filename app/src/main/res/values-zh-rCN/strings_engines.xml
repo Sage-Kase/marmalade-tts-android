@@ -203,5 +203,5 @@
 
     <string name="engine_pocket_tagline">最富表现力、最有个性的英语语音。</string>
     <string name="engine_pocket_desc">体量较大，但英语语音最富表现力 — 内置 6 个语音。在旗舰手机上播放流畅；在中端和较旧的设备上可能卡顿。仅支持英语。采用 Kyutai Labs 的模型，以混合精度构建，输出干净。</string>
-    <string name="engine_pocket_license">模型代码为 MIT，运行时（onnxruntime-android）同为 MIT；语音采用 CC0 / CC-BY-4.0。不含 GPL 组件。</string>
+    <string name="engine_pocket_license">模型权重为 CC-BY-4.0，模型代码为 MIT，运行时（onnxruntime-android）同为 MIT；语音采用 CC0 / CC-BY-4.0。不含 GPL 组件。</string>
 </resources>

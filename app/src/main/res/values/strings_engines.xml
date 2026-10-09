@@ -106,12 +106,12 @@
 
     <string name="engine_pocket_tagline">The most expressive, characterful English voices.</string>
     <string name="engine_pocket_desc">Heavy, but the most expressive English voices — 6 built-in voices. Streams smoothly on flagship phones; can stutter on mid-range and older hardware. English only. Kyutai Labs\' model in a mixed-precision build for clean output.</string>
-    <string name="engine_pocket_license">MIT model code + MIT runtime (onnxruntime-android); voices CC0 / CC-BY-4.0. No GPL components.</string>
+    <string name="engine_pocket_license">CC-BY-4.0 model weights, MIT model code + MIT runtime (onnxruntime-android); voices CC0 / CC-BY-4.0. No GPL components.</string>
 
     <!-- Developer-only diagnostic engine: English only, by design. -->
     <string name="engine_pocket_dev_tagline" translatable="false">Diagnostic clean-room build of the Pocket TTS pipeline.</string>
     <string name="engine_pocket_dev_desc" translatable="false">Diagnostic clean-room build of the Pocket TTS pipeline — same model + voices as the regular Pocket engine, but running through a deliberately perf-optimization-free Kotlin port of the upstream Python inference loop. Used to isolate which production optimization causes audio artefacts. Slower than the regular Pocket engine; install both side-by-side to A/B them.</string>
-    <string name="engine_pocket_dev_license" translatable="false">MIT model code + MIT runtime; voices CC0 / CC-BY-4.0. Diagnostic build — same bundle as Pocket TTS.</string>
+    <string name="engine_pocket_dev_license" translatable="false">CC-BY-4.0 model weights, MIT model code + MIT runtime; voices CC0 / CC-BY-4.0. Diagnostic build — same bundle as Pocket TTS.</string>
 
     <!-- Developer-only pack-based VITS engine: prose stays untranslated while
          the engine + its pack UI are still being built out, exactly as for the
