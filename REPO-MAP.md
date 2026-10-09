@@ -191,20 +191,25 @@ When investigating **{concern}**, start at **{files}**:
     logs peak PSS, VmHWM, process CPU time and battery charge per run;
     `--es dumpTokens` writes phone-exact Kokoro token ids. Driver:
     `~/coding/scratch/lean-engines/bench.py`.
-- **Kitten's ALBERT has a trained drop-in replacement, not yet in the app**
-  (issue #14 "X2", desktop only): a 4-layer width-256 encoder (3.4M weights,
-  X1's `te-d256` shape) maps the same token ids to the same `d_en` (ALBERT +
-  `bert_encoder` output, [1,128,T]) that Kitten's duration and F0/N
-  predictors consume; everything else in `kitten.onnx` stays. On the 17 B1
-  cases × 8 voices it keeps durations within 0.11 frames/token (90% exact)
-  and F0 within 5.3 Hz, Whisper WER equal (a width-192, 1.94M version is
-  as close). Cutting ALBERT's 12 shared-layer
-  passes to 4/6/8 instead drifts ~1.5 frames and ~23 Hz. Using it means
-  re-cutting `planner.onnx` with the student in ALBERT's place
-  (`scripts/kitten-stream/split.py` input) and timing it on the phone; the
-  student must see exactly the app's Kitten token ids (it was trained on
-  them). Weights, ONNX export and scripts: `~/coding/scratch/x2-encoder/`
-  (lab `tts-training-research/x2-encoder-lab.html`).
+- **Kitten's planner runs a trained small text encoder, not ALBERT**
+  (issue #14 "X2" trained it, #17 put it in the app): a 4-layer width-256
+  encoder (3.4M weights, X1's `te-d256` shape; ALBERT + `bert_encoder` was
+  5.8M) maps the same token ids to the same `d_en` that Kitten's duration
+  and F0/N predictors consume; everything else in `kitten.onnx` stays.
+  `split.py`'s `with_student` swaps it in by graph surgery (its output
+  replaces `/bert_encoder/Add_output_0`, names prefixed `x2/`, opset 17 →
+  20), so the planner is deterministic from `kitten.onnx` + `student.onnx`
+  (both sha-pinned). Desktop parity with #14's PyTorch path is exact
+  (durations identical on all 136 B1 cases, F0 within 3e-4 Hz); vs ALBERT
+  0.108 frames/token (90% identical), F0 5.3 Hz, streamed Whisper WER
+  4.46% vs 4.33% (all number/spelling formatting). `genstats/` was
+  recomputed with the new planner. The student must see exactly the app's
+  Kitten token ids (it was trained on them), and its position table caps
+  inputs at 512 tokens like ALBERT's (`x2//pos/Gather` errors past it).
+  A dynamic-int8 student passes the same lines (4 MB vs 13.5 MB) but is
+  not shipped (#17 report). Weights, training, ONNX export:
+  `~/coding/scratch/x2-encoder/`; #17 parity/WER/bench scripts:
+  `~/coding/scratch/kitten-small-planner/`.
 - **Debug-only pickable engines (`BuildTypeEngines`, issue #9)**: a
   prototype engine can be made selectable like any other voice in the DEBUG
   build (aliases, the picker, the primary alias that system TTS uses). None
@@ -228,9 +233,15 @@ When investigating **{concern}**, start at **{files}**:
 - **Kitten streams** (issue #10, `engine/kitten/KittenDirectEngine.kt`):
   the baked bundle is `planner.onnx` + `gen.onnx` + `genstats/<voice>.bin`
   + `voices/<voice>.bin`, cut from upstream's `kitten.onnx` by
-  `scripts/kitten-stream/split.py` (weights unchanged; `SHA256SUMS` there,
-  `verify.py` checks the split is exact, slices join at >120 dB SNR and the
-  fixed norm statistics sit at Kitten's own run-to-run noise, ~0.6 dB mel).
+  `scripts/kitten-stream/split.py` (the text encoder is the X2 student
+  since #17, Kitten's other weights unchanged; `verify.py` checks the split
+  is exact, slices join at >120 dB SNR, the fixed norm statistics sit at
+  Kitten's own run-to-run noise, ~0.6 dB mel, and prints the student's
+  timing/pitch distance from ALBERT). The seed's `SHA256SUMS` lives in the
+  seed dir and is its **content fingerprint**: `seedFromAssets` (and so
+  `refreshSeed` at app start) re-copies an installed Kitten whose copy of
+  that file differs from the APK's, once; `EngineInstallerSeedTest` fails
+  if it doesn't match the seed's files.
   Each clause chunk is planned ONCE (style row, durations, pitch, decoder
   front, harmonic source), then the generator renders its speech frames in
   slices of 0.5 s, 1 s, doubling to 4 s with 4 frames of context
@@ -240,8 +251,9 @@ When investigating **{concern}**, start at **{files}**:
   the unsplit model did; each extra slice ~120 ms on an 8a). Clause chunking
   (F rules) stays: it is prosody, not latency. The layout check rejects the
   pre-1.2 `kitten.onnx` layout, so `MarmaladeTtsApplication` replaces an
-  installed old copy from the seed at start (`EngineInstaller.refreshSeed`;
-  an uninstalled Kitten stays uninstalled) and `EngineInstaller.install`
+  installed old copy (old layout, or old/missing `SHA256SUMS`) from the
+  seed at start (`EngineInstaller.refreshSeed`; an uninstalled Kitten stays
+  uninstalled) and `EngineInstaller.install`
   copies a baked engine from the APK (`SeedAssets`) instead of downloading
   — the v22 download still has the old layout. Only a piece's first slice
   is a `SynthAudio.resumePoint` (see the Narrator's resume points).
