@@ -826,11 +826,20 @@ open class PocketEngine @Inject constructor(
             }
             if (audio != null) bankLock.withLock { send(bank.offer(audio, System.nanoTime() / 1_000_000)) }
         }
-        val jobs = Channel<DecodeJob>(Channel.UNLIMITED)
+        // Bounded, so the AR loop waits when the decoder does: when the
+        // collector stops taking audio (the Narrator's read-ahead permit), the
+        // decoder blocks in send() and, two slices later, so does the AR loop,
+        // instead of rendering the rest of the request.
+        val jobs = Channel<DecodeJob>(DECODE_QUEUE)
         val worker = if (overlap) {
             launch(Dispatchers.Default) {
                 try {
-                    for (job in jobs) decoder.decode(job)
+                    for (job in jobs) {
+                        // A queued job is received without suspending, so it
+                        // would not see the AR side's failure on its own.
+                        ensureActive()
+                        decoder.decode(job)
+                    }
                 } finally {
                     decoder.close()
                 }
@@ -2106,6 +2115,9 @@ open class PocketEngine @Inject constructor(
          * would otherwise hold a long request for most of its render.
          */
         private const val STREAM_HOLD_CAP_MS = 3_000.0
+
+        /** Slices the AR loop may queue for the decoder before it waits ([streamChunks]). */
+        private const val DECODE_QUEUE = 2
 
         /** Starting guess for audio per Pocket token (#15 "E"); refined per chunk. */
         private const val DEFAULT_MS_PER_TOKEN = 110.0
