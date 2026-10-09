@@ -1021,14 +1021,15 @@ open class PocketEngine @Inject constructor(
             .filter { it.isNotEmpty() }
         if (sentences.isEmpty()) return emptyList()
 
-        // Step 2: refine — sub-split oversized sentences. Word pieces are
-        // measured as [generateChunkLatents] encodes them (a trailing `.` is
-        // one more token), so no piece goes over the limit there.
-        val pieceTokens = { piece: String -> tokenizer.encode(preprocessForPocket(piece, bundle)).size }
+        // Every count is of the text as [generateChunkLatents] encodes it:
+        // preprocessForPocket capitalises it and may append a `.`, one more
+        // token, so a chunk measured raw could still go over the limit there.
+        val chunkTokens = { chunk: String -> tokenizer.encode(preprocessForPocket(chunk, bundle)).size }
+
+        // Step 2: refine — sub-split oversized sentences.
         val segments = ArrayList<String>(sentences.size * 2)
         for (s in sentences) {
-            val n = tokenizer.encode(s).size
-            if (n <= maxTokens) {
+            if (chunkTokens(s) <= maxTokens) {
                 segments.add(s)
                 continue
             }
@@ -1037,39 +1038,19 @@ open class PocketEngine @Inject constructor(
                 .filter { it.isNotEmpty() }
             if (parts.size > 1) {
                 for (p in parts) {
-                    if (tokenizer.encode(p).size <= maxTokens) {
+                    if (chunkTokens(p) <= maxTokens) {
                         segments.add(p)
                     } else {
-                        segments.addAll(PocketTokenSplit.byWords(p, maxTokens, pieceTokens))
+                        segments.addAll(PocketTokenSplit.byWords(p, maxTokens, chunkTokens))
                     }
                 }
             } else {
-                segments.addAll(PocketTokenSplit.byWords(s, maxTokens, pieceTokens))
+                segments.addAll(PocketTokenSplit.byWords(s, maxTokens, chunkTokens))
             }
         }
 
         // Step 3: greedy bin-pack into chunks.
-        val chunks = ArrayList<String>(segments.size)
-        var cur = StringBuilder()
-        var curTokens = 0
-        for (seg in segments) {
-            val segTokens = tokenizer.encode(seg).size
-            if (cur.isEmpty()) {
-                cur.append(seg)
-                curTokens = segTokens
-                continue
-            }
-            if (curTokens + segTokens <= maxTokens) {
-                cur.append(' ').append(seg)
-                curTokens += segTokens
-            } else {
-                chunks.add(cur.toString())
-                cur = StringBuilder(seg)
-                curTokens = segTokens
-            }
-        }
-        if (cur.isNotEmpty()) chunks.add(cur.toString())
-        return chunks
+        return PocketTokenSplit.pack(segments, maxTokens, chunkTokens)
     }
 
     override fun release() {

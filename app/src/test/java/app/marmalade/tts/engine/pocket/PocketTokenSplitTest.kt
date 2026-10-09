@@ -41,4 +41,30 @@ class PocketTokenSplitTest {
         val pieces = PocketTokenSplit.splitLongWord(word, 0, tokens)
         assertEquals(List(4) { "😀" }, pieces)
     }
+
+    /** One token per word, plus the `.` the engine appends after a final letter or digit. */
+    private val wordTokens: (String) -> Int = { s ->
+        s.split(' ').count { it.isNotEmpty() } + if (s.last().isLetterOrDigit()) 1 else 0
+    }
+
+    @Test
+    fun `packing counts the joined chunk the way the engine encodes it`() {
+        // Raw counts 3 + 2 fit a limit of 5, but the chunk the engine encodes
+        // is "one two three, four five." (6): it must not be packed.
+        val packed = PocketTokenSplit.pack(listOf("one two three,", "four five"), 5, wordTokens)
+        assertEquals(listOf("one two three,", "four five"), packed)
+        assertTrue(packed.all { wordTokens(it) <= 5 })
+        // The trailing `.` comes once per chunk, not per segment: 2 + 2 by
+        // segment, but "aa bb." is 3 and fits.
+        assertEquals(listOf("aa bb"), PocketTokenSplit.pack(listOf("aa", "bb"), 3, wordTokens))
+    }
+
+    @Test
+    fun `packing keeps order and leaves an oversized segment on its own`() {
+        assertEquals(
+            listOf("a,", "b c d e f,", "g."),
+            PocketTokenSplit.pack(listOf("a,", "b c d e f,", "g."), 2, wordTokens),
+        )
+        assertEquals(emptyList<String>(), PocketTokenSplit.pack(emptyList(), 2, wordTokens))
+    }
 }

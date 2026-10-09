@@ -328,7 +328,8 @@ When investigating **{concern}**, start at **{files}**:
     per frame must fit in the cache (1000 rows shipped); past it
     flow_lm_main throws a Reshape error and the request fails. So a word
     over the chunk's token limit (URL, hash) is cut into pieces
-    (`PocketTokenSplit`, measured after `preprocessForPocket`), and the
+    (`PocketTokenSplit`; it and the chunk packing count tokens after
+    `preprocessForPocket`, whose trailing `.` is a token), and the
     frame cap is cut to the rows left (`PocketCacheShapes.frameBudget`,
     logs `Frame cap … cut to …`).
   - **Streamed render** (`streamChunks`, "E"): frames go to the decoder in

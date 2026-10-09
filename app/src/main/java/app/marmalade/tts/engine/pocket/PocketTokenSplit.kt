@@ -41,6 +41,29 @@ object PocketTokenSplit {
     }
 
     /**
+     * Join consecutive [segments] with spaces into chunks of at most
+     * [maxTokens], greedily. Each candidate chunk is counted whole: [tokens]
+     * need not add up (the engine's count includes a trailing `.` that the
+     * chunk gets once, not once per segment). A segment already over the
+     * limit stays a chunk of its own.
+     */
+    fun pack(segments: List<String>, maxTokens: Int, tokens: (String) -> Int): List<String> {
+        val out = ArrayList<String>()
+        var cur = ""
+        for (seg in segments) {
+            val candidate = if (cur.isEmpty()) seg else "$cur $seg"
+            if (cur.isEmpty() || tokens(candidate) <= maxTokens) {
+                cur = candidate
+            } else {
+                out.add(cur)
+                cur = seg
+            }
+        }
+        if (cur.isNotEmpty()) out.add(cur)
+        return out
+    }
+
+    /**
      * Cut [word] into consecutive pieces, each the longest prefix of what is
      * left that fits in [maxTokens] (at least one character, and never
      * between the halves of a surrogate pair).
