@@ -42,6 +42,24 @@ Unit tests run per flavor: `testFdroidDebugUnitTest` and
 `git -c protocol.file.allow=always submodule update --init third_party/espeak-ng`
 first (the shared submodule URL points at the main checkout's copy).
 
+**Release smoke gate (#28), before every release:**
+`scripts/release-smoke/release-smoke.py --apk <-PsmokeRelease APK>` makes
+every engine × language the build advertises speak one sentence on the
+Pixel 6a, from the R8 build, and exits non-zero on any failure (no audio,
+implausible length, silence, or an error/exception logged by the app's
+process). It drives the app through the public `TextToSpeech` API from a
+test-only probe APK (`scripts/release-smoke/probe/`, built by the SDK's
+build tools outside Gradle), so R8's renaming doesn't matter and no
+debug-only hook is needed. The rc package's engine bundles are installed
+once through its own UI (not debuggable, so nothing can be copied in).
+Unit tests can't catch what it catches: v1.1.0's German died on ICU regex
+(#22) while every JVM test passed. Not covered: developer-only engines and
+Kokoro's accented de/bg (system TTS can't reach either). Gotcha: the phone's
+system speech rate (`settings get secure tts_default_rate`) reaches
+`SynthesisRequest.speechRate` even when the client called
+`setSpeechRate(1.0f)`, so the gate scales its length check by it. README
+next to the script.
+
 ## Module structure
 
 Single Gradle module `:app`. No multi-module split (yet).
