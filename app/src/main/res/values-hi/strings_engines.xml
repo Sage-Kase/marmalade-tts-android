@@ -137,6 +137,7 @@
     <string name="engine_spec_languages">भाषाएँ</string>
     <string name="engine_speed_fastest">सबसे तेज़</string>
     <string name="engine_speed_fast">तेज़</string>
+    <string name="engine_speed_moderate">मध्यम</string>
     <string name="engine_speed_heavy">भारी</string>
     <string name="engine_quality_natural">स्वाभाविक</string>
     <string name="engine_quality_best">कुल मिलाकर सर्वश्रेष्ठ</string>

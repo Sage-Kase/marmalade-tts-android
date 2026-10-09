@@ -19,6 +19,7 @@
     <string name="engine_spec_languages">Languages</string>
     <string name="engine_speed_fastest">Fastest</string>
     <string name="engine_speed_fast">Fast</string>
+    <string name="engine_speed_moderate">Moderate</string>
     <string name="engine_speed_heavy">Heavy</string>
     <string name="engine_quality_natural">Natural</string>
     <string name="engine_quality_best">Best overall</string>

@@ -399,10 +399,13 @@ class EngineCatalogTest {
     @Test
     fun speedTiersMatchTheDesign() {
         // The A3 spec-column card leads with speed; pin the tier per engine so
-        // a stray edit can't silently demote the fastest default.
+        // a stray edit can't silently demote the fastest default. Tiers are
+        // #18's Pixel 6a bench (see SpeedTier).
         assertEquals(SpeedTier.FASTEST, EngineCatalog.byName("kitten-direct-v0_8")!!.speedTier)
-        assertEquals(SpeedTier.FAST, EngineCatalog.byName("kokoro-direct-v1_0")!!.speedTier)
-        assertEquals(SpeedTier.HEAVY, EngineCatalog.byName("pocket-tts-en-v2026_04")!!.speedTier)
+        assertEquals(SpeedTier.MODERATE, EngineCatalog.byName("kokoro-direct-v1_0")!!.speedTier)
+        assertEquals(SpeedTier.MODERATE, EngineCatalog.byName("kokoro-de-v1_0")!!.speedTier)
+        assertEquals(SpeedTier.FASTEST, EngineCatalog.byName("vits-marmalade-v1")!!.speedTier)
+        assertEquals(SpeedTier.FAST, EngineCatalog.byName("pocket-tts-en-v2026_04")!!.speedTier)
     }
 
     @Test

@@ -137,6 +137,7 @@
     <string name="engine_spec_languages">Lingue</string>
     <string name="engine_speed_fastest">Velocissimo</string>
     <string name="engine_speed_fast">Veloce</string>
+    <string name="engine_speed_moderate">Medio</string>
     <string name="engine_speed_heavy">Pesante</string>
     <string name="engine_quality_natural">Naturale</string>
     <string name="engine_quality_best">Migliore in assoluto</string>
