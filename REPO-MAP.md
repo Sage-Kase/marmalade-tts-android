@@ -342,12 +342,16 @@ When investigating **{concern}**, start at **{files}**:
   **Reference length costs memory on first use**: `mimi_encoder` peaks
   roughly with the square of the WAV's length (desktop ORT, 3 threads:
   10 s 0.9 GB, 15 s 1.7 GB, 20 s 3.0 GB, 26 s 4.4 GB; the app caps at 30 s).
-  Alba's 20 s is the longest shipped; keep new references at or under the
-  VCTK voices' ~17 s. The same holds for user cloning: `PocketEngine.cloneVoice`
-  (no caller yet) only applies the 30 s cap, which is ~6 GB at peak and
-  more than a phone can give (#30's 26 s Jenny reference got the app
-  OOM-killed on a 4 GB emulator). Whoever wires up a cloning UI must cap
-  the clip at ~15–17 s first (its kdoc says so).
+  Pixel 6a, first use (fresh `voice_cache`), peak PSS over the idle app:
+  alba 10.0 s +1.09 GB, mary 10.0 s +1.14 GB, jenny 16.8 s +2.65 GB
+  (VmHWM 2.83 GB); with the embedding cached, +0.43 GB. Read a WAV's length
+  with `soxi`, not from its size: alba is 48 kHz and the VCTK voices 32 kHz.
+  Upstream's references run 7.9–12.9 s (azelma the longest) and Jenny's
+  16.8 s is the outlier. The same holds for user cloning:
+  `PocketEngine.cloneVoice` (no caller yet) only applies the 30 s cap, ~6 GB
+  at peak, more than a phone can give (#30's 26 s Jenny reference got the
+  app OOM-killed on a 4 GB emulator). Whoever wires up a cloning UI must
+  cap the clip near the built-in voices' ~10–13 s first (its kdoc says so).
   Deferred to a later release, names already chosen by Max (don't ship
   yet): Kyutai donors Greggy = Greg, Roscoe = Roscoe, P0LFR = Jason,
   Andrea_(Spanish) = Andrea (no "Spanish" label), LC = Bogdan,
