@@ -347,7 +347,10 @@ When investigating **{concern}**, start at **{files}**:
   checked bit-identical over two runs; against the app's own encode on the
   x86 emulator the max abs diff is ≤ 7.5e-7). PocketEngine reads the `.emb`
   before it would encode, so a phone never runs the encoder for a built-in
-  voice; a missing or wrong-size `.emb` falls back to the WAV. The cache is
+  voice; a missing or wrong-size `.emb` falls back to the WAV. Pixel 6a,
+  first use with the shipped file: alba +0.42 GB / first sound 0.34 s,
+  mary +0.43 GB / 0.42 s, jenny +0.47 GB / 0.73 s (encoding on the phone:
+  +1.09 / +1.14 / +2.65 GB and 0.66 / 1.75 / 3.5 s). The cache is
   tied to one weights version, and an update replaces the whole engine dir
   (`EngineInstallerTest.anUpdateLeavesNoFileFromTheOldInstallBehind`), so
   an old cache never meets new weights. A ~1e-7 embedding difference still

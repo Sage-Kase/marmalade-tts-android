@@ -27,6 +27,11 @@ This project follows [Semantic Versioning](https://semver.org/).
   Pixel 6a, Pocket starts speaking sooner (about 0.37 s instead of
   0.55 s), renders about 18% faster and needs about 200 MB less memory at
   its peak. An installed Pocket offers the update on the Engines screen.
+- **Pocket voices are ready on first use**: the new Pocket download carries
+  every voice already prepared, so the first sentence in a voice you
+  haven't used before no longer waits while the phone prepares it. On a
+  Pixel 6a it starts speaking in under a second (it took up to several
+  seconds) and uses about 0.4 GB of memory instead of 1.1 to 2.6 GB.
 - **No pause between paragraphs**: when Marmalade reads an article or a
   long shared text, one paragraph now runs straight into the next instead
   of stopping briefly at every paragraph break.
