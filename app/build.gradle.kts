@@ -343,6 +343,16 @@ dependencies {
 
 tasks.withType<Test>().configureEach {
     useJUnit()
+    // Robolectric makes ~200 robolectric-* dirs per run in java.io.tmpdir and
+    // deletes them in a shutdown hook capped at 10 s. A test JVM that is
+    // killed or starved leaves them all behind, and on marmalade /tmp is a
+    // small tmpfs shared by every session (#47). Keep them in this task's
+    // build/tmp dir instead, and sweep any a previous run left.
+    systemProperty("java.io.tmpdir", temporaryDir.absolutePath)
+    doFirst {
+        temporaryDir.listFiles { f -> f.name.startsWith("robolectric-") }
+            ?.forEach { it.deleteRecursively() }
+    }
 }
 
 // -----------------------------------------------------------------------------

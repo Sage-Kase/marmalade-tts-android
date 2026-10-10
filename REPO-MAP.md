@@ -36,7 +36,11 @@ cd /home/max/coding/marmalade-tts-android
 `app.marmalade.tts.debug`. Debug-signed releases only through v0.1.x.
 
 Unit tests run per flavor: `testFdroidDebugUnitTest` and
-`testPlayDebugUnitTest` must both pass. A fresh worktree has no
+`testPlayDebugUnitTest` must both pass. Test JVMs get
+`java.io.tmpdir = app/build/tmp/<task>/` (#47): Robolectric's ~200
+`robolectric-*` dirs per run, which a killed or starved JVM leaves
+behind, stay out of marmalade's shared `/tmp` tmpfs, and each run sweeps
+the previous run's leftovers. A fresh worktree has no
 `local.properties` and no espeak-ng checkout: build with
 `ANDROID_HOME=$HOME/Android/Sdk` and run
 `git -c protocol.file.allow=always submodule update --init third_party/espeak-ng`
