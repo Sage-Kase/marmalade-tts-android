@@ -47,6 +47,14 @@ class ReplayTest(unittest.TestCase):
         _, stalls = speed.replay([(0, 2000), (1500, 2000), (2400, 2000)], self.SR)
         self.assertEqual(stalls, [(1000.0, 500.0)])
 
+    def test_cold_wait_covers_the_rest_of_playback(self):
+        # Sound from 400 ms, 8 s long, held up 500 ms by a stall: playback ends at
+        # 8900 ms; rendering finished at 3000, so 5.9 s more, plus the margin.
+        self.assertEqual(speed.cold_wait_ms(400, 8000, [(1000.0, 500.0)], 3000), 5900 + speed.COLD_MARGIN_MS)
+
+    def test_cold_wait_is_the_margin_when_rendering_outlasted_playback(self):
+        self.assertEqual(speed.cold_wait_ms(400, 1000, [], 3000), speed.COLD_MARGIN_MS)
+
     def test_as_heard_inserts_silence_at_the_stall(self):
         with tempfile.TemporaryDirectory() as d:
             src, dest = Path(d) / "a.wav", Path(d) / "b.wav"

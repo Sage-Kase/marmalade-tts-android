@@ -24,6 +24,8 @@ import app.marmalade.tts.data.PocketVoiceCatalog
 import app.marmalade.tts.data.VitsVoiceCatalog
 import app.marmalade.tts.data.isVoiceReleased
 import app.marmalade.tts.engine.vits.VitsDirectEngine
+import app.marmalade.tts.install.EngineInstaller
+import app.marmalade.tts.install.InstalledBundle
 import app.marmalade.tts.audio.StreamingEffectChain
 import app.marmalade.tts.engine.EngineRegistry
 import app.marmalade.tts.engine.PocketEngine
@@ -176,6 +178,8 @@ class MarmaladeTtsService : TextToSpeechService() {
 
     @Inject lateinit var langDetector: LangDetector
 
+    @Inject lateinit var installer: EngineInstaller
+
     // Bound to the service lifecycle (cancelled in onDestroy). Used for the
     // background model warm-up kicked off from onLoadLanguage. Dispatchers.IO
     // because ensureModelLoaded() reads ~44 MB off disk before handing to JNI.
@@ -265,6 +269,11 @@ class MarmaladeTtsService : TextToSpeechService() {
                 }
                 voiceSnapshot = voices
             }
+        }
+        // Which download each engine on disk came from, once per start: the
+        // release gate reads these lines to refuse timing an outdated bundle (#51).
+        serviceScope.launch {
+            for (bundle in installer.installedBundles()) Log.i(InstalledBundle.LOG_TAG, bundle.logLine())
         }
     }
 
