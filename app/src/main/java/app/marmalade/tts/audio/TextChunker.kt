@@ -277,7 +277,7 @@ object TextChunker {
                 val first = out.isEmpty()
                 out += when {
                     unit.tokens > wholeLimit(budget.target) -> cutByTokens(unit, budget, smallFirst = first, count)
-                    first && cutFirstSentence(unit.tokens) -> shortFirstPiece(unit, budget, count)
+                    first && cutFirstSentence(unit.tokens) -> clauseHead(unit, budget, count)
                     else -> listOf(unit)
                 }
             }
@@ -286,19 +286,23 @@ object TextChunker {
     }
 
     /**
-     * [planByTokens] step 4: the first sentence as a short first piece plus
+     * [unit] as a short head of about [TokenBudget.firstPiece] tokens plus
      * growing pieces, cut at clause marks only — or whole, when it is short
-     * already, has no usable mark, or the first piece would fall outside
+     * already, has no usable mark, or the head would fall outside
      * [TokenBudget.firstPieceMin]..[TokenBudget.firstPieceMax].
+     * [planByTokens] step 4 uses it on the first sentence; Kokoro also cuts
+     * a later chunk with it while rendering, when that chunk's wait would
+     * outrun the audio still to play (#49). The pieces keep the whole
+     * sentence's [TokenChunk.rowTokens].
      */
-    private fun shortFirstPiece(unit: TokenChunk, budget: TokenBudget, count: (String) -> Int): List<TokenChunk> {
+    fun clauseHead(unit: TokenChunk, budget: TokenBudget, count: (String) -> Int): List<TokenChunk> {
         if (unit.tokens <= wholeLimit(budget.firstPiece)) return listOf(unit)
         val atoms = cutAfter(unit.text, TOKEN_CLAUSE_CUT).map { TokenChunk(it, count(it.trim())) }
         if (atoms.size < 2) return listOf(unit)
         val pieces = packRamp(atoms, budget, budget.firstPiece)
         val head = pieces.first().tokens
         if (pieces.size < 2 || head < budget.firstPieceMin || head > budget.firstPieceMax) return listOf(unit)
-        return pieces.map { it.copy(rowTokens = unit.tokens) }
+        return pieces.map { it.copy(rowTokens = unit.rowTokens ?: unit.tokens) }
     }
 
     /**

@@ -218,6 +218,12 @@ private const val AUDIO_MS_PER_TOKEN = 56.0
 private const val STREAM_PLAN_MS_PER_TOKEN = 6.0
 
 /**
+ * The streaming path's first-slice time (0.5 s of audio) before one was
+ * measured, for a later chunk's wait (#49).
+ */
+private const val DEFAULT_FIRST_SLICE_MS = 150.0
+
+/**
  * First sentences up to this many tokens stay whole on the streaming path:
  * their plan is ≤ ~0.8 s, and every cut is a prosody seam.
  */
@@ -233,6 +239,34 @@ private const val STREAM_CUT_MIN_TOKENS = 160
  */
 internal fun kokoroStreamCutFirst(firstTokens: Int, aheadMs: Long, holding: Boolean): Boolean =
     firstTokens > STREAM_CUT_MIN_TOKENS && (holding || aheadMs < firstTokens * STREAM_PLAN_MS_PER_TOKEN)
+
+/**
+ * A later chunk's head (#49) holds at least this many tokens, about one
+ * short clause ("The sun is out today,"); a cut never makes a smaller one.
+ */
+private const val LATER_HEAD_MIN_TOKENS = 15
+
+/**
+ * A later chunk whose first sound would come at most this long after the
+ * audio ahead of it ran out stays whole (#49): a wait that short falls in
+ * the pause at the sentence seam, and every cut is a prosody seam.
+ */
+private const val SEAM_WAIT_TOLERANCE_MS = 150
+
+/**
+ * Head size, in tokens, to cut a chunk after the request's first to (#49),
+ * or null to keep it whole. Its first sound comes [fixedMs] +
+ * [tokens] × [msPerToken] after its work starts: the plan plus the first
+ * slice on the streaming path, the whole render on the whole path. When
+ * that outruns [aheadMs], the audio already rendered that is still to play,
+ * the chunk is cut at a clause into a head sized to fit what's ahead
+ * (within [LATER_HEAD_MIN_TOKENS]..[maxHead]); the rest is checked again
+ * when its turn comes, with the head's audio ahead of it.
+ */
+internal fun kokoroLaterHead(tokens: Int, aheadMs: Long, msPerToken: Double, fixedMs: Double, maxHead: Int): Int? {
+    if (fixedMs + tokens * msPerToken <= aheadMs + SEAM_WAIT_TOLERANCE_MS) return null
+    return ((aheadMs - fixedMs) / msPerToken).toInt().coerceIn(LATER_HEAD_MIN_TOKENS, maxHead)
+}
 
 /** Samples per duration frame (25 ms at 24 kHz), the generator's grid. */
 private const val FRAME_SAMPLES = TailTrim.FRAME_SAMPLES
@@ -460,6 +494,14 @@ open class KokoroDirectEngine @Inject constructor(
      * the next request's up-front pre-roll on the streaming path.
      */
     @Volatile private var measuredStreamRtf = Double.NaN
+
+    /**
+     * The streaming path's plan cost (ms per token) and first-slice time of
+     * the last piece of ≥ [MEASURE_MIN_TOKENS] tokens — NaN until the first.
+     * They predict a later chunk's wait for its first sound (#49).
+     */
+    @Volatile private var measuredPlanMsPerToken = Double.NaN
+    @Volatile private var measuredFirstSliceMs = Double.NaN
 
     override fun isInstalled(): Boolean = isInstalledIn(engineDir, genStatsVoiceKeys)
 
@@ -784,14 +826,30 @@ open class KokoroDirectEngine @Inject constructor(
         // it decides K=1 and this loop behaves exactly as before.
         val gate = PrerollGate<SynthAudio>(playbackRate, chunks.size)
         val sender = AudioSender(this, streamStartNs, loadWaitMs, playbackRate) { "K=${gate.prerollChunks}" }
+        // Played audio the gate holds: it plays once released, so it is ahead too.
+        var heldMs = 0L
+        val queue = ArrayDeque(chunks)
+        var idx = -1
         try {
-            for ((idx, chunk) in chunks.withIndex()) {
+            while (queue.isNotEmpty()) {
+                idx++
                 // A cancelled stream (reader tap, Stop, skip) must stop HERE:
                 // inference blocks and the uncontended lock/buffered send never
                 // suspend, so without this check a cancelled producer rendered
                 // every remaining chunk while holding the service's synth mutex —
                 // the next request's TTFA paid for all of them (~11 s on the 8a).
                 ensureActive()
+                // A later chunk's whole render is heard unless the audio ahead
+                // covers it (#49).
+                val chunk = if (idx == 0) {
+                    queue.removeFirst()
+                } else {
+                    nextChunk(
+                        queue, idx, horizon.remainingMs() + heldMs, budget,
+                        msPerToken = measuredMsPerToken.takeIf { it > 0 } ?: DEFAULT_MS_PER_TOKEN,
+                        fixedMs = 0.0, effectiveLang, encoded,
+                    )
+                }
                 val pieces = synthLock.withLock { tokenPieces(chunk.text, effectiveLang, encoded[chunk.text], chunk.rowTokens) }
                 // An over-cap chunk's pieces go out one at a time, each as soon
                 // as it is rendered — joining them first made a CJK run-on wait
@@ -813,12 +871,13 @@ open class KokoroDirectEngine @Inject constructor(
                         measuredRtf = rtf
                     }
                     val pieceTag = if (pieces.size > 1) " piece=$pi/${pieces.size}" else ""
-                    Log.d(PERF_TAG, "kokoro chunk=$idx/${chunks.size}$pieceTag infer=${inferMs}ms audio=${audioMs}ms rtf=${"%.2f".format(rtf)} tokens=${piece.ids.size} row=${piece.styleRow} textLen=${piece.text.length}")
+                    Log.d(PERF_TAG, "kokoro chunk=$idx/${idx + 1 + queue.size}$pieceTag infer=${inferMs}ms audio=${audioMs}ms rtf=${"%.2f".format(rtf)} tokens=${piece.ids.size} row=${piece.styleRow} textLen=${piece.text.length}")
                     val release = gate.onChunkRendered(
                         chunk = SynthAudio(pcm = pcm, sampleRate = sampleRate),
                         renderMs = inferMs,
                         audioMs = audioMs,
                     )
+                    heldMs = if (release.isEmpty()) heldMs + (audioMs / playbackRate.coerceAtLeast(0.1f)).toLong() else 0L
                     for (audio in release) sender.send(audio)
                 }
             }
@@ -862,6 +921,40 @@ open class KokoroDirectEngine @Inject constructor(
             horizon.onEmitted(if (playbackRate > 0f) (audioMs / playbackRate).toLong() else audioMs)
             prevSendNs = System.nanoTime()
         }
+    }
+
+    /**
+     * Takes the next chunk off [queue] (the [idx]th of the request, never
+     * the first), cut at a clause first when its wait for a first sound,
+     * [fixedMs] + tokens × [msPerToken], would outrun [aheadMs] of audio
+     * still to play ([kokoroLaterHead], #49). The rest goes back on the
+     * queue and is checked again in turn. Pieces keep the sentence's style
+     * row.
+     */
+    private suspend fun nextChunk(
+        queue: ArrayDeque<TextChunker.TokenChunk>,
+        idx: Int,
+        aheadMs: Long,
+        budget: TextChunker.TokenBudget,
+        msPerToken: Double,
+        fixedMs: Double,
+        lang: String,
+        encoded: HashMap<String, IntArray>,
+    ): TextChunker.TokenChunk {
+        val chunk = queue.removeFirst()
+        val head = kokoroLaterHead(chunk.tokens, aheadMs, msPerToken, fixedMs, budget.firstPieceMax) ?: return chunk
+        val pieces = synthLock.withLock {
+            TextChunker.clauseHead(chunk, budget.copy(firstPiece = head, firstPieceMin = LATER_HEAD_MIN_TOKENS)) { part ->
+                encoded.getOrPut(part) { encodeTextToTokens(part, lang) }.size
+            }
+        }
+        Log.d(
+            PERF_TAG,
+            "kokoro cut chunk=$idx tokens=${chunk.tokens} aheadMs=$aheadMs " +
+                "waitMs=${(fixedMs + chunk.tokens * msPerToken).toLong()} head=$head pieces=${pieces.map { it.tokens }}",
+        )
+        for (p in pieces.drop(1).asReversed()) queue.addFirst(p)
+        return pieces.first()
     }
 
     /**
@@ -920,11 +1013,27 @@ open class KokoroDirectEngine @Inject constructor(
         val sender = AudioSender(this, streamStartNs, loadWaitMs, playbackRate) { "bank=${bankMs}ms" }
         val held = ArrayList<SynthAudio>()
         var heldPlayedMs = 0.0
+        val queue = ArrayDeque(chunks)
+        var idx = -1
         try {
-            for (chunk in chunks) {
+            while (queue.isNotEmpty()) {
+                idx++
                 // Cancellation checks between chunks, pieces and slices: a
                 // stopped stream must not keep rendering (see the whole path).
                 currentCoroutineContext().ensureActive()
+                // A later chunk's plan is heard unless the audio ahead covers
+                // it (#49): the slices still held for the bank play too.
+                val chunk = if (idx == 0) {
+                    queue.removeFirst()
+                } else {
+                    val heldMs = held.sumOf { it.pcm.size } * 1000L / sampleRate / playbackRate.coerceAtLeast(0.1f)
+                    nextChunk(
+                        queue, idx, horizon.remainingMs() + heldMs.toLong(), STREAM_TOKEN_BUDGET,
+                        msPerToken = measuredPlanMsPerToken.takeIf { it > 0 } ?: STREAM_PLAN_MS_PER_TOKEN,
+                        fixedMs = measuredFirstSliceMs.takeIf { it > 0 } ?: DEFAULT_FIRST_SLICE_MS,
+                        lang, encoded,
+                    )
+                }
                 val pieces = synthLock.withLock { tokenPieces(chunk.text, lang, encoded[chunk.text], chunk.rowTokens) }
                 for (piece in pieces) {
                     currentCoroutineContext().ensureActive()
@@ -974,6 +1083,8 @@ open class KokoroDirectEngine @Inject constructor(
             "kokoro plan=${planMs}ms tokens=${ids.size} frames=${plan.totalFrames} tail=${plan.tailStart} " +
                 "slices=${slices.size} enc=${plan.encoder}",
         )
+        val measure = piece.ids.size >= MEASURE_MIN_TOKENS
+        if (measure) measuredPlanMsPerToken = planMs.toDouble() / ids.size
         var genMs = 0L
         var samples = 0L
         var started = false
@@ -982,6 +1093,7 @@ open class KokoroDirectEngine @Inject constructor(
             val tGen = System.nanoTime()
             val pcm = synthLock.withLock { generateSlice(plan, slice, last = i == slices.size - 1) }
             val sliceMs = (System.nanoTime() - tGen) / 1_000_000
+            if (i == 0 && measure) measuredFirstSliceMs = sliceMs.toDouble()
             genMs += sliceMs
             samples += pcm.size
             Log.d(PERF_TAG, "kokoro slice=$i/${slices.size} frames=${slice.render.count()} gen=${sliceMs}ms")
@@ -992,7 +1104,7 @@ open class KokoroDirectEngine @Inject constructor(
         val audioMs = samples * 1000L / sampleRate
         val rtf = if (audioMs > 0) (planMs + genMs).toDouble() / audioMs else Double.NaN
         // Tiny pieces are mostly fixed per-call cost: they'd overstate the RTF.
-        if (piece.ids.size >= MEASURE_MIN_TOKENS && audioMs > 0) measuredStreamRtf = rtf
+        if (measure && audioMs > 0) measuredStreamRtf = rtf
         Log.d(
             PERF_TAG,
             "kokoro piece tokens=${ids.size} row=${piece.styleRow} plan=${planMs}ms gen=${genMs}ms " +
