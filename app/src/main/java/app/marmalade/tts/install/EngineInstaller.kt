@@ -403,9 +403,11 @@ sealed class InstallState {
      * soft prompt to update; the existing files still work in the
      * interim. The two SHA-256s are carried for diagnostic logging.
      *
-     * Older installs (pre v0.3.0-alpha.7) wrote no `.install_meta.json`
-     * — in that case [installedSha256] is `null` and the UI still
-     * offers an update so the user gets the latest catalog entry.
+     * [installedSha256] is `null` when the meta file is unreadable. A
+     * MISSING meta file is different: `checkInstallMeta` stamps it with the
+     * current catalog sha (every install since 1.0.0 writes one, so only
+     * hand-sideloaded dirs lack it), and a sideloaded older layout then
+     * fails the layout check and reads as Corrupt, not Outdated (#45).
      */
     data class Outdated(
         val installedSha256: String?,
