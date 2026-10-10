@@ -37,7 +37,17 @@ import java.util.concurrent.TimeUnit;
  * {@code <external files>/<out>.wav} (nothing is played) and reports what came
  * out. {@code -e lang deu} sends that request language (ISO 639-2) with the
  * voice, as a client reading German with a multilingual voice would: the
- * voice's own locale otherwise. Results are the instrumentation's result bundle, one line per key;
+ * voice's own locale otherwise. {@code -e rate 1.5} asks for that speech rate
+ * with {@code setSpeechRate}, as a client app's speed setting would.
+ *
+ * "speak" also times the render without playing it: every chunk the engine
+ * hands the framework reaches {@code onAudioAvailable} as it is produced, so
+ * "chunks" lists {@code <ms since the request>:<bytes>} per chunk, joined by
+ * ';', and "beginMs" is when {@code onBeginSynthesis} arrived. Replaying that
+ * list against a real-time audio clock says whether playback would have kept
+ * up (release-smoke.py's speed stage).
+ *
+ * Results are the instrumentation's result bundle, one line per key;
  * "status" is "ok" or "error" (with "error" saying why).
  */
 public class SmokeProbe extends Instrumentation {
@@ -115,10 +125,29 @@ public class SmokeProbe extends Instrumentation {
         File wav = new File(dir, required("out") + ".wav");
         if (wav.exists() && !wav.delete()) throw new IllegalStateException("cannot replace " + wav);
 
+        String rate = args.getString("rate");
+        if (rate != null) {
+            int r = tts.setSpeechRate(Float.parseFloat(rate));
+            if (r != TextToSpeech.SUCCESS) throw new IllegalStateException("setSpeechRate returned " + r);
+        }
+
         final CountDownLatch done = new CountDownLatch(1);
         final String[] failure = {null};
+        final long[] t0 = {0};
+        final long[] beginMs = {-1};
+        final StringBuilder chunks = new StringBuilder();
         tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
             @Override public void onStart(String id) { }
+            @Override public void onBeginSynthesis(String id, int sampleRate, int format, int channels) {
+                synchronized (chunks) { beginMs[0] = SystemClock.elapsedRealtime() - t0[0]; }
+            }
+            @Override public void onAudioAvailable(String id, byte[] audio) {
+                long at = SystemClock.elapsedRealtime() - t0[0];
+                synchronized (chunks) {
+                    if (chunks.length() > 0) chunks.append(';');
+                    chunks.append(at).append(':').append(audio.length);
+                }
+            }
             @Override public void onDone(String id) { done.countDown(); }
             @Override public void onError(String id) { onError(id, TextToSpeech.ERROR); }
             @Override public void onError(String id, int code) {
@@ -141,11 +170,15 @@ public class SmokeProbe extends Instrumentation {
             params.putString("variant", "");
         }
 
-        long t0 = SystemClock.elapsedRealtime();
+        synchronized (chunks) { t0[0] = SystemClock.elapsedRealtime(); }
         int queued = tts.synthesizeToFile(text, params, wav, "smoke");
         if (queued != TextToSpeech.SUCCESS) throw new IllegalStateException("synthesizeToFile returned " + queued);
         if (!done.await(timeoutS, TimeUnit.SECONDS)) throw new IllegalStateException("no result in " + timeoutS + " s");
-        out.putString("synthMs", Long.toString(SystemClock.elapsedRealtime() - t0));
+        out.putString("synthMs", Long.toString(SystemClock.elapsedRealtime() - t0[0]));
+        synchronized (chunks) {
+            out.putString("beginMs", Long.toString(beginMs[0]));
+            out.putString("chunks", chunks.toString());
+        }
         out.putString("file", wav.getAbsolutePath());
         if (failure[0] != null) throw new IllegalStateException(failure[0]);
         describeWav(wav, out);
