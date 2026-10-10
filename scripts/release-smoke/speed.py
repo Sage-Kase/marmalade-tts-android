@@ -58,6 +58,13 @@ SPEED_LENGTH_TOLERANCE = 0.25
 # slowdown trips them. A warm phone renders up to a third slower, hence the
 # cool-down before each engine (release-smoke.py --cool-skin-c).
 FIRST_SOUND_FACTOR, FIRST_SOUND_SLACK_MS = 1.5, 200
+# Every take starts cold: after a render the gate waits until its audio would
+# have finished playing, plus this margin. The app's playback horizon
+# (engine/PlaybackHorizon.kt) counts emitted audio as still playing until real
+# time catches up, and its chunking reads that: a take rendered right behind
+# the last one saw 4-6 s "still ahead" and kept whole sentences, hiding the
+# stall a listener meets after a pause (#51).
+COLD_MARGIN_MS = 1000
 RENDER_RTF_FACTOR, RENDER_RTF_SLACK = 1.25, 0.05
 STALL_FACTOR, STALL_SLACK_MS = 1.25, 250
 
@@ -138,6 +145,15 @@ def replay(chunks: list[tuple[int, int]], sample_rate: int) -> tuple[int, list[t
         clock += ms
         played += ms
     return first, stalls
+
+
+def cold_wait_ms(first_sound_ms: float, duration_ms: float, stalls: list[tuple[float, float]],
+                 synth_ms: float) -> float:
+    """How long after a render finished to wait before the next one starts
+    cold: the rest of its real-time playback (which began at first sound and
+    was held up by every stall), plus COLD_MARGIN_MS."""
+    playback_ends = first_sound_ms + duration_ms + sum(s for _, s in stalls)
+    return max(0.0, playback_ends - synth_ms) + COLD_MARGIN_MS
 
 
 def as_heard_name(wav: str) -> str:

@@ -29,6 +29,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+import bundles
 import speed
 
 HERE = Path(__file__).resolve().parent
@@ -64,6 +65,8 @@ SEC_PER_CHAR = {"ja": 0.17, "zh": 0.25}
 SEC_PER_CHAR_DEFAULT = 0.065
 MIN_FACTOR, MAX_FACTOR = 0.35, 4.0
 ROW_TIMEOUT_S = 240
+# How long to wait for the app's EngineBundle lines after its TTS service starts.
+BUNDLE_LOG_TIMEOUT_S = 15
 SPEED_BASELINE = HERE / "speed-baseline.json"
 WHISPER_CHECK = HERE / "whisper-check.py"
 
@@ -420,9 +423,9 @@ def wake_state(phone: Phone) -> str:
 
 
 def smoke_stage(phone: Phone, pkg: str, rows: list[Row], sentences: dict[str, str], detector: LangDetector,
-                bundles: dict[str, str], allow: list[re.Pattern], rate: float, out: Path) -> None:
+                bundle_of, allow: list[re.Pattern], rate: float, out: Path) -> None:
     for i, row in enumerate(rows, 1):
-        row.bundle = bundles.get(row.engine, "?")
+        row.bundle = bundle_of(row.engine, row.voice)
         key = f"accented:{row.request_lang}" if row.request_lang else row.locale.split("-")[0]
         text = sentences.get(key)
         if text is None:
@@ -458,6 +461,27 @@ def smoke_stage(phone: Phone, pkg: str, rows: list[Row], sentences: dict[str, st
         row.result = "PASS" if not row.reasons else "FAIL"
 
 
+def read_bundles(phone: Phone, since: str) -> dict[str, bundles.Bundle]:
+    """The app's EngineBundle lines since [since] (its TTS service logs them
+    once per start, all at once): which download each engine is on."""
+    deadline, seen = time.monotonic() + BUNDLE_LOG_TIMEOUT_S, {}
+    while time.monotonic() < deadline:
+        found = bundles.parse(phone.adb("logcat", "-d", "-v", "epoch", "-T", since, "-s", "EngineBundle:I", check=False))
+        if found and found == seen:  # nothing new in the last poll: all logged
+            return found
+        seen = found
+        time.sleep(1)
+    return seen
+
+
+def bundle_names(engines: list[str]) -> list[str]:
+    """The bundles the engines under test speak from: VITS's released packs, every other engine's own."""
+    names = [e for e in engines if e != VITS_ENGINE]
+    if VITS_ENGINE in engines:
+        names += [f"{VITS_ENGINE}:{p}" for p in speed.released_vits_packs(REPO)]
+    return names
+
+
 def speed_voices(advertised: set[str], engines: list[str]) -> list[tuple[str, str | None]]:
     """(engine, voice) per speed-stage row group: SPEED_VOICES, plus the first
     advertised voice of each released VITS pack. None = not advertised."""
@@ -482,18 +506,29 @@ def wait_cool(phone: Phone, max_skin_c: float, timeout_s: float) -> tuple[float,
         time.sleep(30)
 
 
+def cold_after(res: dict[str, str]) -> float:
+    """Monotonic time at which [res]'s audio would have finished playing, plus
+    a margin (speed.cold_wait_ms): the next render waits for it, so it starts cold."""
+    now = time.monotonic()
+    if res.get("status") != "ok" or not res.get("chunks"):
+        return now
+    first, stalls = speed.replay(speed.parse_chunks(res["chunks"]), int(res["sampleRate"]))
+    return now + speed.cold_wait_ms(first, int(res["durationMs"]), stalls, int(res["synthMs"])) / 1000
+
+
 def speed_stage(phone: Phone, pkg: str, picks: list[tuple[str, str | None]], texts: dict[str, str],
-                bundles: dict[str, str], allow: list[re.Pattern], takes: int, out: Path,
+                bundle_of, allow: list[re.Pattern], takes: int, out: Path,
                 max_skin_c: float, cool_timeout_s: float) -> list[speed.SpeedRow]:
     """Render every (voice, speed) [takes] times, interleaved (take 1 of every
     speed, then take 2, ...) so thermal drift spreads across speeds. Each
     voice starts on a cool phone and is warmed up first, so first sound is a
-    loaded engine's."""
+    loaded engine's. Every render starts cold: it waits until the previous
+    one's audio would have finished playing (speed.COLD_MARGIN_MS)."""
     (out / "speed").mkdir(exist_ok=True)
     rows = []
     for engine, voice in picks:
         group = [speed.SpeedRow(engine=engine, voice=voice or speed.SPEED_VOICES.get(engine, engine), speed=s,
-                                bundle=bundles.get(engine, "?")) for s in speed.SPEEDS]
+                                bundle=bundle_of(engine, voice)) for s in speed.SPEEDS]
         rows += group
         if voice is None or voice.endswith("?"):
             for r in group:
@@ -510,15 +545,17 @@ def speed_stage(phone: Phone, pkg: str, picks: list[tuple[str, str | None]], tex
         text = texts["de" if engine == "kokoro-de-v1_0" else "en"]
         text64 = base64.b64encode(text.encode()).decode()
         print(f"[speed] {voice}: skin {skin:.1f} °C, {group[0].mem_available_mb} MB free; warm-up", flush=True)
-        probe(phone, engine=pkg, mode="speak", voice=voice, rate="1.0", out="speed-warmup",
-              text64=base64.b64encode(b"Hello there.").decode())
+        ready_at = cold_after(probe(phone, engine=pkg, mode="speak", voice=voice, rate="1.0", out="speed-warmup",
+                                    text64=base64.b64encode(b"Hello there.").decode()))
         for take in range(takes):
             for r in group:
+                time.sleep(max(0.0, ready_at - time.monotonic()))
                 print(f"[speed] {voice} {r.speed:g}x take {take + 1}/{takes} …", flush=True)
                 since, pids = phone.now(), phone.pids(pkg)
                 tag = re.sub(r"[^\w.-]", "_", f"{voice}-{r.speed:g}x")
                 res = probe(phone, watch=pkg, since=since, start_pids=frozenset(pids), engine=pkg, mode="speak",
                             voice=voice, rate=f"{r.speed:g}", text64=text64, out=f"speed-{tag}")
+                ready_at = cold_after(res)
                 time.sleep(0.5)
                 r.exceptions += app_exceptions(phone, pkg, since, pids | phone.pids(pkg), allow)
                 if res.get("status") != "ok" or int(res.get("samples", 0)) == 0 or not res.get("chunks"):
@@ -569,6 +606,8 @@ def main() -> int:
                     help="speed: wait until the phone's skin is this cool before each engine (default: 33)")
     ap.add_argument("--cool-timeout", type=float, default=15,
                     help="speed: minutes to wait for that; an engine still too warm fails (default: 15)")
+    ap.add_argument("--allow-outdated", action="store_true",
+                    help="measure engines that aren't on the catalog's download (the table says which)")
     ap.add_argument("--write-baseline", action="store_true",
                     help="speed: after judging, store this run's rows as the baseline (README, Baseline)")
     ap.add_argument("--whisper-python", default=os.environ.get("MTTS_WHISPER_PYTHON"),
@@ -582,7 +621,7 @@ def main() -> int:
     a = ap.parse_args()
 
     sentences = load_sentences()
-    bundles, partial = read_catalog()
+    catalog_tags, partial = read_catalog()
     detector = LangDetector(REPO / "app/src/main/assets/langdetect.tab")
     model = speed.read_warning_model(REPO)
     allow = load_allowlist()
@@ -609,12 +648,32 @@ def main() -> int:
     rate = phone.speech_rate()
     print(f"under test: {build}; system speech rate {rate:.2f}x")
 
+    # Restart the app so its TTS service logs which download each engine is on.
+    phone.sh(f"am force-stop {pkg}")
+    since = phone.now()
     listed = probe(phone, engine=pkg, mode="list")
     if listed.get("status") != "ok":
         die(f"can't list {pkg}'s voices: {listed.get('error')}")
+    installed = read_bundles(phone, since)
+    outdated = bundles.problems(installed, bundle_names(engines))
+    if not installed:
+        outdated = [f"{pkg} logged no EngineBundle lines, so which engine downloads are installed is unknown "
+                    f"(a build from before #51?)"]
+    for line in outdated:
+        print(f"NOT THE CATALOG'S BUNDLE: {line}", file=sys.stderr)
+    if outdated and not a.allow_outdated:
+        die("refusing to measure engines users won't get. Update them in the app under test "
+            "(Marmalade → Engines → Update; README, One-time phone setup), or pass --allow-outdated")
+
+    def bundle_of(engine: str, voice: str | None) -> str:
+        if not installed:  # unverified: the catalog's release
+            return catalog_tags.get(engine, "?") + "?"
+        return bundles.label(installed, bundles.key(engine, voice, VITS_ENGINE))
+
     voices = [tuple(v.split(",", 1)) for v in listed.get("voices", "").split(";") if "," in v]
     stamp = time.strftime("%Y-%m-%d %H:%M")
-    results: dict = {"build": build, "serial": serial, "speech_rate": rate}
+    results: dict = {"build": build, "serial": serial, "speech_rate": rate,
+                     "bundles": {n: asdict(b) for n, b in installed.items()}, "not_catalog": outdated}
     failed = 0
 
     if a.stage in ("all", "smoke"):
@@ -622,7 +681,7 @@ def main() -> int:
         advertised = {r.engine for r in rows}
         missing = [Row(engine=e, locale="-", voice="-", reasons=["engine not installed on the phone"])
                    for e in engines if e not in advertised]
-        smoke_stage(phone, pkg, rows, sentences, detector, bundles, allow, rate, out)
+        smoke_stage(phone, pkg, rows, sentences, detector, bundle_of, allow, rate, out)
         rows += missing
         bad = [r for r in rows if r.result != "PASS"]
         failed += len(bad)
@@ -640,7 +699,7 @@ def main() -> int:
             screen = f"{wake_state(phone)}, after sleep key"
         print(f"\nspeed stage: screen {screen}; {a.takes} take(s) per row", flush=True)
         picks = speed_voices({name for name, _ in voices}, engines)
-        srows = speed_stage(phone, pkg, picks, texts, bundles, allow, a.takes, out,
+        srows = speed_stage(phone, pkg, picks, texts, bundle_of, allow, a.takes, out,
                             a.cool_skin_c, a.cool_timeout * 60)
         if a.whisper_python:
             whisper(srows, texts, a.whisper_python, out)
