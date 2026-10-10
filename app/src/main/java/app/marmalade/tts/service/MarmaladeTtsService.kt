@@ -493,8 +493,9 @@ class MarmaladeTtsService : TextToSpeechService() {
         val rawText = request.charSequenceText?.toString().orEmpty()
 
         // Voice negotiation. Order of precedence (most-specific wins):
-        //   1. Caller-specified voice (request.voiceName, if known).
-        //   2. Per-app mapping for the caller's package name.
+        //   1. Per-app mapping for the caller's package name.
+        //   2. Caller-specified voice, when a deliberate pick (not an
+        //      auto-filled echo of the default).
         //   3. Primary alias.
         //   4. Engine default voice (current behaviour).
         // resolveSynthParams encodes this; see the helper kdoc.
@@ -524,10 +525,14 @@ class MarmaladeTtsService : TextToSpeechService() {
             ?: runBlocking { settings.enabledRules(engineName).first() }
                 .also { rulesCache[engineName] = it }
 
-        Log.d(
+        // Info, so release builds keep it: the release gate checks that each
+        // row was spoken by the voice it asked for, at its rate (#50: a
+        // request for Kitten's default voice is an auto-fill echo and goes
+        // to the primary alias, so the gate's "Kitten" rows were Pocket).
+        Log.i(
             TAG,
-            "onSynthesizeText: voice=$voiceId engine=$engineName " +
-                "speed=${params.speed} effectBlocks=${params.effectBlocks.size} " +
+            "onSynthesizeText: asked=${request.voiceName.orEmpty().ifBlank { "-" }} voice=$voiceId " +
+                "engine=$engineName speed=${params.speed} effectBlocks=${params.effectBlocks.size} " +
                 "chars=${rawText.length}",
         )
 

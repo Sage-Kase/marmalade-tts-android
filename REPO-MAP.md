@@ -83,7 +83,21 @@ previous take's audio would have finished playing, so the playback horizon
 is empty and each take is the cold case. It
 writes a listening lab (`speed-lab.html`, “as heard” clips with the stalls
 put in). System-TTS path only; the in-app reader's segment scheduling isn't
-measured. README next to the script.
+measured. **Every row checks which voice spoke it** (#50): the TTS service
+logs `onSynthesizeText: asked=… voice=… engine=… speed=… effectBlocks=…` at
+Info (R8 keeps it), and a row fails unless the voice it asked for spoke it at
+its rate with no effect (`routing.py`). A request for Kitten Bella, the
+advertised default, reads as an auto-filled echo and goes to the primary
+alias: on the rc that is Pocket, so until #50 every "Kitten" row was Pocket
+(the "Kitten 0.45 vs predicted 0.25" gap). No row asks for Bella now (smoke
+takes Bruno, speed Leo). **Which cores it measures:** Android's TTS manager
+(system_server) binds the engine for every client with
+`BIND_SCHEDULE_LIKE_TOP_APP` (`dumpsys activity services`: client `system`,
+flags `0x80001`, "SLTA"), so system TTS runs on the `top-app` cpuset, X1 cores
+included, whoever asks and screen on or off. The in-app reader with the
+screen off runs in its own foreground service, in the `foreground` cpuset
+(6a: CPUs 0–5, no X1), about half as fast; that slower path is what
+`REFERENCE_COST` predicts (#50). README next to the script.
 
 **Headless emulator on chocolate (#34):** `scripts/emulator/emulator.sh`
 (`provision` / `start` / `stop`, piped over ssh:
@@ -892,12 +906,30 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   puts new files under it (bundle, voice pack or re-seed:
   `EngineInstaller`'s `EngineFilesChanged` → `clearEngineRtf`, bound in
   `AppModule`). The warning then runs on the prediction until re-measured.
-  Kokoro's cost (4.17) is the v26 streaming render, from #25's same-phone
-  bench scaled by that session's v23 re-measure (see the KDoc): on the 6a
-  Kokoro predicts 0.86, so the Play build still recommends Kitten there.
+  Kokoro's cost (4.69) is the v26 streaming render re-measured in #50
+  (screen off, ABBA against Kitten and pre-#49 vs main, see the KDoc;
+  #25's 4.17 was low; #49's cut costs nothing): on the 6a Kokoro predicts
+  0.97, so onboarding marks it "May be slow" there
+  and the warning fires from 1.0×. That is right for the in-app reader with
+  the screen off (it stalls at 1.0×) and over-warns system TTS (which keeps
+  up to 2×): the head's call (#50), the safer error, and #40's measured RTF
+  comes from Narrator renders, the same slow path. Making the reader run
+  on the top-app cores (it moves there whenever a system-TTS session is
+  bound to the app) is its own issue; the costs re-base to the fast path
+  after that.
 - Re-bench before changing a cost or a `SpeedTier`: the probe's in-app RTF
   (screen on, fast cores) is lower than the bench service's (screen off),
-  so costs are engine service RTF ÷ in-app probe RTF. Debug
+  so costs are engine service RTF ÷ in-app probe RTF. **Where an engine runs
+  decides its speed on the 6a (#50):** the bench service and the in-app
+  reader with the screen off sit in the `foreground` cpuset (CPUs 0–5: no
+  X1); system TTS is bound by system_server with
+  `BIND_SCHEDULE_LIKE_TOP_APP` and gets `top-app` (CPUs 0–7) for every
+  client, TalkBack included; so does the app in front. Same text, same
+  build: Kokoro v26 RTF 0.97–1.16 vs 0.40–0.43, Jenny 0.16 vs 0.08, Kitten
+  0.24 vs 0.12–0.18, Kokoro German 0.84 vs 0.43. The costs predict the
+  foreground column within ~5% (Kokoro after #50's re-measure). Fewer
+  threads don't help in `foreground` (#25). Check a process's cpuset with
+  `adb shell cat /proc/<pid>/cpuset`. Debug
   `devbench/DevStateService` replays onboarding and forces a probe value
   (`--ez onboarded false --ef kittenRtf <x>`, <= 0 clears it).
 - `install/EngineCatalog.kt` `SpeedTier` — the card's 4-segment meter,

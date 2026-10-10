@@ -25,6 +25,10 @@ This project follows [Semantic Versioning](https://semver.org/).
   They appear once Pocket is updated on the Engines screen.
 
 ### Changed
+- **Kokoro's speed estimate is more realistic**: setup and the speed
+  warning now expect Kokoro to render a little slower than before, which
+  is how it runs when you listen with the screen off. On phones like the
+  Pixel 6a, setup now marks Kokoro "May be slow".
 - **Pocket voices sound steadier by default**: Pocket now speaks at
   Kyutai's recommended setting, near the Steady end of the slider, with
   fewer slips. To get the livelier sound of earlier versions, move an
