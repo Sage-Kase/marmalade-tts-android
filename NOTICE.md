@@ -67,7 +67,8 @@ QOS.ch, cutlet / Paul O'Leary McCann). ONNX Runtime 1.26.0's
 `ThirdPartyNotices.txt` is reproduced verbatim for the libraries linked
 into `libonnxruntime.so`; each entry names its own license and holder,
 including Eigen under MPL-2.0. The Jenny (Dioco) voice pack's two custom
-attribution licenses are quoted verbatim in a text of their own. The
+attribution licenses are quoted verbatim in a text of their own, and so is
+the dataset licence of Pocket's Jenny voice. The
 standalone bodies that carry no embedded licensor copyright (GPL-3.0,
 Apache-2.0, CC-BY-4.0, CC-BY-SA-4.0, CC0-1.0, OFL-1.1) are shared, with
 attribution shown per component. All in-app texts are bundled in the APK
@@ -116,7 +117,7 @@ folder.
 | Other VITS voice packs (developer mode only) | Ukrainian, Icelandic, Swedish, Kazakh and Norwegian voices | Voice pack (downloaded) | MIT weights; training data license per pack (see [`LICENSES/vits-marmalade.md`](LICENSES/vits-marmalade.md)) |
 | Pocket TTS (Kyutai) — model weights | Neural voice model (English), converted to ONNX with its main transformer quantized to 8-bit | Engine bundle | **CC-BY-4.0** (Kyutai, https://huggingface.co/kyutai/pocket-tts — see [`LICENSES/pocket-tts.md`](LICENSES/pocket-tts.md)) |
 | Pocket TTS (Kyutai) — model code | The inference design the ONNX graphs and the app's Pocket pipeline follow | Engine bundle | **MIT** |
-| Pocket TTS predefined voices (6) | Reference voice prompts | Engine bundle | CC0 / CC-BY-4.0 (per voice — see [`LICENSES/pocket-tts.md`](LICENSES/pocket-tts.md)) |
+| Pocket TTS predefined voices (10) | Reference voice prompts | Engine bundle | CC0 / CC-BY-4.0 / the Jenny (Dioco) dataset's custom attribution licence (per voice — see [`LICENSES/pocket-tts.md`](LICENSES/pocket-tts.md)) |
 | open_jtalk dictionary | Japanese MeCab dictionary | Engine bundle | Modified BSD |
 | lexicon-zh (Mandarin G2P) | Han→IPA Mandarin lexicon | Engine bundle | **CC-BY-SA-4.0** (CC-CEDICT-derived via pypinyin — see [`LICENSES/kokoro-direct.md`](LICENSES/kokoro-direct.md)) |
 | AndroidX / Compose / Kotlin / Hilt / Room | App framework | APK | Apache-2.0 |

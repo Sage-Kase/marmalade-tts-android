@@ -3,7 +3,9 @@ package app.marmalade.tts.install
 import android.content.res.AssetManager
 import android.util.Log
 import app.marmalade.tts.data.KokoroGermanVoiceCatalog
+import app.marmalade.tts.data.PocketDevVoiceCatalog
 import app.marmalade.tts.data.PocketVoiceCatalog
+import app.marmalade.tts.data.db.VoiceMeta
 import app.marmalade.tts.engine.BuildTypeEngines
 import app.marmalade.tts.engine.kokoro.KokoroDirectEngine
 import java.io.BufferedInputStream
@@ -1480,8 +1482,8 @@ open class EngineInstaller @Inject constructor(
         if (outdated != null) return outdated
 
         return when (descriptor.name) {
-            "pocket-tts-en-v2026_04",
-            "pocket-tts-en-v2026_04-dev" -> verifyPocketLayout(dir)
+            "pocket-tts-en-v2026_04"   -> verifyPocketLayout(dir, PocketVoiceCatalog.voices)
+            "pocket-tts-en-v2026_04-dev" -> verifyPocketLayout(dir, PocketDevVoiceCatalog.voices)
             "kitten-direct-v0_8"       -> verifyKittenDirectLayout(dir)
             "kokoro-direct-v1_0"       -> verifyKokoroDirectLayout(dir)
             "kokoro-de-v1_0"           -> verifyKokoroDeLayout(dir)
@@ -1649,7 +1651,7 @@ open class EngineInstaller @Inject constructor(
      * per predefined voice. Voice cloning lands files under
      * cloned_voices/ later; their absence at install time is fine.
      */
-    private fun verifyPocketLayout(dir: File): InstallState {
+    private fun verifyPocketLayout(dir: File, offered: List<VoiceMeta>): InstallState {
         // Always-present, variant-independent files. The 5 ONNX filenames are
         // variant-specific (declared in bundle.json's `onnx_files` block) and
         // checked separately below.
@@ -1687,11 +1689,11 @@ open class EngineInstaller @Inject constructor(
 
         val voicesDir = File(dir, "voices")
         if (!voicesDir.isDirectory) return InstallState.Corrupt
-        // Every voice the catalog offers needs its WAV. The bundle holds more
-        // than that (`marius`, no longer offered, issue #19) and the check
-        // doesn't care. The upstream `cosette` (Expresso) and `jean` (EARS)
-        // voices are CC-BY-NC-4.0 and absent from the v21+ bundle.
-        val expectedVoices = PocketVoiceCatalog.voices.map { it.id.substringAfter(':') }
+        // Every voice the engine's catalog offers needs its WAV. A bundle may
+        // hold more (v21's `marius`, no longer offered, issue #19) and the
+        // check doesn't care. The upstream `cosette` (Expresso) and `jean`
+        // (EARS) voices are CC-BY-NC-4.0 and absent from the v21+ bundle.
+        val expectedVoices = offered.map { it.id.substringAfter(':') }
         for (name in expectedVoices) {
             val wav = File(voicesDir, "$name.wav")
             if (!wav.isFile || wav.length() == 0L) return InstallState.Corrupt

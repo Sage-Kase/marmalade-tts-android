@@ -8,7 +8,7 @@ attribution that some licenses (notably CC-BY-4.0) require.
 
 ## Voice data — attribution required
 
-The Pocket engine offers 5 predefined reference voices. Two sources carry
+The Pocket engine offers 10 predefined reference voices. Two sources carry
 **CC-BY-4.0**, which requires attribution:
 
 - **VCTK Corpus** — `azelma`, `eponine`, `fantine` are derived from the
@@ -18,9 +18,16 @@ The Pocket engine offers 5 predefined reference voices. Two sources carry
 - **Alba Mackenna** — the `alba` voice, released by Kyutai under
   **CC-BY-4.0** (`kyutai/tts-voices`, `alba-mackenna/`).
 
-One more (`javert`) comes from the **Unmute Voice Donation Project**
-and is **CC0** — no attribution required, but the volunteers who donated
-their voices have our thanks.
+- **Jenny (Dioco)** — the `jenny` voice is made from recordings in the
+  **jenny-tts-dataset**, recorded and released by **Jenny** (dioco-group)
+  for TTS training (https://github.com/dioco-group/jenny-tts-dataset).
+  Its custom licence requires the voice be called "Jenny", and where
+  practical "Jenny (Dioco)": the app names it Jenny and credits it
+  "Jenny (Dioco)".
+
+Five more (`javert`, `mary`, `rita`, `stephen`, `ramone`) come from the
+**Unmute Voice Donation Project** and are **CC0** — no attribution
+required, but the volunteers who donated their voices have our thanks.
 
 The upstream `cosette` (Expresso) and `jean` (EARS) voices are
 **CC-BY-NC-4.0 (non-commercial)** and are **not shipped**. Full mapping:

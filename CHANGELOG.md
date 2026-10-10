@@ -18,12 +18,28 @@ This project follows [Semantic Versioning](https://semver.org/).
   named person, donor or corpus now show who, and the licence, under
   their name (for example "Voice donor · CC0" or "Dioco · model by Bryce
   Beattie").
+- **Five new Pocket voices**: Mary, Rita, Stephen, Ramone and Jenny join
+  the Pocket voices in its next download. Mary, Rita, Stephen and Ramone
+  are people who gave their voices to Kyutai's voice-donation project for
+  anyone to use; Jenny is the Irish voice of the Jenny (Dioco) recordings.
+  They appear once Pocket is updated on the Engines screen.
 
 ### Changed
 - **Pocket voices sound steadier by default**: Pocket now speaks at
   Kyutai's recommended setting, near the Steady end of the slider, with
   fewer slips. To get the livelier sound of earlier versions, move an
   alias's Expressiveness slider all the way to Lively.
+- **Pocket uses Kyutai's September 2026 English model**, retrained to
+  cope better with text that has no full stop at the end. The new Pocket
+  download also sizes the model's working memory to each sentence. On a
+  Pixel 6a, Pocket starts speaking sooner (about 0.37 s instead of
+  0.55 s), renders about 18% faster and needs about 200 MB less memory at
+  its peak. An installed Pocket offers the update on the Engines screen.
+- **Pocket voices are ready on first use**: the new Pocket download carries
+  every voice already prepared, so the first sentence in a voice you
+  haven't used before no longer waits while the phone prepares it. On a
+  Pixel 6a it starts speaking in under a second (it took up to several
+  seconds) and uses about 0.4 GB of memory instead of 1.1 to 2.6 GB.
 - **No pause between paragraphs**: when Marmalade reads an article or a
   long shared text, one paragraph now runs straight into the next instead
   of stopping briefly at every paragraph break.

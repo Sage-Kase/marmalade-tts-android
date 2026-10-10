@@ -35,6 +35,11 @@ class VoiceCreditsTest {
             assertEquals("VCTK (University of Edinburgh) · CC BY 4.0", line(pocket(key)))
         }
         assertEquals("Voice donor · CC0", line(pocket("javert")))
+        for (key in PocketVoiceCatalog.KYUTAI_DONOR_VOICE_KEYS) {
+            assertEquals("Voice donor · CC0", line(pocket(key)))
+        }
+        // The Jenny (Dioco) licence: "Jenny (Dioco)" where practical; bespoke, so no licence name.
+        assertEquals("Jenny (Dioco)", line(pocket("jenny")))
     }
 
     @Test

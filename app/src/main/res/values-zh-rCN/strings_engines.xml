@@ -202,6 +202,6 @@
     <string name="engine_kokoro_de_license">Apache-2.0 模型（Kokoro-82M 的德语微调）；由应用内置的 espeak-ng 进行音素转换（GPL-3.0-or-later）。</string>
 
     <string name="engine_pocket_tagline">最富表现力、最有个性的英语语音。</string>
-    <string name="engine_pocket_desc">英语语音最富表现力 — 内置 5 个语音。在大多数中端手机上播放流畅；在较旧和入门级设备上可能卡顿。仅支持英语。采用 Kyutai Labs 的模型，以混合精度构建，输出干净。</string>
-    <string name="engine_pocket_license">模型权重为 CC-BY-4.0，模型代码为 MIT，运行时（onnxruntime-android）同为 MIT；语音采用 CC0 / CC-BY-4.0。不含 GPL 组件。</string>
+    <string name="engine_pocket_desc">英语语音最富表现力 — 内置 10 个语音。在大多数中端手机上播放流畅；在较旧和入门级设备上可能卡顿。仅支持英语。采用 Kyutai Labs 的模型，以混合精度构建，输出干净。</string>
+    <string name="engine_pocket_license">模型权重为 CC-BY-4.0，模型代码为 MIT，运行时（onnxruntime-android）同为 MIT；语音采用 CC0 / CC-BY-4.0 / Jenny (Dioco)。不含 GPL 组件。</string>
 </resources>

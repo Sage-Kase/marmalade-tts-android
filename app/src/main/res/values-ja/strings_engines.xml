@@ -202,6 +202,6 @@
     <string name="engine_kokoro_de_license">Apache-2.0 のモデル（Kokoro-82M のドイツ語ファインチューニング）。音素変換にはアプリ内蔵の espeak-ng（GPL-3.0-or-later）を使用します。</string>
 
     <string name="engine_pocket_tagline">最も表現力があり、個性的な英語ボイス。</string>
-    <string name="engine_pocket_desc">英語のボイスは最も表現力があります。内蔵ボイスは 5 種類。ほとんどのミドルレンジ端末でなめらかに再生されますが、古い端末や低価格の端末では途切れることがあります。英語のみ。Kyutai Labs のモデルを、クリアな音質のために混合精度でビルドしたものです。</string>
-    <string name="engine_pocket_license">モデルの重みは CC-BY-4.0、モデルのコードは MIT、ランタイム（onnxruntime-android）も MIT。ボイスは CC0 / CC-BY-4.0。GPL コンポーネントはありません。</string>
+    <string name="engine_pocket_desc">英語のボイスは最も表現力があります。内蔵ボイスは 10 種類。ほとんどのミドルレンジ端末でなめらかに再生されますが、古い端末や低価格の端末では途切れることがあります。英語のみ。Kyutai Labs のモデルを、クリアな音質のために混合精度でビルドしたものです。</string>
+    <string name="engine_pocket_license">モデルの重みは CC-BY-4.0、モデルのコードは MIT、ランタイム（onnxruntime-android）も MIT。ボイスは CC0 / CC-BY-4.0 / Jenny (Dioco)。GPL コンポーネントはありません。</string>
 </resources>

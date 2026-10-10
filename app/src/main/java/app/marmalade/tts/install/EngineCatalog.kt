@@ -67,7 +67,8 @@ data class EngineArchive(
  *
  * Tiers follow one same-phone bench (issue #18, Pixel 6a, 2026-10-09; RTF =
  * render time ÷ audio, B1 sentences): FASTEST = Kitten (0.26, first sound
- * 0.4 s) and Jenny (0.17, 0.7 s); FAST = Pocket (0.63, 0.55 s);
+ * 0.4 s) and Jenny (0.17, 0.7 s); FAST = Pocket (0.63, 0.55 s; the v27
+ * bundle 0.49, 0.38 s, issue #38's same-phone re-bench, so still FAST);
  * MODERATE = Kokoro (0.87 published render, 2.1 s) and Kokoro German (0.83,
  * 3.1 s), which barely keep up on that phone. HEAVY is left for the Pocket
  * clean-reference build. Re-bench before moving an engine.
@@ -240,11 +241,13 @@ object EngineCatalog {
     private const val KITTEN_DIRECT_INSTALLED_SIZE_BYTES: Long = 78_417_260L
     private const val KOKORO_DIRECT_INSTALLED_SIZE_BYTES: Long = 306_245_266L
     private const val KOKORO_DE_INSTALLED_SIZE_BYTES: Long = 183_180_788L
-    // v21 bundle: 6 commercial-safe voices (cosette/jean dropped — CC-BY-NC-4.0).
-    private const val POCKET_TTS_INSTALLED_SIZE_BYTES: Long = 217_288_756L
+    // v27 bundle: english_2026-09 weights, symbolic-cache graphs, v21's
+    // voices minus marius plus the five #38 voices (cosette/jean dropped
+    // since v21 — CC-BY-NC-4.0), and each voice's precomputed embedding.
+    private const val POCKET_TTS_INSTALLED_SIZE_BYTES: Long = 224_998_077L
     // The clean-reference dev engine still pins the older 8-voice v10 archive
-    // (~1.6 MB larger); it's developer-only, so the small estimate drift is
-    // immaterial.
+    // (2026-04 weights, ~6 MB smaller); it's developer-only, so the small
+    // estimate drift is immaterial.
     private const val POCKET_TTS_DEV_INSTALLED_SIZE_BYTES: Long = POCKET_TTS_INSTALLED_SIZE_BYTES
 
     /**
@@ -408,11 +411,13 @@ object EngineCatalog {
     )
 
     /**
-     * Pocket TTS English v2026_04 (`pocket-tts-en-v2026_04-mixed`). Kyutai
+     * Pocket TTS English (`pocket-tts-en-v2026_09-mixed`, engines release
+     * v27). Kyutai
      * Labs' Latent Space Diffusion model, run on Microsoft
-     * `onnxruntime-android` directly (no sherpa-onnx in this path). 6
-     * commercial-safe predefined voices (the upstream 8 minus `cosette`
-     * and `jean`, which are CC-BY-NC-4.0; see below).
+     * `onnxruntime-android` directly (no sherpa-onnx in this path). 10
+     * commercial-safe predefined voices: 5 of the upstream 8 (minus
+     * `cosette` and `jean`, which are CC-BY-NC-4.0, and `marius`; see
+     * below) and 5 added by issue #38.
      *
      * Selective quantization per upstream
      * [PR #147](https://github.com/kyutai-labs/pocket-tts/pull/147):
@@ -420,30 +425,49 @@ object EngineCatalog {
      * (`mimi_decoder`), encoder (`mimi_encoder`), flow head (`flow_lm_flow`)
      * and text conditioner at fp32. v9 of this bundle blanket-quantized
      * everything and the result was audibly tinny; the mixed variant is the
-     * quality fix. The v21 bundle re-rolls the v10 mixed model with the two
+     * quality fix. The v21 bundle re-rolled the v10 mixed model with the two
      * non-commercial voices removed.
+     *
+     * v27 (issue #31) carries Kyutai's `english_2026-09` weights (a
+     * robustness re-distillation of 2026-04; the flow head and the Mimi codec
+     * are unchanged, so `flow_lm_flow` and the decoder are byte-identical to
+     * v21) and ships the #15 "F" graphs with a symbolic cache axis as its
+     * default `flow_lm_main`/`mimi_decoder` (`*_dyncache.onnx`, declared in
+     * bundle.json). The engine name keeps `v2026_04`: it is the id aliases
+     * and the default voice point at, and an install of v21 shows as
+     * Outdated (archive sha differs) until the user updates, which replaces
+     * the directory, voice_cache included (cached embeddings depend on the
+     * weights). v27 also drops `marius.wav` and adds five voices (issue #38:
+     * four CC0 Kyutai voice donations and Jenny), so their rows only become
+     * pickable once v27 is installed (the layout check asks for every
+     * offered voice's WAV). It is the first bundle to ship
+     * `voice_cache/<voice>.emb`, each voice's embedding precomputed by
+     * `scripts/pocket-bundle/make_voice_cache.py` from the bundle's own
+     * encoder, so no phone encodes a built-in voice (first use used to peak
+     * at +1.1 GB on a Pixel 6a, +2.65 GB for Jenny). An update replaces the
+     * whole directory, so an older bundle's cache never meets new weights.
      *
      * Licensing: the Kyutai model **code** is MIT (not Apache-2.0) and its
      * **weights** are CC-BY-4.0 (huggingface.co/kyutai/pocket-tts). Each
-     * predefined voice carries its own data license — the 6 in the bundle
-     * are CC0 (`javert`, `marius`) or CC-BY-4.0 (`alba`, `azelma`,
-     * `eponine`, `fantine`); the app offers all but `marius` (dropped for
-     * quality, issue #19); attribution for the CC-BY voices is in
-     * CREDITS.md. No
+     * predefined voice carries its own data license — the 10 in the bundle
+     * are CC0 (`javert`, `mary`, `rita`, `stephen`, `ramone`), CC-BY-4.0
+     * (`alba`, `azelma`, `eponine`, `fantine`) or the Jenny (Dioco) licence
+     * (`jenny`: commercial use allowed, the voice must be called "Jenny");
+     * attribution is in CREDITS.md. No
      * espeak dependency — Pocket phonemizes upstream of the ONNX export, so
      * this is the only catalog entry without GPL contamination.
      */
     private val POCKET_TTS_EN: EngineDescriptor = EngineDescriptor(
         name = "pocket-tts-en-v2026_04",
-        displayName = "Pocket TTS (English, 2026-04)",
+        displayName = "Pocket TTS (English, 2026-09)",
         descriptionRes = R.string.engine_pocket_desc,
-        downloadSizeBytes = 97_291_178L,
+        downloadSizeBytes = 104_703_288L,
         installedSizeBytes = POCKET_TTS_INSTALLED_SIZE_BYTES,
         isRecommended = false,
         archive = EngineArchive(
-            url = "https://github.com/maxwhipw/marmalade-tts-android-engines/releases/download/v21/pocket-tts-en-v2026_04-mixed.tar.bz2",
-            sha256 = "3a3ed2810afbae1f963f4f4e3ebde767c2d3c7c622cc544f23170f0ca755b452",
-            sizeBytes = 97_291_178L,
+            url = "https://github.com/maxwhipw/marmalade-tts-android-engines/releases/download/v27/pocket-tts-en-v2026_09-mixed.tar.bz2",
+            sha256 = "00cf24b87111de48717c26a4dcc126f2c80de056b061d5de888dac653f8b1cdf",
+            sizeBytes = 104_703_288L,
             archiveRoot = "pocket-tts-en/",
         ),
         licenseNotice = "LICENSES/pocket-tts.md",

@@ -264,14 +264,15 @@ open class PocketEngine @Inject constructor(
         for (name in requiredOnnx) {
             if (!File(engineDir, name).isFile) return false
         }
-        if (!voicesDir.isDirectory) return false
-        for (voice in PocketVoiceCatalog.voices) {
-            // WAV filenames are the lowercase voice key from the id, not the
-            // capitalized displayName.
-            val key = voice.id.substringAfterLast(':')
-            if (!File(voicesDir, "$key.wav").isFile) return false
-        }
-        return true
+        // Only the default voice's WAV is required (the key is the lowercase
+        // part of the id, not the displayName). Asking for every catalog voice
+        // made a v21 install, which lacks v27's five new WAVs, report "not
+        // installed" and break every Pocket alias until the update (#38). A
+        // voice whose WAV is missing fails its own request instead
+        // ([embeddingForVoice]); the installer's layout check still asks for
+        // every offered voice of a current install.
+        val defaultKey = PocketVoiceCatalog.DEFAULT_VOICE_ID.substringAfterLast(':')
+        return File(voicesDir, "$defaultKey.wav").isFile
     }
 
     /**
@@ -1248,6 +1249,16 @@ open class PocketEngine @Inject constructor(
      * write fails, no state survives the throw. The cloned voice is
      * also added to the in-memory cache so the first synth call after
      * cloning doesn't pay the file-read cost.
+     *
+     * **Cap the clip length before wiring this to a UI.** [encodePcm]'s
+     * only cap is 30 s, and `mimi_encoder`'s peak memory grows roughly
+     * with the square of the clip length (desktop ORT, 3 threads, issue
+     * #38: 10 s 0.9 GB, 15 s 1.7 GB, 20 s 3.0 GB, 26 s 4.4 GB; on a Pixel
+     * 6a a 10 s reference peaked at +1.1 GB and a 16.8 s one at +2.65 GB).
+     * A 26 s reference got the app OOM-killed on a 4 GB emulator, so cut a
+     * user's clip to about the built-in voices' 10–13 s before it gets
+     * here. The built-in voices avoid the encoder entirely (v27 ships their
+     * `voice_cache/<voice>.emb`); a clone can't, so this cap stands.
      *
      * @param displayName user-facing label (≤ 256 UTF-8 bytes)
      * @param pcm mono float32 PCM in [-1, 1]

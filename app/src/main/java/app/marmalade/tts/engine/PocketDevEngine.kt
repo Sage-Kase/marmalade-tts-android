@@ -115,7 +115,8 @@ class PocketDevEngine @Inject constructor(
     private val random = Random()
 
     override fun isInstalled(): Boolean {
-        // Mirror production Pocket's install check, since we share its bundle.
+        // Mirror production Pocket's install check, over this engine's own
+        // install and voice list.
         if (!engineDir.isDirectory) return false
         if (!File(engineDir, "bundle.json").isFile) return false
         if (!File(engineDir, "tokenizer.model").isFile) return false
@@ -127,7 +128,7 @@ class PocketDevEngine @Inject constructor(
             if (!File(engineDir, n).isFile) return false
         }
         if (!voicesDir.isDirectory) return false
-        for (v in PocketVoiceCatalog.voices) {
+        for (v in PocketDevVoiceCatalog.voices) {
             val key = v.id.substringAfterLast(':')
             if (!File(voicesDir, "$key.wav").isFile) return false
         }

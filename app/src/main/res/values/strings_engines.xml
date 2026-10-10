@@ -105,8 +105,8 @@
     <string name="engine_kokoro_de_license">Apache-2.0 model (German fine-tune of Kokoro-82M); phonemized by the app’s built-in espeak-ng (GPL-3.0-or-later).</string>
 
     <string name="engine_pocket_tagline">The most expressive, characterful English voices.</string>
-    <string name="engine_pocket_desc">The most expressive English voices — 5 built-in voices. Keeps up on most mid-range phones; can stutter on older and budget hardware. English only. Kyutai Labs\' model in a mixed-precision build for clean output.</string>
-    <string name="engine_pocket_license">CC-BY-4.0 model weights, MIT model code + MIT runtime (onnxruntime-android); voices CC0 / CC-BY-4.0. No GPL components.</string>
+    <string name="engine_pocket_desc">The most expressive English voices — 10 built-in voices. Keeps up on most mid-range phones; can stutter on older and budget hardware. English only. Kyutai Labs\' model in a mixed-precision build for clean output.</string>
+    <string name="engine_pocket_license">CC-BY-4.0 model weights, MIT model code + MIT runtime (onnxruntime-android); voices CC0 / CC-BY-4.0 / Jenny (Dioco). No GPL components.</string>
 
     <!-- Developer-only diagnostic engine: English only, by design. -->
     <string name="engine_pocket_dev_tagline" translatable="false">Diagnostic clean-room build of the Pocket TTS pipeline.</string>

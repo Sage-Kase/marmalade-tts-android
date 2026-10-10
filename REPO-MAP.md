@@ -324,7 +324,59 @@ When investigating **{concern}**, start at **{files}**:
   `PocketDevVoiceCatalog.retiredVoices`. `PocketVoiceCatalog.OFFER_VCTK_VOICES`
   is the one-line switch that would retire `azelma`/`eponine`/`fantine` the
   same way. The installer's Pocket layout check requires a WAV per offered
-  voice only.
+  voice only (per engine: the clean twin checks its own list).
+- **Pocket voice sources** (#30 research, #38 shipped): v27 adds mary,
+  rita, stephen, ramone (CC0 Kyutai Unmute donors `3973`,
+  `spanish-limaperu`, `thepolishdane`, `floyd2026`; the published
+  `voice-donations/<donor>.wav`, unchanged) and jenny (Jenny (Dioco)
+  dataset, custom licence: the name must stay "Jenny"; a 17 s reference:
+  three whole recipe clips, `~/coding/scratch/pocket-v27-38/src/mkref-jenny.sh`;
+  #30's 26 s `refs/jenny.wav` OOM-killed the emulator on first use, see
+  the encoder-memory note below). Adding a voice = WAV in the bundle's
+  `voices/` + `predefined_voices` in bundle.json + `PocketVoiceCatalog.voices`
+  and `creditFor` + CATALOG_VERSION bump + LICENSES/pocket-tts.md, CREDITS,
+  NOTICE, LicenseCatalog + the voice count in `engine_pocket_desc` + rerun
+  `scripts/pocket-bundle/make_voice_cache.py <bundle-dir>` before packing.
+  Re-check each Kyutai donor file is still on HF before a release (donors
+  can ask for deletion, ToU §8). The clean twin
+  (`PocketDevVoiceCatalog.BUNDLE_VOICE_KEYS`) keeps its v10 archive's five.
+  **Precomputed embeddings** (#38, from v27): the bundle ships
+  `voice_cache/<voice>.emb` for every predefined voice, made by
+  `scripts/pocket-bundle/make_voice_cache.py` from the bundle's own WAVs and
+  `mimi_encoder` (the app's preprocessing ported exactly, one ORT thread,
+  checked bit-identical over two runs; against the app's own encode on the
+  x86 emulator the max abs diff is ≤ 7.5e-7). PocketEngine reads the `.emb`
+  before it would encode, so a phone never runs the encoder for a built-in
+  voice; a missing or wrong-size `.emb` falls back to the WAV. Pixel 6a,
+  first use with the shipped file: alba +0.42 GB / first sound 0.34 s,
+  mary +0.43 GB / 0.42 s, jenny +0.47 GB / 0.73 s (encoding on the phone:
+  +1.09 / +1.14 / +2.65 GB and 0.66 / 1.75 / 3.5 s). The cache is
+  tied to one weights version, and an update replaces the whole engine dir
+  (`EngineInstallerTest.anUpdateLeavesNoFileFromTheOldInstallBehind`), so
+  an old cache never meets new weights. A ~1e-7 embedding difference still
+  changes a seeded take (the sampler amplifies it), so a shipped `.emb` and
+  an on-phone encode give different takes of the same voice.
+  **Reference length costs memory when the encoder does run** (a missing
+  `.emb`, a bundle before v27, user cloning): `mimi_encoder` peaks
+  roughly with the square of the WAV's length (desktop ORT, 3 threads:
+  10 s 0.9 GB, 15 s 1.7 GB, 20 s 3.0 GB, 26 s 4.4 GB; the app caps at 30 s).
+  Pixel 6a, first use (fresh `voice_cache`), peak PSS over the idle app:
+  alba 10.0 s +1.09 GB, mary 10.0 s +1.14 GB, jenny 16.8 s +2.65 GB
+  (VmHWM 2.83 GB); with the embedding cached, +0.43 GB. Read a WAV's length
+  with `soxi`, not from its size: alba is 48 kHz and the VCTK voices 32 kHz.
+  Upstream's references run 7.9–12.9 s (azelma the longest) and Jenny's
+  16.8 s is the outlier; with the shipped `.emb` that no longer matters.
+  It does for user cloning, which always encodes:
+  `PocketEngine.cloneVoice` (no caller yet) only applies the 30 s cap, ~6 GB
+  at peak, more than a phone can give (#30's 26 s Jenny reference got the
+  app OOM-killed on a 4 GB emulator). Whoever wires up a cloning UI must
+  cap the clip near the built-in voices' ~10–13 s first (its kdoc says so).
+  Deferred to a later release, names already chosen by Max (don't ship
+  yet): Kyutai donors Greggy = Greg, Roscoe = Roscoe, P0LFR = Jason,
+  Andrea_(Spanish) = Andrea (no "Spanish" label), LC = Bogdan,
+  Ineedthisnow = Chike, Yesid = Yesid, Jeremy_Q = Jeremy; and the
+  CC-BY-SA picks G, H, J from #30's lab (OpenSLR 83 Scottish female,
+  Irish male; OpenSLR 70 Nigerian male), CC0-only for now.
 - **Kitten streams** (issue #10, `engine/kitten/KittenDirectEngine.kt`):
   the baked bundle is `planner.onnx` + `gen.onnx` + `genstats/<voice>.bin`
   + `voices/<voice>.bin`, cut from upstream's `kitten.onnx` by
@@ -503,7 +555,8 @@ When investigating **{concern}**, start at **{files}**:
   - **Symbolic cache axes** ("F", `PocketCacheShapes`): if a bundle ships
     `*_dyncache` graphs (cache axis −1 in the declared shape), flow_lm's caches
     are sized per voice (`roundUp64(promptRows + tokens + maxFrames)`, ≤ 1000)
-    and mimi's ring at 320 (batch ≤ 4). The published bundle doesn't have them.
+    and mimi's ring at 320 (batch ≤ 4). v21 doesn't have them; the v27 bundle
+    (#31, 2026-09 weights) declares them as its default graphs in bundle.json.
   - **Weights versions** (#31): Kyutai's `english_2026-09` only retrained
     the flow_lm backbone (transformer, text conditioner, speaker projection,
     EOS head, BOS embeddings). The flow head and the whole Mimi codec are
@@ -774,7 +827,9 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   Recommended pill; others are FINE up to 0.9, then MAY_BE_SLOW; Kitten is
   never warned. Flavor-aware only through `EngineCatalog.visibleTo`; since
   Pocket reached Play (#29) both builds offer the same engines, so a phone
-  gets the same pill on either (the Pixel 6a: Pocket, predicted 0.58).
+  gets the same pill on either (the Pixel 6a: Pocket, predicted 0.49).
+  Pocket's cost (2.39) is the v27 bundle's render, from #38's ABBA against
+  v21 scaled by that session's v21 re-measure (see the KDoc).
   `predictedRtf` feeds the speed-up warning before measured RTFs accrue.
 - `perf/SpeedPerfWarning.kt` — the speed-up warning: measured RTF ×
   effective speed > 0.8, else the probe prediction, else the static 1.35.
@@ -795,7 +850,7 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   `devbench/DevStateService` replays onboarding and forces a probe value
   (`--ez onboarded false --ef kittenRtf <x>`, <= 0 clears it).
 - `install/EngineCatalog.kt` `SpeedTier` — the card's 4-segment meter,
-  from the same bench: Kitten/Jenny 4, Pocket 3, Kokoro/Kokoro German 2
+  from the same bench: Kitten/Jenny 4, Pocket 3 (v27 0.49 RTF, still FAST), Kokoro/Kokoro German 2
   (MODERATE), HEAVY only the Pocket clean-reference build.
 
 ### Preprocessing

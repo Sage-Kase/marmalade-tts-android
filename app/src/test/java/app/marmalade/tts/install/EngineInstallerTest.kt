@@ -459,6 +459,37 @@ class EngineInstallerTest {
         )
     }
 
+    /**
+     * Issue #38: a Pocket voice embedding (`voice_cache/<voice>.emb`) belongs
+     * to one weights version. An update must never leave the old install's
+     * cache next to the new weights: a file the app wrote itself is gone, and
+     * one the new archive ships is the archive's.
+     */
+    @Test
+    fun anUpdateLeavesNoFileFromTheOldInstallBehind() = runTest {
+        val v1Descriptor = stageBundle(KITTEN_LAYOUT)
+        assertTrue(installer.install(v1Descriptor) {}.isSuccess)
+        val dir = File(filesDir, "engines/${v1Descriptor.name}")
+        // Written by the app under the old weights, as PocketEngine does on first use.
+        File(dir, "voice_cache").mkdirs()
+        File(dir, "voice_cache/alba.emb").writeText("old weights")
+        File(dir, "voice_cache/mary.emb").writeText("old weights")
+
+        val v2Archive = buildArchive(
+            KITTEN_LAYOUT + ("voice_cache/alba.emb" to "shipped with v2".toByteArray()),
+            archiveRootName = ARCHIVE_ROOT,
+        )
+        fetcher.payloads[v1Descriptor.archive.url] = v2Archive
+        val v2Descriptor = v1Descriptor.copy(
+            archive = v1Descriptor.archive.copy(sha256 = sha256Hex(v2Archive), sizeBytes = v2Archive.size.toLong()),
+            downloadSizeBytes = v2Archive.size.toLong(),
+        )
+        assertTrue(installer.install(v2Descriptor) {}.isSuccess)
+
+        assertEquals("shipped with v2", File(dir, "voice_cache/alba.emb").readText())
+        assertFalse("the old install's own cache file must not survive", File(dir, "voice_cache/mary.emb").exists())
+    }
+
     @Test
     fun leftoverFullyDownloadedArchiveInstallsWithoutRefetching() = runTest {
         // A previous attempt downloaded the whole archive, then failed after

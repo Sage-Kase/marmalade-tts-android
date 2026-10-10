@@ -84,7 +84,7 @@ object EngineRecommender {
      * |---|---|---|---|---|
      * | Kitten (Bella) | 0.256 | 0.251 | 0.253 | 1.23 |
      * | Jenny | 0.170 | 0.157 | 0.163 | 0.79 |
-     * | Pocket (Alba, Javert) | 0.640, 0.619 | 0.529, 0.526 | 0.579 | 2.81 |
+     * | Pocket (Alba; v27 bundle, see below) | | | | 2.39 |
      * | Kokoro (Heart, v26 streaming render, see below) | | | | 4.17 |
      * | Kokoro German (Thorsten, German text) | 0.832 | 0.835 | 0.834 | 4.05 |
      *
@@ -101,12 +101,20 @@ object EngineRecommender {
      * #18's 0.833 (0.866, 0.800, cost 4.04), so v26's 0.904 (0.936, 0.872)
      * is scaled by that session's ratio to stay comparable with the other
      * engines: 4.04 × 0.904 / 0.876 = 4.17 (unscaled 4.39).
+     *
+     * Pocket is the v27 bundle's render (issue #38: 2026-09 weights, graphs
+     * with a symbolic cache axis; same phone and method, ABBA against v21,
+     * `~/coding/scratch/pocket-v27-38/bench/`). #18 measured v21 (Alba,
+     * Javert) at sentences 0.640, 0.619, paragraphs 0.529, 0.526, mean
+     * 0.579, cost 2.81. The #38 session read v21 (Alba) at 0.572 (0.619,
+     * 0.524) and v27 at 0.486 (0.485, 0.486), so 2.81 × 0.486 / 0.572 =
+     * 2.39 (unscaled 2.36).
      */
     val REFERENCE_COST: Map<String, Double> = mapOf(
         KITTEN to 1.23,
         KOKORO to 4.17,
         KOKORO_DE to 4.05,
-        POCKET to 2.81,
+        POCKET to 2.39,
         VITS to 0.79,
     )
 
