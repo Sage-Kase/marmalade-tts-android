@@ -35,7 +35,9 @@ import java.util.concurrent.TimeUnit;
  * "list" reports every advertised voice as {@code name,languageTag} joined by
  * ';'. "speak" renders the text with that voice to
  * {@code <external files>/<out>.wav} (nothing is played) and reports what came
- * out. Results are the instrumentation's result bundle, one line per key;
+ * out. {@code -e lang deu} sends that request language (ISO 639-2) with the
+ * voice, as a client reading German with a multilingual voice would: the
+ * voice's own locale otherwise. Results are the instrumentation's result bundle, one line per key;
  * "status" is "ok" or "error" (with "error" saying why).
  */
 public class SmokeProbe extends Instrumentation {
@@ -129,8 +131,18 @@ public class SmokeProbe extends Instrumentation {
             }
         });
 
+        // The framework's own request keys (TextToSpeech.Engine.KEY_PARAM_*,
+        // hidden constants): per-call values override what setVoice set.
+        Bundle params = new Bundle();
+        String lang = args.getString("lang");
+        if (lang != null) {
+            params.putString("language", lang);
+            params.putString("country", "");
+            params.putString("variant", "");
+        }
+
         long t0 = SystemClock.elapsedRealtime();
-        int queued = tts.synthesizeToFile(text, new Bundle(), wav, "smoke");
+        int queued = tts.synthesizeToFile(text, params, wav, "smoke");
         if (queued != TextToSpeech.SUCCESS) throw new IllegalStateException("synthesizeToFile returned " + queued);
         if (!done.await(timeoutS, TimeUnit.SECONDS)) throw new IllegalStateException("no result in " + timeoutS + " s");
         out.putString("synthMs", Long.toString(SystemClock.elapsedRealtime() - t0));

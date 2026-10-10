@@ -2,6 +2,13 @@
 # locale's language subtag. Plain everyday prose, written by hand: the gate
 # checks that audio comes out, not how it sounds. A language an engine
 # advertises with no line here fails the gate until one is added.
+#
+# `accented:<code>` lines are for an engine's accented tier (Kokoro reading
+# German or Bulgarian): the gate sends that request language with a Kokoro
+# voice. Kokoro phonemizes in the language its detector finds and only falls
+# back to the request language when the detector abstains, so these lines
+# must make it abstain (the gate checks, with the app's own table). Most
+# German prose reads as English or French to it; Cyrillic always abstains.
 en	Good morning. The sun is out today, and there is a light breeze.
 es	Buenos días. Hoy hace sol y sopla una brisa suave.
 fr	Bonjour. Aujourd'hui, il fait beau et le vent est léger.
@@ -11,3 +18,5 @@ pt	Bom dia. Hoje está fazendo sol e soprando uma brisa leve.
 hi	सुप्रभात। आज धूप निकली है और हल्की हवा चल रही है।
 ja	おはようございます。今日は晴れていて、そよ風が吹いています。
 zh	早上好。今天阳光明媚，微风轻轻地吹着。
+accented:de	Der Schlüssel liegt auf dem Küchentisch.
+accented:bg	Добро утро. Днес времето е слънчево и духа лек вятър.

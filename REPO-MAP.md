@@ -53,8 +53,11 @@ build tools outside Gradle), so R8's renaming doesn't matter and no
 debug-only hook is needed. The rc package's engine bundles are installed
 once through its own UI (not debuggable, so nothing can be copied in).
 Unit tests can't catch what it catches: v1.1.0's German died on ICU regex
-(#22) while every JVM test passed. Not covered: developer-only engines and
-Kokoro's accented de/bg (system TTS can't reach either). Gotcha: the phone's
+(#22) while every JVM test passed. Kokoro's accented de/bg rows send that
+request language with a Kokoro voice. Kokoro honours it only when
+`LangDetector` abstains on the text, and it reads most German prose as en or
+fr, so those sentences are picked (and checked) to make it abstain. Not
+covered: developer-only engines (system TTS never offers them). Gotcha: the phone's
 system speech rate (`settings get secure tts_default_rate`) reaches
 `SynthesisRequest.speechRate` even when the client called
 `setSpeechRate(1.0f)`, so the gate scales its length check by it. README
