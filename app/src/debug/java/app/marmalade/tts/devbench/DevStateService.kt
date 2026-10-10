@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.IBinder
 import android.util.Log
 import app.marmalade.tts.data.SettingsRepository
+import app.marmalade.tts.service.MarmaladeSynthService
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
@@ -30,6 +31,11 @@ import kotlinx.coroutines.launch
 // next launch). `kittenRtf` stores that Kitten benchmark RTF, as if the probe
 // had measured it; a value <= 0 clears it, so the next probe measures again.
 // Each extra is optional. The resulting state is logged under DevState.
+//
+// Issue #52: `--es speakFile <name> --es voice <voice id>` [`--ef speed <x>`]
+// speaks `files/bench/<name>` in that voice through MarmaladeSynthService,
+// the in-app path (Narrator, AudioTrack, wake lock, TopAppHold), as the Speak
+// screen does: for timing and battery runs of in-app speech from adb.
 // -----------------------------------------------------------------------------
 
 @AndroidEntryPoint
@@ -56,6 +62,7 @@ class DevStateService : Service() {
                         settings.clearKittenRtfMeasurement()
                     }
                 }
+                intent?.getStringExtra(EXTRA_SPEAK_FILE)?.let { speak(it, intent) }
                 Log.i(
                     TAG,
                     "state onboarded=${settings.onboarded.first()} " +
@@ -68,6 +75,20 @@ class DevStateService : Service() {
         return START_NOT_STICKY
     }
 
+    /** Hands `files/bench/[name]` to the synth service as a one-shot, via a cache file (no 10 000-char clamp). */
+    private fun speak(name: String, intent: Intent) {
+        val text = java.io.File(filesDir, "bench/$name")
+        val handoff = java.io.File(cacheDir, "dev-speak.txt")
+        text.copyTo(handoff, overwrite = true)
+        val speak = Intent(this, MarmaladeSynthService::class.java)
+            .setAction(MarmaladeSynthService.ACTION_SPEAK)
+            .putExtra(MarmaladeSynthService.EXTRA_TEXT_FILE, handoff.absolutePath)
+            .putExtra(MarmaladeSynthService.EXTRA_VOICE, intent.getStringExtra(EXTRA_VOICE))
+            .putExtra(MarmaladeSynthService.EXTRA_SPEED, intent.getFloatExtra(EXTRA_SPEED, 1f))
+        startForegroundService(speak)
+        Log.i(TAG, "speak file=$name voice=${intent.getStringExtra(EXTRA_VOICE)} chars=${text.length()}")
+    }
+
     override fun onDestroy() {
         scope.cancel()
         super.onDestroy()
@@ -77,6 +98,9 @@ class DevStateService : Service() {
         const val TAG = "DevState"
         const val EXTRA_ONBOARDED = "onboarded"
         const val EXTRA_KITTEN_RTF = "kittenRtf"
+        const val EXTRA_SPEAK_FILE = "speakFile"
+        const val EXTRA_VOICE = "voice"
+        const val EXTRA_SPEED = "speed"
         const val NOTIFICATION_ID = 0xB3
     }
 }
