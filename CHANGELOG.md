@@ -42,7 +42,7 @@ This project follows [Semantic Versioning](https://semver.org/).
 - Kokoro loads about 0.7 s faster: its Mandarin dictionary now loads the
   first time a text has Chinese characters, not every time.
 - **Pocket TTS starts speaking in about half a second and renders faster
-  than real time** (F-Droid build): it streams each sentence in short
+  than real time**: it streams each sentence in short
   slices while it renders, decoding on a second thread, and no longer
   copies its whole voice state twice for every 80 ms of audio. On a
   Pixel 6a with the screen off, the wait before the first sound went from
@@ -54,12 +54,27 @@ This project follows [Semantic Versioning](https://semver.org/).
   Same model; the audio is unchanged apart from the fix
   below. Pocket also reads its voice sample once per voice instead of
   before every sentence.
+- **Setup recommends Pocket on most phones**: the setup guide now marks
+  Pocket TTS as Recommended on any phone fast enough to keep up with it at
+  normal speed with room to spare (a Pixel 6a is), and the built-in Kitten
+  on slower phones. Kokoro is still offered, just not marked Recommended.
+  If you install the recommended engine during setup, your first voice
+  uses it.
+- **Speed bars updated** from a new test of every engine on the same phone
+  (a Pixel 6a): Pocket now shows three bars instead of one, Kokoro and
+  Kokoro German two instead of three; Kitten and Jenny keep four.
+
+### Removed
+- **The Pocket voice Marius**, which sounded much worse than the others.
+  Voices and settings that used Marius now use Alba.
 
 ### Fixed
 - **Spanish no longer reads "á" as "a acentuada"**: older Spanish books
   write the one-letter words "a", "e", "o" and "u" with an accent ("fué á
   la casa ó al campo"). On-device voices now read them as the plain words
   instead of naming the accented letter.
+- **German speaks again**: since 1.1.0 the Kokoro German engine, and
+  German text read by Kokoro, failed on every phone before saying anything.
 - **Pocket no longer muddles part of long sentences**: in long sentences
   (the two test sentences of 7 seconds or more), about two seconds of
   audio starting half a second in was decoded slightly wrong, because
