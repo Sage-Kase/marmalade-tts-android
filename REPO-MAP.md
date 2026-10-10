@@ -448,7 +448,26 @@ When investigating **{concern}**, start at **{files}**:
   sentence over 160 tokens is cut at a clause into an ~80-token head when
   its plan would be heard: nothing playing covers it, or a pre-roll is due
   (`kokoroStreamCutFirst`; #13 review, the long-article set waited up to
-  5.5 s without it). Pre-roll above 1× banks SLICES, not chunks
+  5.5 s without it). **Later chunks are cut while rendering** (#49):
+  before each chunk after the first, `nextChunk` predicts its wait for a
+  first sound and, when that outruns the audio still to play (`horizon` +
+  audio held for a pre-roll) by more than 150 ms, cuts it at a clause
+  (`TextChunker.clauseHead`, never a word gap) into a head sized to fit
+  (`kokoroLaterHead`; 15 tokens up to the budget's max, topped up to
+  1.35× by the packer: `kokoroLaterCutBudget`); the rest goes back on the
+  queue and is checked in turn. The wait is a `PieceCostModel` line fitted
+  through the latest short (< 60 tokens) and long measured pieces (Kokoro's
+  costs are mostly fixed: 6a v26 plan ~100 ms at 19 tokens, ~250 ms at 153;
+  German v28 ~235 / ~345 ms at 18 / 164), plus the first slice on the
+  streaming path; the whole path uses its render time. **Measured cold on
+  the 6a** ("Good morning." + a 150-token sentence): streaming (v26 Kokoro,
+  v28 German) never stalled there at 1× even before; the cut matters on the
+  whole path (German v25, any Kokoro still on a pre-v26 bundle), where
+  rendering the second sentence whole stalled 1.2–2.6 s. A sentence with
+  no clause mark after its head still renders its rest whole there. A
+  `StreamPerf` `kokoro cut` line logs each cut. The gate's speed stage
+  renders takes back to back, so the horizon carries the last take's
+  audio into the next (#51). Pre-roll above 1× banks SLICES, not chunks
   (`PrerollGate.streamBankMs`): played audio enough to cover the request's
   estimated deficit, from the last measured streamed RTF (0.85 before any),
   with the hold's render time capped at 2 s. Holding whole chunks made a

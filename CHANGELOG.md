@@ -117,6 +117,15 @@ This project follows [Semantic Versioning](https://semver.org/).
   Voices and settings that used Marius now use Alba.
 
 ### Fixed
+- **Kokoro German no longer pauses after a short first sentence**: when a
+  short sentence ("Guten Morgen.") came before a long one, Kokoro German
+  rendered the whole long sentence before playing any of it, a pause of
+  about 1.2 s on a Pixel 6a (up to 2 s at faster speeds). It now starts a
+  long sentence with its first phrase, cut at a comma, whenever the audio
+  still playing won't cover the wait. On that phone the pause is gone up
+  to 1.5× speed. Kokoro voices still on a download from before v26 get the
+  same fix (about 1.9 s down to about 0.4 s at normal speed); the current
+  Kokoro download didn't pause there.
 - **Voices stay available while an engine update waits**: when a newer
   download of an installed engine was published, its voices disappeared
   from the voice picker, the alias editor and first-run setup until the
