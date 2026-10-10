@@ -264,14 +264,15 @@ open class PocketEngine @Inject constructor(
         for (name in requiredOnnx) {
             if (!File(engineDir, name).isFile) return false
         }
-        if (!voicesDir.isDirectory) return false
-        for (voice in PocketVoiceCatalog.voices) {
-            // WAV filenames are the lowercase voice key from the id, not the
-            // capitalized displayName.
-            val key = voice.id.substringAfterLast(':')
-            if (!File(voicesDir, "$key.wav").isFile) return false
-        }
-        return true
+        // Only the default voice's WAV is required (the key is the lowercase
+        // part of the id, not the displayName). Asking for every catalog voice
+        // made a v21 install, which lacks v27's five new WAVs, report "not
+        // installed" and break every Pocket alias until the update (#38). A
+        // voice whose WAV is missing fails its own request instead
+        // ([embeddingForVoice]); the installer's layout check still asks for
+        // every offered voice of a current install.
+        val defaultKey = PocketVoiceCatalog.DEFAULT_VOICE_ID.substringAfterLast(':')
+        return File(voicesDir, "$defaultKey.wav").isFile
     }
 
     /**
