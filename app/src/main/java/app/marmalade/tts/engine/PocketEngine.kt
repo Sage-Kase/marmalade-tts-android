@@ -1714,8 +1714,8 @@ open class PocketEngine @Inject constructor(
         val current = FloatArray(latentDim) {
             var x = random.nextGaussian().toFloat() * noiseStd
             // Rejection sample (trunc_normal_ semantics). Rate ~3e-4 at
-            // std=0.837 (temperature 0.7), ~3e-3 at the slider's 1.0,
-            // clamp=3 — the inner loop almost never re-runs.
+            // std=0.837 (temperature 0.7, the slider's top), ~4e-8 at the
+            // default 0.3, clamp=3 — the inner loop almost never re-runs.
             while (x > clamp || x < -clamp) {
                 x = random.nextGaussian().toFloat() * noiseStd
             }

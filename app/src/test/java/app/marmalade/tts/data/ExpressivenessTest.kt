@@ -40,10 +40,10 @@ class ExpressivenessTest {
     }
 
     @Test
-    fun `the slider runs from 0_2 up to the default, 0_7`() {
-        // Max, 2026-10-10: 0.7 is the Lively end and the default.
+    fun `the slider runs 0_2 to 0_7 and starts at Kyutai's 0_3`() {
+        // Max, 2026-10-10: 0.7 is the Lively end; the default is 0.3.
         assertEquals(0.2f, Expressiveness.MIN, 0f)
         assertEquals(0.7f, Expressiveness.MAX, 0f)
-        assertEquals(Expressiveness.MAX, Expressiveness.POCKET_DEFAULT, 0f)
+        assertEquals(0.3f, Expressiveness.POCKET_DEFAULT, 0f)
     }
 }

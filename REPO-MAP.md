@@ -815,7 +815,8 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   `fallbackAliasId` holds another alias's **id** (not a FK; the editor
   writes ids since v1.1.0). `expressiveness` (v12, #36) is Pocket's
   sampling temperature (`data/Expressiveness.kt`: 0.2–0.7, null = the
-  engine default `POCKET_DEFAULT` = 0.7, the Lively end by Max's call). It rides
+  engine default `POCKET_DEFAULT` = 0.3, Kyutai's recommendation, by
+  Max's call; 1.1.0 always sampled at 0.7). It rides
   to the engine as `TtsEngine.synthesize/synthesizeStream(…,
   expressiveness)` on every path an alias reaches: the Narrator
   (`ResolvedVoice.expressiveness` → `SegmentRenderer`), the Speak screen
