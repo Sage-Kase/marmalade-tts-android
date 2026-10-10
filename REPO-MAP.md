@@ -754,7 +754,10 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   `service/NarratorPorts.kt` (`ServiceHost` = "service is foreground now",
   `AudioFocusPort` = one `AudioFocusRequest` per hold, `NarratorStats` = TTFA
   into `VoiceLatencyTracker` + RTF into settings, `NarratorWakeLock`/`WakeLockArm`
-  = held while buffering/playing, re-armed per heard chunk), `EngineResidency`
+  = held while buffering/playing, re-armed per heard chunk), `TopAppHold` (#52:
+  while buffering/playing, plus a 5 s grace, holds a `TextToSpeech` session to
+  the app's own engine so the process runs in `top-app`, see Known quirks),
+  `EngineResidency`
   (the `ResidencyPort`), `KeepaliveCoordinator` (session start) and
   `service/AudioTrackOutput.kt` — the writer (step C2): ONE thread,
   `narrator-writer`, is the only caller of the in-app AudioTracks (at most two:
@@ -1248,6 +1251,26 @@ patterns. Don't read SherpaTTS source files into a context that will
 write Marmalade code.
 
 ## Known quirks / recent gotchas
+
+- **In-app speech holds a TTS session to its own app (#52, `service/TopAppHold.kt`).**
+  A screen-off foreground service sits in the `foreground` cpuset (6a: CPUs
+  0–5, no X1), where Kokoro rendered at RTF ~0.95 and stalled at 1.0×. Android's
+  TTS manager (system_server) binds an engine for every `TextToSpeech` client
+  with `BIND_SCHEDULE_LIKE_TOP_APP`, and that puts the engine's whole process in
+  `top-app`. So while the Narrator is buffering or playing, `TopAppHold`
+  holds a silent `TextToSpeech(context, …, packageName)` session; the app's
+  threads then run on the X1s screen on or off (check: `adb shell cat
+  /proc/<pid>/cpuset`; `dumpsys activity services <pkg>/…MarmaladeTtsService`
+  shows client `system`, flags `0x80001` "SLTA"). Apps have no public API
+  for the cpuset itself (`BIND_SCHEDULE_LIKE_TOP_APP` is a system API).
+  Android 12+ only (the TTS manager service; before it, `TextToSpeech` bound
+  from the client's own process, so the hold is skipped there). The
+  session's bind creates `MarmaladeTtsService`, whose framework `onCreate`
+  loads the default language: `onLoadLanguage` would warm the system-TTS
+  voice's model next to the reader's, so a service created while
+  `TopAppHold.connecting` skips the model warm-up (the rules cache still
+  seeds). Debug builds' A/B switch: `topAppHold=off` in
+  `files/dev/engine-knobs.properties`.
 
 - **No Quick Settings tile (removed 2026-09-27, before 1.1.0 shipped)**:
   the "Speak clipboard" tile was pulled rather than debugged. If it comes
