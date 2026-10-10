@@ -325,6 +325,15 @@ When investigating **{concern}**, start at **{files}**:
   is the one-line switch that would retire `azelma`/`eponine`/`fantine` the
   same way. The installer's Pocket layout check requires a WAV per offered
   voice only (per engine: the clean twin checks its own list).
+- **Pocket voices missing from an older download** (#44): a v21 install
+  has five of v27's ten voices and stays usable (Outdated) until updated.
+  `engine/pocket/PocketVoiceFiles.kt` decides per voice (`voices/<k>.wav`
+  or `voice_cache/<k>.emb`); `PocketEngine.voiceToRender` speaks a request
+  for a missing voice with `alba`, logging once per voice, and system TTS
+  (`MarmaladeTtsService.advertisableVoices`, shared with CHECK_TTS_DATA)
+  lists only `PocketEngine.installedVoiceKeys()`. The in-app picker needs
+  no per-voice check today: `probeInstalledVoiceAssets` drops an Outdated
+  engine's voices altogether.
 - **Pocket voice sources** (#30 research, #38 shipped): v27 adds mary,
   rita, stephen, ramone (CC0 Kyutai Unmute donors `3973`,
   `spanish-limaperu`, `thepolishdane`, `floyd2026`; the published

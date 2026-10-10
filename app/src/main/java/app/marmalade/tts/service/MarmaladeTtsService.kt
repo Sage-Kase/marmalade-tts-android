@@ -20,11 +20,13 @@ import app.marmalade.tts.data.db.VoiceMetaDao
 import app.marmalade.tts.data.KittenDirectVoiceCatalog
 import app.marmalade.tts.data.KokoroDirectVoiceCatalog
 import app.marmalade.tts.data.CloudApiVoiceCatalog
+import app.marmalade.tts.data.PocketVoiceCatalog
 import app.marmalade.tts.data.VitsVoiceCatalog
 import app.marmalade.tts.data.isVoiceReleased
 import app.marmalade.tts.engine.vits.VitsDirectEngine
 import app.marmalade.tts.audio.StreamingEffectChain
 import app.marmalade.tts.engine.EngineRegistry
+import app.marmalade.tts.engine.PocketEngine
 import app.marmalade.tts.engine.SynthAudio
 import app.marmalade.tts.engine.TtsEngine
 import app.marmalade.tts.lang.LangDetector
@@ -1041,8 +1043,12 @@ class MarmaladeTtsService : TextToSpeechService() {
         val all = voiceSnapshot.ifEmpty {
             runBlocking { voiceDao.getAll().first() }.also { voiceSnapshot = it }
         }
-        return advertisableVoices(all, ::isEngineInstalled) { vits.installedPackIds() }
+        return advertisableVoices(all, ::isEngineInstalled, ::installedPocketVoices) { vits.installedPackIds() }
     }
+
+    /** Pocket's built-in voices on disk; see [advertisableVoices]. */
+    private fun installedPocketVoices(): Set<String> =
+        (engines.find(PocketVoiceCatalog.ENGINE) as? PocketEngine)?.installedVoiceKeys().orEmpty()
 
     /**
      * On-disk install state of the engine named [engineName]. VITS is
@@ -1251,23 +1257,37 @@ class MarmaladeTtsService : TextToSpeechService() {
          * user-facing with no developer toggle. [installedVitsPacks] is a
          * directory scan, so it runs at most once and only if a VITS row is
          * present.
+         *
+         * Pocket's built-in voices are per file as well (#44): an install
+         * still on an older download has fewer of them, and a request for a
+         * missing one speaks with the default voice, so each needs its key in
+         * [installedPocketVoices]. Cloned Pocket voices aren't catalog voices
+         * and follow the engine.
          */
         internal fun advertisableVoices(
             voices: List<VoiceMeta>,
             isEngineInstalled: (String) -> Boolean,
+            installedPocketVoices: () -> Collection<String>,
             installedVitsPacks: () -> Collection<String>,
         ): List<VoiceMeta> {
             val vitsPacks by lazy { installedVitsPacks().toSet() }
+            val pocketVoices by lazy { installedPocketVoices().toSet() }
             val engineInstalled = HashMap<String, Boolean>()
             return voices.filter { meta ->
                 if (meta.engine == VitsVoiceCatalog.ENGINE) {
                     val packId = VitsVoiceCatalog.packIdOf(meta.id) ?: return@filter false
                     isVoiceReleased(meta) && packId in vitsPacks
                 } else {
-                    engineInstalled.getOrPut(meta.engine) { isEngineInstalled(meta.engine) }
+                    engineInstalled.getOrPut(meta.engine) { isEngineInstalled(meta.engine) } &&
+                        (meta.engine != PocketVoiceCatalog.ENGINE ||
+                            meta.id !in POCKET_CATALOG_IDS ||
+                            meta.id.substringAfter(':') in pocketVoices)
                 }
             }
         }
+
+        /** Pocket's built-in voice ids, the rows [advertisableVoices] checks per file. */
+        private val POCKET_CATALOG_IDS: Set<String> = PocketVoiceCatalog.voices.mapTo(HashSet()) { it.id }
 
         /** What [onGetLanguage] reports until a language is loaded. */
         private val DEFAULT_LANGUAGE = arrayOf("eng", "USA", "")

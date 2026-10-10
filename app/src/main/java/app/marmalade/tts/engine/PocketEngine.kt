@@ -32,6 +32,8 @@ import app.marmalade.tts.engine.pocket.PocketStreamPlan
 import app.marmalade.tts.engine.pocket.PocketStateCarry
 import app.marmalade.tts.engine.pocket.StateFrame
 import app.marmalade.tts.engine.pocket.PocketTimes
+import app.marmalade.tts.engine.pocket.PocketVoiceFallback
+import app.marmalade.tts.engine.pocket.PocketVoiceFiles
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.nio.ByteBuffer
@@ -123,6 +125,14 @@ open class PocketEngine @Inject constructor(
     private val voicesDir: File get() = File(engineDir, "voices")
     private val voiceCacheDir: File get() = File(engineDir, "voice_cache")
     private val clonedVoicesDir: File get() = File(engineDir, "cloned_voices")
+
+    /**
+     * A request for a voice the installed download lacks (v21 has five of
+     * v27's ten) speaks with the default voice instead of failing (#44).
+     */
+    private val voiceFallback = PocketVoiceFallback(isPresent = { PocketVoiceFiles.has(engineDir, it) }) { requested, used ->
+        Log.w(TAG, "voice '$requested' is not in the installed Pocket download; speaking with '$used' (updating Pocket adds it)")
+    }
 
     private val loadLock = Mutex()
     private val synthLock = Mutex()
@@ -268,12 +278,23 @@ open class PocketEngine @Inject constructor(
         // part of the id, not the displayName). Asking for every catalog voice
         // made a v21 install, which lacks v27's five new WAVs, report "not
         // installed" and break every Pocket alias until the update (#38). A
-        // voice whose WAV is missing fails its own request instead
-        // ([embeddingForVoice]); the installer's layout check still asks for
-        // every offered voice of a current install.
+        // request for a voice whose files are missing speaks with this
+        // default voice ([voiceToRender], #44); the installer's layout check
+        // still asks for every offered voice of a current install.
         val defaultKey = PocketVoiceCatalog.DEFAULT_VOICE_ID.substringAfterLast(':')
         return File(voicesDir, "$defaultKey.wav").isFile
     }
+
+    /**
+     * The offered voices this install can speak, by key ([PocketVoiceFiles]).
+     * System TTS lists only these, so no client is offered a voice that
+     * would come out as the default one.
+     */
+    fun installedVoiceKeys(): Set<String> = PocketVoiceFiles.presentKeys(engineDir)
+
+    /** The voice key [voiceId] renders with: itself, or the default voice when its files are absent. */
+    internal fun voiceToRender(voiceId: String): String =
+        voiceFallback.keyFor(voiceId.substringAfter(':', voiceId))
 
     /**
      * [env] is `doLoad`'s publish-last marker — the same field
@@ -632,7 +653,7 @@ open class PocketEngine @Inject constructor(
         // `speed` is deliberately unused: the AR graphs have no speed input.
         // The services time-stretch instead — see [supportsNativeSpeed].
 
-        val voiceName = voiceId.substringAfter(':', voiceId)
+        val voiceName = voiceToRender(voiceId)
 
         // Chunking parity with KokoroDirect: sentence-only splits, never
         // mid-word, pack tiny adjacent sentences via `minChars` so a 5-char
