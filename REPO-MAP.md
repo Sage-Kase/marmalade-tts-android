@@ -1123,6 +1123,16 @@ write Marmalade code.
   `showsUnreleased(...)`: Play hides staged packs even with developer mode
   on, and a `flow.first { … }` waiting for one hangs into an
   `UncompletedCoroutinesError` after a minute instead of failing fast.
+- **Voice credit lines** (#37): both pickers (`VoicePickerScreen`'s and
+  `VoicePickerSheet`'s `VoiceRow`) show `VoiceCreditLine` under a voice,
+  from `data/VoiceCredit.kt` (`VoiceCredits.forVoice`). The data sits next
+  to each catalog: `PocketVoiceCatalog.creditFor(key)` (dev twin shares
+  it), `VoicePack.credit` per pack, `KokoroGermanVoiceCatalog.CREDIT`.
+  Kokoro/Kitten stock voices, cloud voices and Pocket clones have none on
+  purpose (no documented source to credit). Keep it in step with
+  CREDITS.md / LICENSES/ when a voice or pack is added: `VoiceCreditsTest`
+  fails for an offered voice or pack without one. Only "Voice donor" and
+  "model by" are translated; names and licence names are shown as written.
 - **`kokoro-int8-multi-lang-v1_0` is an unblessed power-user export**
   — added to sherpa-onnx releases by PR #2137 but never included in
   the team's own APK build script (`scripts/apk/generate-tts-apk-script.py`).

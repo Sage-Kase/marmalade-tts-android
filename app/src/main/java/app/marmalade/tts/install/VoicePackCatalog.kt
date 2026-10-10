@@ -1,6 +1,7 @@
 package app.marmalade.tts.install
 
 import app.marmalade.tts.BuildConfig
+import app.marmalade.tts.data.VoiceCredit
 
 // -----------------------------------------------------------------------------
 // Data flow
@@ -118,6 +119,12 @@ data class VoicePack(
     val licenseNotice: String,
     val released: Boolean = false,
     val speakers: List<PackSpeaker> = emptyList(),
+    /**
+     * The picker's credit line for every voice in the pack (#37): the
+     * corpus and the licence of its recordings. Every shipped pack sets one
+     * (`VoiceCreditsTest`); the CC BY packs must name their source.
+     */
+    val credit: VoiceCredit? = null,
 ) {
     init {
         require(id.isNotBlank()) { "voice pack id must not be blank" }
@@ -308,6 +315,7 @@ object VoicePackCatalog {
         archive = packArchive(packId, sha256, sizeBytes),
         installedSizeBytes = installedSizeBytes,
         licenseNotice = VITS_MARMALADE_LICENSE_NOTICE,
+        credit = VoiceCredit(source = "Talrómur (Reykjavík University, RÚV)", license = "CC BY 4.0"),
     )
 
     /**
@@ -367,6 +375,7 @@ object VoicePackCatalog {
         ),
         installedSizeBytes = 20_634_512L,
         licenseNotice = VITS_MARMALADE_LICENSE_NOTICE,
+        credit = VoiceCredit(source = "Yehor Smoliakov", license = "Apache 2.0"),
     )
 
     /**
@@ -440,6 +449,7 @@ object VoicePackCatalog {
         ),
         installedSizeBytes = 63_110_311L,
         licenseNotice = VITS_MARMALADE_LICENSE_NOTICE,
+        credit = VoiceCredit(source = "NST (Nasjonalbiblioteket)", license = "CC0"),
     )
 
     /**
@@ -475,6 +485,7 @@ object VoicePackCatalog {
         ),
         installedSizeBytes = 127_870_459L,
         licenseNotice = VITS_MARMALADE_LICENSE_NOTICE,
+        credit = VoiceCredit(source = "KazakhTTS (ISSAI, Nazarbayev University)", license = "CC BY 4.0"),
         speakers = listOf(
             // ISSAI_KazakhTTS2_M2
             PackSpeaker(sid = 0, displayName = "Kazakh voice 2 (male)", gender = "male"),
@@ -528,6 +539,7 @@ object VoicePackCatalog {
         ),
         installedSizeBytes = 76_777_139L,
         licenseNotice = VITS_MARMALADE_LICENSE_NOTICE,
+        credit = VoiceCredit(source = "NVCC (Nasjonalbiblioteket)", license = "CC0"),
         speakers = listOf(
             norwegianSpeaker(sid = 0, code = "KNN"),
             norwegianSpeaker(sid = 1, code = "KSV"),
@@ -575,6 +587,7 @@ object VoicePackCatalog {
         ),
         installedSizeBytes = 76_739_354L,
         licenseNotice = VITS_MARMALADE_LICENSE_NOTICE,
+        credit = VoiceCredit(source = "Yehor Smoliakov", license = "Apache 2.0"),
         // speaker_id_map: {"lada": 0, "mykyta": 1, "tetiana": 2}. Genders are
         // null: the corpus documents the speakers' names but not their gender,
         // and guessing from a given name is exactly what this field doesn't do
@@ -622,6 +635,7 @@ object VoicePackCatalog {
         ),
         installedSizeBytes = 63_542_750L,
         licenseNotice = VITS_MARMALADE_LICENSE_NOTICE,
+        credit = VoiceCredit(source = "Dioco", modelBy = "Bryce Beattie"),
         // The one pack exposed to ordinary users for v1.1 (Max, 2026-09-22):
         // clean end-to-end provenance and reviewed. The other nine stay
         // developer-only until Max signs them off — see [VoicePack.released].

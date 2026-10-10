@@ -22,6 +22,8 @@
 
     <!-- Rows -->
     <string name="voices_row_subtitle">%1$s · %2$s</string>
+    <string name="voice_credit_donor">आवाज़ दाता</string>
+    <string name="voice_credit_model_by">मॉडल: %1$s</string>
     <string name="voices_gender_unknown">—</string>
     <string name="voices_gender_female">महिला</string>
     <string name="voices_gender_male">पुरुष</string>
