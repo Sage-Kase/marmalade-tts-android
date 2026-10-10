@@ -1,5 +1,6 @@
 package app.marmalade.tts.service
 
+import app.marmalade.tts.data.PocketVoiceCatalog
 import app.marmalade.tts.data.VitsVoiceCatalog
 import app.marmalade.tts.data.db.VoiceMeta
 import org.junit.Assert.assertEquals
@@ -32,6 +33,7 @@ class CheckVoiceDataClassifyTest {
                 voice("pocket:Lea", "pocket-tts-en-v2026_04", "en-US"),
             ),
             isEngineInstalled = { it == "kitten-direct-v0_8" },
+            installedPocketVoices = { emptyList() },
             installedVitsPacks = { emptyList() },
         )
         assertEquals(listOf("eng-USA"), available)
@@ -43,6 +45,7 @@ class CheckVoiceDataClassifyTest {
         val (available, unavailable) = CheckVoiceDataActivity.classifyVoices(
             listOf(voice("kitten:Bella", "kitten-direct-v0_8", "en-US")),
             isEngineInstalled = { false },
+            installedPocketVoices = { emptyList() },
             installedVitsPacks = { emptyList() },
         )
         assertEquals(emptyList<String>(), available)
@@ -60,6 +63,7 @@ class CheckVoiceDataClassifyTest {
                 voice("kitten:Bella", "kitten-direct-v0_8", "en-US"),
             ),
             isEngineInstalled = { it == "kitten-direct-v0_8" },
+            installedPocketVoices = { emptyList() },
             installedVitsPacks = { emptyList() },
         )
         assertEquals(listOf("eng-USA"), available)
@@ -71,6 +75,7 @@ class CheckVoiceDataClassifyTest {
         val (available, unavailable) = CheckVoiceDataActivity.classifyVoices(
             listOf(voice("kitten:Bella", "kitten-direct-v0_8", "xx-YY")),
             isEngineInstalled = { it == "kitten-direct-v0_8" },
+            installedPocketVoices = { emptyList() },
             installedVitsPacks = { emptyList() },
         )
         assertEquals(emptyList<String>(), available)
@@ -87,6 +92,7 @@ class CheckVoiceDataClassifyTest {
         val (available, unavailable) = CheckVoiceDataActivity.classifyVoices(
             listOf(voice("kitten:Bella", "kitten-direct-v0_8", "en-US"), jenny),
             isEngineInstalled = { false },
+            installedPocketVoices = { emptyList() },
             installedVitsPacks = { listOf("en-jenny_dioco-medium") },
         )
         assertEquals(listOf("eng-GBR"), available)
@@ -98,6 +104,7 @@ class CheckVoiceDataClassifyTest {
         val (available, _) = CheckVoiceDataActivity.classifyVoices(
             listOf(jenny),
             isEngineInstalled = { false },
+            installedPocketVoices = { emptyList() },
             // Some other pack is on disk — the engine is "installed", Jenny isn't.
             installedVitsPacks = { listOf("uk-lada-x_low") },
         )
@@ -112,9 +119,41 @@ class CheckVoiceDataClassifyTest {
         val (available, unavailable) = CheckVoiceDataActivity.classifyVoices(
             listOf(lada.copy(languageCode = "en-US")),
             isEngineInstalled = { false },
+            installedPocketVoices = { emptyList() },
             installedVitsPacks = { listOf("uk-lada-x_low") },
         )
         assertEquals(emptyList<String>(), available)
         assertEquals(listOf("eng-USA"), unavailable)
+    }
+
+    // -- Pocket: built-in voices judged per file (#44)
+
+    private val pocket = PocketVoiceCatalog.ENGINE
+
+    @Test
+    fun `only the Pocket voices on disk are advertised`() {
+        // A v21 download: five of today's ten built-in voices. Mary isn't
+        // there, so offering her would speak with Alba. A cloned voice
+        // follows the engine.
+        val v21 = listOf("alba", "azelma", "eponine", "fantine", "javert")
+        val cloned = voice("$pocket:cloned-1234", pocket, "en-US")
+        val advertised = MarmaladeTtsService.advertisableVoices(
+            PocketVoiceCatalog.voices + cloned,
+            isEngineInstalled = { it == pocket },
+            installedPocketVoices = { v21 },
+            installedVitsPacks = { emptyList() },
+        ).map { it.id.substringAfter(':') }
+        assertEquals(v21 + "cloned-1234", advertised)
+    }
+
+    @Test
+    fun `no Pocket voice is advertised while the engine isn't installed`() {
+        val advertised = MarmaladeTtsService.advertisableVoices(
+            PocketVoiceCatalog.voices,
+            isEngineInstalled = { false },
+            installedPocketVoices = { listOf("alba") },
+            installedVitsPacks = { emptyList() },
+        )
+        assertEquals(emptyList<VoiceMeta>(), advertised)
     }
 }

@@ -7,6 +7,7 @@ import app.marmalade.tts.data.SettingsRepository
 import app.marmalade.tts.ui.screen.NoOpPreferencesDataStore
 import java.io.File
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -19,6 +20,10 @@ import org.robolectric.RobolectricTestRunner
  * only. v27 adds five voices; when the check asked for every catalog voice, a
  * v21 install (which lacks their WAVs) reported "not installed" on the phone
  * and every Pocket alias broke until the user updated.
+ *
+ * Issue #44: on such an install a request for one of the missing voices
+ * speaks with the default voice instead of failing, and only the voices on
+ * disk are listed.
  */
 @RunWith(RobolectricTestRunner::class)
 class PocketEngineInstallCheckTest {
@@ -63,5 +68,27 @@ class PocketEngineInstallCheckTest {
     fun `without the default voice's WAV it does not`() {
         File(dir, "voices/alba.wav").delete()
         assertFalse(engine().isInstalled())
+    }
+
+    @Test
+    fun `the installed voices are the offered ones on disk`() {
+        // marius is on disk but no longer offered; v27's five are offered but absent.
+        assertEquals(setOf("alba", "azelma", "eponine", "fantine", "javert"), engine().installedVoiceKeys())
+    }
+
+    @Test
+    fun `a voice with only its prepared embedding counts as installed`() {
+        File(dir, "voice_cache").mkdirs()
+        File(dir, "voice_cache/mary.emb").writeText("x")
+        assertTrue("mary" in engine().installedVoiceKeys())
+    }
+
+    @Test
+    fun `a missing voice renders with the default voice, a present one with itself`() {
+        val engine = engine()
+        assertEquals("alba", engine.voiceToRender("${PocketVoiceCatalog.ENGINE}:mary"))
+        assertEquals("alba", engine.voiceToRender("jenny"))
+        assertEquals("javert", engine.voiceToRender("${PocketVoiceCatalog.ENGINE}:javert"))
+        assertEquals("cloned-1234", engine.voiceToRender("${PocketVoiceCatalog.ENGINE}:cloned-1234"))
     }
 }

@@ -55,6 +55,13 @@ object VitsPhonemeIds {
     private const val CLAUSE_MARKS = ",;:"
 
     /**
+     * En and em dash. espeak ends a clause at one followed by whitespace and
+     * reports it as a semicolon break, so Piper's training IPA carries "; "
+     * there; the packs' maps have no dash symbol at all (#43).
+     */
+    private const val DASHES = "\u2013\u2014"
+
+    /**
      * Terminator used for a clause the source didn't punctuate (typically the
      * tail of an unpunctuated chunk). A full stop is the safe default: it
      * gives the model the sentence-final prosody it was trained to end on.
@@ -88,19 +95,22 @@ object VitsPhonemeIds {
      * espeak is punctuation-free (espeak ignores it for phonemes anyway) and
      * the terminator reaches the model as its own phoneme id. Runs of marks
      * (`?!`, `...`) collapse to the first one. Whitespace-only clauses are
-     * dropped.
+     * dropped. A dash followed by whitespace (or the end) ends a clause as
+     * `;`, the way espeak reads it; an unspaced one ("10–20") stays in the
+     * text, as espeak doesn't break there either.
      */
     fun splitClauses(text: String): List<VitsClause> {
         val out = ArrayList<VitsClause>()
         val buf = StringBuilder()
-        for (ch in text) {
-            if (ch in SENTENCE_MARKS || ch in CLAUSE_MARKS) {
+        for ((i, ch) in text.withIndex()) {
+            val dashBreak = ch in DASHES && (i == text.lastIndex || text[i + 1].isWhitespace())
+            if (ch in SENTENCE_MARKS || ch in CLAUSE_MARKS || dashBreak) {
                 val body = buf.toString().trim()
                 buf.setLength(0)
                 // A mark with nothing in front of it (a run like "?!" or a
                 // leading comma) adds no clause of its own; the first mark
                 // already terminated the clause it belonged to.
-                if (body.isNotEmpty()) out.add(VitsClause(body, ch))
+                if (body.isNotEmpty()) out.add(VitsClause(body, if (dashBreak) ';' else ch))
             } else {
                 buf.append(ch)
             }

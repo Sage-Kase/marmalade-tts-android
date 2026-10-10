@@ -220,6 +220,33 @@ class VitsPhonemeIdsTest {
         assertEquals(emptyList<VitsClause>(), VitsPhonemeIds.splitClauses(""))
     }
 
+    @Test
+    fun aSpacedDashEndsAClauseAsASemicolon() {
+        // #43: espeak breaks a clause at a dash followed by whitespace and
+        // Piper trained that break as "; ". The packs have no dash symbol,
+        // so passing the glyph on lost the pause (counted as missing).
+        assertEquals(
+            listOf(VitsClause("Привіт", ';'), VitsClause("це тест", ';'), VitsClause("так", '.')),
+            VitsPhonemeIds.splitClauses("Привіт – це тест — так."),
+        )
+        // Unspaced, espeak reads straight through, so the clause stays whole.
+        assertEquals(
+            listOf(VitsClause("сторінки 10–20", '.')),
+            VitsPhonemeIds.splitClauses("сторінки 10–20."),
+        )
+    }
+
+    @Test
+    fun aDashClauseEncodesWithNoMissingPhoneme() {
+        val encoded = VitsPhonemeIds.encode(
+            VitsPhonemeIds.splitClauses("Привіт – так").map { VitsClause(clause1, it.terminator) },
+            idMap,
+        )
+        assertEquals(emptyMap<Int, Int>(), encoded.missing)
+        val semicolon = idMap.getValue(";").single()
+        assertTrue("the dash reads as the trained semicolon", semicolon in encoded.ids)
+    }
+
     // -- grapheme ("text" phoneme_type) packs ---------------------------------
 
     /**

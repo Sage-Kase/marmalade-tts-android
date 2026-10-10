@@ -69,7 +69,7 @@ class CheckVoiceDataActivity : ComponentActivity() {
         // per CHECK_TTS_DATA dispatch, not subscribing.
         val voices = runBlocking { voiceDao.getAll().first() }
         val (available, unavailable) =
-            classifyVoices(voices, ::isEngineInstalled) { vits.installedPackIds() }
+            classifyVoices(voices, ::isEngineInstalled, pocket::installedVoiceKeys) { vits.installedPackIds() }
 
         val data = Intent().apply {
             putStringArrayListExtra(
@@ -119,10 +119,11 @@ class CheckVoiceDataActivity : ComponentActivity() {
         internal fun classifyVoices(
             voices: List<VoiceMeta>,
             isEngineInstalled: (String) -> Boolean,
+            installedPocketVoices: () -> Collection<String>,
             installedVitsPacks: () -> Collection<String>,
         ): Pair<ArrayList<String>, ArrayList<String>> {
             val advertised = MarmaladeTtsService
-                .advertisableVoices(voices, isEngineInstalled, installedVitsPacks)
+                .advertisableVoices(voices, isEngineInstalled, installedPocketVoices, installedVitsPacks)
                 .mapTo(HashSet()) { it.id }
             val available = ArrayList<String>()
             val unavailable = ArrayList<String>()

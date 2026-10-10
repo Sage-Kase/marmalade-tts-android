@@ -325,6 +325,15 @@ When investigating **{concern}**, start at **{files}**:
   is the one-line switch that would retire `azelma`/`eponine`/`fantine` the
   same way. The installer's Pocket layout check requires a WAV per offered
   voice only (per engine: the clean twin checks its own list).
+- **Pocket voices missing from an older download** (#44): a v21 install
+  has five of v27's ten voices and stays usable (Outdated) until updated.
+  `engine/pocket/PocketVoiceFiles.kt` decides per voice (`voices/<k>.wav`
+  or `voice_cache/<k>.emb`); `PocketEngine.voiceToRender` speaks a request
+  for a missing voice with `alba`, logging once per voice, and system TTS
+  (`MarmaladeTtsService.advertisableVoices`, shared with CHECK_TTS_DATA)
+  lists only `PocketEngine.installedVoiceKeys()`. The in-app picker needs
+  no per-voice check today: `probeInstalledVoiceAssets` drops an Outdated
+  engine's voices altogether.
 - **Pocket voice sources** (#30 research, #38 shipped): v27 adds mary,
   rita, stephen, ramone (CC0 Kyutai Unmute donors `3973`,
   `spanish-limaperu`, `thepolishdane`, `floyd2026`; the published
@@ -867,6 +876,13 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   standalone á/é/ó/ú → a/e/o/u, else espeak says "a acentuada", #26) and
   `EnPhonemeFixups` (English voices, after espeak: IPA repairs like
   "yeah", per acoustic model).
+- Dashes (#43): espeak ends a clause at a spaced en or em dash, and the JNI
+  shim re-injects the glyph into the IPA. The shared Kokoro/Kitten vocab
+  (`engine/kitten/IpaTokenVocab.kt`) has only the em dash (9), so the en
+  dash is aliased to it; VITS packs have neither, so
+  `VitsPhonemeIds.splitClauses` turns a spaced dash into a `;` clause (what
+  Piper trained on). Known leftover token 0: espeak-de 1.52 phonemizes the
+  single word "aneinander" with a literal `1`.
 
 ### Persistence
 - `data/db/MarmaladeDb.kt` — RoomDatabase, schema v12 (history in its
