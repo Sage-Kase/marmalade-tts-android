@@ -1,29 +1,29 @@
 {
   "rows": {
-    "kitten-direct-v0_8:Bella@1": {
-      "first_sound_ms": 271,
-      "render_rtf": 0.3,
+    "kitten-direct-v0_8:Leo@1": {
+      "first_sound_ms": 161,
+      "render_rtf": 0.137,
       "longest_stall_ms": 0,
       "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
       "measured": "2026-10-10"
     },
-    "kitten-direct-v0_8:Bella@1.25": {
-      "first_sound_ms": 309,
-      "render_rtf": 0.383,
+    "kitten-direct-v0_8:Leo@1.25": {
+      "first_sound_ms": 157,
+      "render_rtf": 0.15,
       "longest_stall_ms": 0,
       "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
       "measured": "2026-10-10"
     },
-    "kitten-direct-v0_8:Bella@1.5": {
-      "first_sound_ms": 287,
-      "render_rtf": 0.448,
+    "kitten-direct-v0_8:Leo@1.5": {
+      "first_sound_ms": 141,
+      "render_rtf": 0.176,
       "longest_stall_ms": 0,
       "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
       "measured": "2026-10-10"
     },
-    "kitten-direct-v0_8:Bella@2": {
-      "first_sound_ms": 296,
-      "render_rtf": 0.604,
+    "kitten-direct-v0_8:Leo@2": {
+      "first_sound_ms": 145,
+      "render_rtf": 0.268,
       "longest_stall_ms": 0,
       "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
       "measured": "2026-10-10"
