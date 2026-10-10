@@ -14,16 +14,19 @@ package app.marmalade.tts.data
  */
 object Expressiveness {
 
-    /** Slider range and step: 0.2–1.0 in 0.1 detents. */
+    /**
+     * Slider range and step: 0.2–0.7 in 0.1 detents. The Lively end is the
+     * default (Max, 2026-10-10: "Have 0.7 be on the high end"): above it,
+     * #36's samples began to slur words.
+     */
     const val MIN: Float = 0.2f
-    const val MAX: Float = 1.0f
+    const val MAX: Float = 0.7f
     const val STEP: Float = 0.1f
 
     /**
-     * Pocket's temperature when the alias doesn't set one. Upstream
-     * pocket-tts's `DEFAULT_TEMPERATURE` (0.7); Kyutai now recommends 0.3.
-     * The single place to change it once Max decides (approvals card
-     * "pocket-temp-2").
+     * Pocket's temperature when the alias doesn't set one: upstream
+     * pocket-tts's `DEFAULT_TEMPERATURE` (0.7), kept by Max on 2026-10-10
+     * over Kyutai's newer 0.3 recommendation.
      */
     const val POCKET_DEFAULT: Float = 0.7f
 

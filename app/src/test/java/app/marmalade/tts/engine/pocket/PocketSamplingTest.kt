@@ -16,7 +16,7 @@ class PocketSamplingTest {
     @Test
     fun `the alias's value is the temperature`() {
         assertEquals(sqrt(0.3f), pocketNoiseStd(0.3f), 1e-6f)
-        assertEquals(1f, pocketNoiseStd(1.0f), 1e-6f)
+        assertEquals(sqrt(0.6f), pocketNoiseStd(0.6f), 1e-6f)
     }
 
     @Test

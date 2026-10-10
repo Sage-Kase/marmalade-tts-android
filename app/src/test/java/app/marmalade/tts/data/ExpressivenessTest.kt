@@ -38,4 +38,12 @@ class ExpressivenessTest {
         assertEquals(Expressiveness.MIN, Expressiveness.pocketTemperature(0.0f), 0f)
         assertEquals(Expressiveness.MAX, Expressiveness.pocketTemperature(3.0f), 0f)
     }
+
+    @Test
+    fun `the slider runs from 0_2 up to the default, 0_7`() {
+        // Max, 2026-10-10: 0.7 is the Lively end and the default.
+        assertEquals(0.2f, Expressiveness.MIN, 0f)
+        assertEquals(0.7f, Expressiveness.MAX, 0f)
+        assertEquals(Expressiveness.MAX, Expressiveness.POCKET_DEFAULT, 0f)
+    }
 }

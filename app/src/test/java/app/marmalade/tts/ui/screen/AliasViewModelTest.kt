@@ -664,7 +664,7 @@ class AliasViewModelTest {
         vm.onEditorExpressivenessChange(0.05f)
         assertEquals(0.2f, vm.editorState.first().expressiveness)
         vm.onEditorExpressivenessChange(1.7f)
-        assertEquals(1.0f, vm.editorState.first().expressiveness)
+        assertEquals(0.7f, vm.editorState.first().expressiveness)
         vm.onEditorExpressivenessChange(0.34f)
         assertEquals(0.3f, vm.editorState.first().expressiveness)
         // What the Slider actually hands back near a detent.
@@ -683,10 +683,10 @@ class AliasViewModelTest {
         vm.onEditorNameChange("audiobook")
         vm.onEditorEngineChange(PocketVoiceCatalog.ENGINE)
         vm.onEditorVoiceChange(PocketVoiceCatalog.DEFAULT_VOICE_ID)
-        vm.onEditorExpressivenessChange(0.9f)
+        vm.onEditorExpressivenessChange(0.4f)
 
         assertTrue(vm.save())
-        assertEquals(0.9f, aliasDao.upsertedAliases.single().expressiveness)
+        assertEquals(0.4f, aliasDao.upsertedAliases.single().expressiveness)
     }
 
     @Test
