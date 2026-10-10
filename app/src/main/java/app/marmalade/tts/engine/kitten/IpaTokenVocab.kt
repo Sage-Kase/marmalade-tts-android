@@ -54,6 +54,11 @@ private val VOCAB: Map<Char, Int> = mapOf(
     '$' to 0, ';' to 1, ':' to 2, ',' to 3, '.' to 4,
     '!' to 5, '?' to 6,
     '—' to 9,   // em dash —
+    // en dash – (#43): espeak breaks a clause at a spaced "–" exactly as at
+    // "—", and the JNI shim puts the glyph back into the IPA. The vocab has
+    // no en dash, so without this alias it became PAD mid-sentence; it now
+    // reads as the trained em-dash pause.
+    '–' to 9,
     '…' to 10,  // horizontal ellipsis …
     '"' to 11,
     '(' to 12, ')' to 13,

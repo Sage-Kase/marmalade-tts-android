@@ -867,6 +867,13 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   standalone á/é/ó/ú → a/e/o/u, else espeak says "a acentuada", #26) and
   `EnPhonemeFixups` (English voices, after espeak: IPA repairs like
   "yeah", per acoustic model).
+- Dashes (#43): espeak ends a clause at a spaced en or em dash, and the JNI
+  shim re-injects the glyph into the IPA. The shared Kokoro/Kitten vocab
+  (`engine/kitten/IpaTokenVocab.kt`) has only the em dash (9), so the en
+  dash is aliased to it; VITS packs have neither, so
+  `VitsPhonemeIds.splitClauses` turns a spaced dash into a `;` clause (what
+  Piper trained on). Known leftover token 0: espeak-de 1.52 phonemizes the
+  single word "aneinander" with a literal `1`.
 
 ### Persistence
 - `data/db/MarmaladeDb.kt` — RoomDatabase, schema v12 (history in its

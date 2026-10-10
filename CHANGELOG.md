@@ -117,6 +117,11 @@ This project follows [Semantic Versioning](https://semver.org/).
   Voices and settings that used Marius now use Alba.
 
 ### Fixed
+- **A spaced en dash is read as a pause**: an en dash between words
+  ("Hallo – wie geht's?"), common in German typing, reached the Kokoro and
+  Kitten voices as an unknown symbol mid-sentence. They now pause there as
+  they do at an em dash, and VITS Marmalade voices pause at either dash
+  too.
 - **Speed warning forgets old measurements after an update**: the warning
   for fast speeds now ignores how fast a voice ran on the previous app
   version, or before its engine was updated, so an engine that got faster
