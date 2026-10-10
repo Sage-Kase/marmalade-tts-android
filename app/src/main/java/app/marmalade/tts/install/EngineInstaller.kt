@@ -8,6 +8,7 @@ import app.marmalade.tts.data.PocketVoiceCatalog
 import app.marmalade.tts.data.db.VoiceMeta
 import app.marmalade.tts.engine.BuildTypeEngines
 import app.marmalade.tts.engine.kokoro.KokoroDirectEngine
+import app.marmalade.tts.engine.pocket.PocketVoiceFiles
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.IOException
@@ -1150,6 +1151,15 @@ open class EngineInstaller @Inject constructor(
                 InstallState.NotInstalled
             }
         return verifyDescriptor(descriptor)
+    }
+
+    /**
+     * Pocket's offered built-in voices present on disk, by key
+     * ([PocketVoiceFiles.presentKeys]). An older download that still verifies
+     * (Outdated) carries fewer voices than the catalog offers (#45).
+     */
+    open suspend fun pocketVoiceKeys(): Set<String> = withContext(Dispatchers.IO) {
+        PocketVoiceFiles.presentKeys(engineDirFor(PocketVoiceCatalog.ENGINE))
     }
 
     /**

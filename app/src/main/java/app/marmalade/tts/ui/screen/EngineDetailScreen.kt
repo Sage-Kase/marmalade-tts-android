@@ -65,6 +65,7 @@ import app.marmalade.tts.install.VoicePackAction
 import app.marmalade.tts.install.VoicePackLanguageGroup
 import app.marmalade.tts.install.VoicePackRow
 import app.marmalade.tts.install.VoicePackSummary
+import app.marmalade.tts.install.isUsableOnDisk
 import app.marmalade.tts.preprocessing.PreprocessingRules
 import app.marmalade.tts.ui.components.PackQualityMeter
 import app.marmalade.tts.ui.components.languageDisplayName
@@ -189,7 +190,8 @@ fun EngineDetailScreen(
             // installed (or update-available) engine's Configure button, so a
             // "Installed · 61.2 MB download" panel just repeated the card the
             // user tapped to get here.
-            val isInstalled = installState is InstallState.Installed
+            // Usable, not up to date: an Outdated engine still speaks (#45).
+            val isInstalled = installState.isUsableOnDisk
 
             // Pack-based engines lead with their packs: on VITS Marmalade the
             // engine itself is just a runtime, and choosing which language to

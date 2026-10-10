@@ -117,6 +117,13 @@ This project follows [Semantic Versioning](https://semver.org/).
   Voices and settings that used Marius now use Alba.
 
 ### Fixed
+- **Voices stay available while an engine update waits**: when a newer
+  download of an installed engine was published, its voices disappeared
+  from the voice picker, the alias editor and first-run setup until the
+  user took the update, and the engine page's Voices button was greyed
+  out. The old download still works, so its voices now stay pickable
+  until you update. A Pocket still on its previous download lists only the
+  voices it has.
 - **A Pocket voice missing from an older download no longer fails**: an
   app asking for one of the new Pocket voices (Mary, Rita, Stephen, Ramone
   or Jenny) by name while Pocket is still on its previous download now

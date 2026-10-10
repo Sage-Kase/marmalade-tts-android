@@ -331,9 +331,10 @@ When investigating **{concern}**, start at **{files}**:
   or `voice_cache/<k>.emb`); `PocketEngine.voiceToRender` speaks a request
   for a missing voice with `alba`, logging once per voice, and system TTS
   (`MarmaladeTtsService.advertisableVoices`, shared with CHECK_TTS_DATA)
-  lists only `PocketEngine.installedVoiceKeys()`. The in-app picker needs
-  no per-voice check today: `probeInstalledVoiceAssets` drops an Outdated
-  engine's voices altogether.
+  lists only `PocketEngine.installedVoiceKeys()`. The in-app lists do the
+  same (#45): `probeInstalledVoiceAssets` fills
+  `InstalledVoiceAssets.pocketVoices` from `EngineInstaller.pocketVoiceKeys()`,
+  and both surfaces share `PocketVoiceFiles.isOffered` (a clone passes).
 - **Pocket voice sources** (#30 research, #38 shipped): v27 adds mary,
   rita, stephen, ramone (CC0 Kyutai Unmute donors `3973`,
   `spanish-limaperu`, `thepolishdane`, `floyd2026`; the published
@@ -1232,14 +1233,20 @@ write Marmalade code.
   state decides what's pickable. `data/VoiceAvailability.kt`:
   `probeInstalledVoiceAssets` (engine `verify` + per-pack `verifyPack`)
   → `pickableVoices(assets, showDeveloper)` — on disk (a VITS voice needs
-  its own pack) and, outside developer mode, not a developer-only engine
+  its own pack, a built-in Pocket voice its own files) and, outside developer mode, not a developer-only engine
   or unreleased pack. The Play flavor has no developer mode at all: its
   toggle is hidden, and `EngineCatalog.effectiveDeveloperMode` (applied by
   `SettingsRepository.showDeveloperEngines` and `pickableVoices`) turns a
   stored `true` — F-Droid data carried over — into false there. It also
   hides unreleased packs (`VoicePackCatalog.showsUnreleased`, also used by
   the Engines/EngineDetail pack lists). Shared by `VoicePickerViewModel`, the alias
-  editor and onboarding's alias step.
+  editor, onboarding's alias step and the reader/share voice choice
+  (`LanguageVoiceSelector`). "On disk" means `isUsableOnDisk` (Installed
+  or Outdated) for engines and packs alike (#45): an Outdated download
+  still speaks, and 1.2 re-publishes Kokoro, Pocket and Kokoro German, so
+  an `is Installed` test there empties the pickers for most users after an
+  app update. Keep `is InstallState.Installed` for install actions only
+  (onboarding's skip-download guard, the Engines card's buttons).
   Tests that need a pack listed must use the released pack (Jenny,
   `VoicePackCatalog.EN_JENNY_DIOCO_MEDIUM`) or expect
   `showsUnreleased(...)`: Play hides staged packs even with developer mode

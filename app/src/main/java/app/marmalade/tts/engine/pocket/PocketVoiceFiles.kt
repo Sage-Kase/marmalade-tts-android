@@ -28,6 +28,17 @@ internal object PocketVoiceFiles {
             .map { it.id.substringAfter(':') }
             .filterTo(LinkedHashSet()) { has(engineDir, it) }
 
+    /**
+     * Whether the Pocket voice row [voiceId] can be offered, given the keys
+     * [presentKeys] found on disk: a built-in voice needs its files, any
+     * other row (a clone lives elsewhere) passes. Shared by the in-app
+     * pickers and system TTS (#45) so they list the same voices.
+     */
+    fun isOffered(voiceId: String, presentKeys: Set<String>): Boolean =
+        voiceId !in CATALOG_IDS || voiceId.substringAfter(':') in presentKeys
+
+    private val CATALOG_IDS: Set<String> = PocketVoiceCatalog.voices.mapTo(HashSet()) { it.id }
+
     private fun nonEmpty(f: File): Boolean = f.isFile && f.length() > 0L
 }
 

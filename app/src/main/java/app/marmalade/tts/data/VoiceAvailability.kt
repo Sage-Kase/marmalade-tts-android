@@ -3,9 +3,9 @@ package app.marmalade.tts.data
 import app.marmalade.tts.BuildConfig
 import app.marmalade.tts.data.db.VoiceMeta
 import app.marmalade.tts.engine.BuildTypeEngines
+import app.marmalade.tts.engine.pocket.PocketVoiceFiles
 import app.marmalade.tts.install.EngineCatalog
 import app.marmalade.tts.install.EngineInstaller
-import app.marmalade.tts.install.InstallState
 import app.marmalade.tts.install.VoicePackCatalog
 import app.marmalade.tts.install.isUsableOnDisk
 
@@ -16,8 +16,9 @@ import app.marmalade.tts.install.isUsableOnDisk
 //     │     EngineInstaller.verify(engine)      for every catalog engine
 //     │     EngineInstaller.verifyPack(packId)  for every pack of a
 //     │                                         pack-based engine
+//     │     EngineInstaller.pocketVoiceKeys()   Pocket's voice files
 //     ▼
-//   InstalledVoiceAssets(engines, packs)
+//   InstalledVoiceAssets(engines, packs, pocketVoices)
 //     │
 //     └── pickableVoices(assets, showDeveloper)
 //            │   isVoiceAvailable (on disk) + the developer gate; used by
@@ -36,20 +37,30 @@ import app.marmalade.tts.install.isUsableOnDisk
 // picking an absent one failed at synth with EngineNotInstalledException. The
 // filter is therefore per-asset, and both picker surfaces share it so they
 // can't drift apart again.
+//
+// "On disk" means usable, not up to date: an Outdated engine or pack (the
+// catalog has published a newer download) still speaks, so its voices stay
+// pickable until the user takes the update (#45). An older Pocket download
+// carries fewer voices than the catalog offers, hence the per-voice set.
 // -----------------------------------------------------------------------------
 
 /**
  * What is actually on disk (plus configured, for the keys-only cloud engine).
  *
- * @property engines Engine names whose layout passes [EngineInstaller.verify],
- *                   plus the cloud engine when a provider key is configured.
- * @property packs   Voice-pack ids that pass [EngineInstaller.verifyPack].
+ * @property engines Engine names usable on disk ([EngineInstaller.verify] is
+ *                   Installed or Outdated), plus the cloud engine when a
+ *                   provider key is configured.
+ * @property packs   Voice-pack ids usable on disk ([EngineInstaller.verifyPack]).
  *                   Only pack-based engines contribute; for every other engine
- *                   the engine-level check is the whole story.
+ *                   but Pocket the engine-level check is the whole story.
+ * @property pocketVoices Pocket's built-in voices on disk, by key
+ *                   ([EngineInstaller.pocketVoiceKeys]). The default, every
+ *                   offered voice, describes a complete download.
  */
 data class InstalledVoiceAssets(
     val engines: Set<String> = emptySet(),
     val packs: Set<String> = emptySet(),
+    val pocketVoices: Set<String> = PocketVoiceCatalog.voices.mapTo(HashSet()) { it.id.substringAfter(':') },
 )
 
 /**
@@ -62,9 +73,13 @@ data class InstalledVoiceAssets(
  * An unparseable VITS voice id (no pack segment) is treated as unavailable —
  * it is a row no engine can route, so offering it would only produce a
  * synthesis failure.
+ *
+ * A built-in Pocket voice needs its own files: an Outdated download lacks the
+ * voices added since, and the engine would speak them as Alba.
  */
 fun isVoiceAvailable(voice: VoiceMeta, assets: InstalledVoiceAssets): Boolean {
     if (voice.engine !in assets.engines) return false
+    if (voice.engine == PocketVoiceCatalog.ENGINE) return PocketVoiceFiles.isOffered(voice.id, assets.pocketVoices)
     if (!isPackBasedEngine(voice.engine)) return true
     val packId = VitsVoiceCatalog.packIdOf(voice.id) ?: return false
     return packId in assets.packs
@@ -146,20 +161,22 @@ suspend fun probeInstalledVoiceAssets(
 ): InstalledVoiceAssets {
     val engines = mutableSetOf<String>()
     val packs = mutableSetOf<String>()
+    // isUsableOnDisk, not `is Installed`, throughout: an engine or pack whose
+    // download was re-published (Outdated) still speaks, and its voices stay
+    // pickable until the user takes the update (#45).
     for (engine in EngineCatalog.all) {
-        if (installer.verify(engine.name) !is InstallState.Installed) continue
+        if (!installer.verify(engine.name).isUsableOnDisk) continue
         engines += engine.name
         if (!engine.isPackBased) continue
         for (pack in VoicePackCatalog.forEngine(engine.name)) {
-            // isUsableOnDisk, not `is Installed`: a pack whose archive was
-            // re-published still speaks, and its voices should stay pickable
-            // until the user takes the update.
             if (installer.verifyPack(pack.id).isUsableOnDisk) packs += pack.id
         }
     }
     for (name in BuildTypeEngines.names) {
-        if (installer.verify(name) is InstallState.Installed) engines += name
+        if (installer.verify(name).isUsableOnDisk) engines += name
     }
     if (anyCloudKeySet) engines += CloudApiVoiceCatalog.ENGINE
-    return InstalledVoiceAssets(engines = engines, packs = packs)
+    val pocketVoices =
+        if (PocketVoiceCatalog.ENGINE in engines) installer.pocketVoiceKeys() else emptySet()
+    return InstalledVoiceAssets(engines = engines, packs = packs, pocketVoices = pocketVoices)
 }
