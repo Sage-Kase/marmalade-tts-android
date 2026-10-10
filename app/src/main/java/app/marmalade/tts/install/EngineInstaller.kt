@@ -1156,6 +1156,30 @@ open class EngineInstaller @Inject constructor(
     }
 
     /**
+     * Every catalog engine and voice pack on disk, with the download its
+     * `.install_meta.json` records ([InstalledBundle]). Read-only: a missing
+     * meta reads as unknown rather than being stamped as current.
+     */
+    open suspend fun installedBundles(): List<InstalledBundle> = withContext(Dispatchers.IO) {
+        val targets =
+            EngineCatalog.all.filter { !it.isPackBased }
+                .map { Triple(it.name, engineDirFor(it.name), it.archive) } +
+                VoicePackCatalog.all.map { Triple("${it.engine}:${it.id}", packDirFor(it), it.archive) }
+        targets.filter { (_, dir, _) -> dir.isDirectory }
+            .map { (name, dir, archive) ->
+                val meta = runCatching {
+                    org.json.JSONObject(File(dir, INSTALL_META_FILENAME).readText())
+                }.getOrNull()
+                InstalledBundle(
+                    name = name,
+                    installedUrl = meta?.optString("archive_url")?.takeIf { it.isNotEmpty() },
+                    installedSha256 = meta?.optString("archive_sha256")?.takeIf { it.isNotEmpty() },
+                    catalog = archive,
+                )
+            }
+    }
+
+    /**
      * Pocket's offered built-in voices present on disk, by key
      * ([PocketVoiceFiles.presentKeys]). An older download that still verifies
      * (Outdated) carries fewer voices than the catalog offers (#45).
