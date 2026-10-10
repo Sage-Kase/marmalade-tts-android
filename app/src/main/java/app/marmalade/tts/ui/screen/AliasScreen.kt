@@ -67,6 +67,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -81,6 +82,7 @@ import app.marmalade.tts.R
 import app.marmalade.tts.data.db.AppAliasMapping
 import app.marmalade.tts.data.db.Effect
 import app.marmalade.tts.data.db.VoiceAlias
+import app.marmalade.tts.data.Expressiveness
 import app.marmalade.tts.data.KittenDirectVoiceCatalog
 import app.marmalade.tts.data.KokoroDirectVoiceCatalog
 import app.marmalade.tts.data.PocketDevVoiceCatalog
@@ -269,6 +271,7 @@ fun AliasScreen(
             onOpenVoicePicker = viewModel::openVoicePicker,
             onFallbackChange = viewModel::onEditorFallbackChange,
             onSpeedChange = viewModel::onEditorSpeedChange,
+            onExpressivenessChange = viewModel::onEditorExpressivenessChange,
             onEffectChange = viewModel::onEditorEffectChange,
             onPhonemizationLanguageChange = viewModel::onEditorPhonemizationLanguageChange,
             onDelete = {
@@ -647,6 +650,7 @@ private fun AliasEditorSheet(
     onOpenVoicePicker: () -> Unit,
     onFallbackChange: (String?) -> Unit,
     onSpeedChange: (Float) -> Unit,
+    onExpressivenessChange: (Float?) -> Unit,
     onEffectChange: (String?) -> Unit,
     onPhonemizationLanguageChange: (String?) -> Unit,
     onDelete: () -> Unit,
@@ -756,6 +760,17 @@ private fun AliasEditorSheet(
                 }
             }
 
+            // Pocket samples its speech, so how lively it sounds is a choice
+            // (its sampling temperature). The other engines are deterministic
+            // and have nothing to set, so the block is hidden for them rather
+            // than shown disabled — same reasoning as the fallback picker.
+            if (Expressiveness.appliesTo(state.engine)) {
+                ExpressivenessSlider(
+                    value = state.expressiveness,
+                    onChange = onExpressivenessChange,
+                )
+            }
+
             EffectPicker(
                 effects = effects,
                 selectedId = state.effectId,
@@ -827,6 +842,79 @@ private fun AliasEditorSheet(
                 }
                 Spacer(Modifier.size(8.dp))
                 Button(onClick = onSave) { Text(stringResource(R.string.alias_save)) }
+            }
+        }
+    }
+}
+
+/**
+ * The alias editor's Expressiveness control (Pocket only).
+ *
+ * [value] null is "Default": the thumb rests on
+ * [Expressiveness.POCKET_DEFAULT] and the label says "Default" rather than a
+ * number, so changing the engine default later moves every untouched alias
+ * with it. Dragging stores a number; "Reset to default" (shown only once one
+ * is stored) hands back null.
+ */
+@Composable
+private fun ExpressivenessSlider(
+    value: Float?,
+    onChange: (Float?) -> Unit,
+) {
+    Column {
+        val valueText = if (value == null) {
+            stringResource(R.string.alias_expressiveness_default)
+        } else {
+            stringResource(R.string.alias_expressiveness_value, value)
+        }
+        val steady = stringResource(R.string.alias_expressiveness_steady)
+        val lively = stringResource(R.string.alias_expressiveness_lively)
+        val description = stringResource(
+            R.string.alias_expressiveness_content_description,
+            steady,
+            lively,
+        )
+        Text(
+            text = stringResource(R.string.alias_expressiveness_label, valueText),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Slider(
+            value = value ?: Expressiveness.POCKET_DEFAULT,
+            onValueChange = { onChange(it) },
+            valueRange = Expressiveness.MIN..Expressiveness.MAX,
+            // 0.2 to 1.0 in 0.1 detents is 9 positions; Slider's `steps`
+            // counts only the ones between the endpoints.
+            steps = 7,
+            modifier = Modifier.semantics {
+                contentDescription = description
+                stateDescription = valueText
+            },
+        )
+        // The slider's description already speaks both ends, so TalkBack
+        // skips these.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clearAndSetSemantics {},
+        ) {
+            Text(
+                text = steady,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                text = lively,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        // Below the slider, not beside its label: it appears on the first
+        // drag, and above the slider it would push the thumb out from under
+        // the finger.
+        if (value != null) {
+            TextButton(onClick = { onChange(null) }) {
+                Text(stringResource(R.string.alias_expressiveness_reset))
             }
         }
     }

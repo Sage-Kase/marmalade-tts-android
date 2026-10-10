@@ -42,6 +42,14 @@
     <string name="alias_speed">स्पीड</string>
     <string name="alias_speed_label">स्पीड: %1$s</string>
     <string name="alias_speed_perf_warning">तेज़ गति पर कुछ आवाज़ें इतनी तेज़ी से ऑडियो नहीं बना पातीं कि कुछ डिवाइस साथ चल सकें। ज़्यादा मान पर पहली ध्वनि आने में देरी और वाक्यों के बीच रुकावट की उम्मीद रखें।</string>
+    <!-- Expressiveness (Pocket only). Steady and Lively are the slider's two ends. -->
+    <string name="alias_expressiveness_label">अभिव्यक्ति: %1$s</string>
+    <string name="alias_expressiveness_value">%1$.1f</string>
+    <string name="alias_expressiveness_default">डिफ़ॉल्ट</string>
+    <string name="alias_expressiveness_steady">स्थिर</string>
+    <string name="alias_expressiveness_lively">जीवंत</string>
+    <string name="alias_expressiveness_content_description">अभिव्यक्ति, %1$s से %2$s तक</string>
+    <string name="alias_expressiveness_reset">डिफ़ॉल्ट पर लौटाएँ</string>
     <string name="alias_effect_label">इफ़ेक्ट</string>
     <string name="alias_pick_effect">इफ़ेक्ट चुनें</string>
     <string name="alias_make_primary">प्राथमिक बनाएँ</string>

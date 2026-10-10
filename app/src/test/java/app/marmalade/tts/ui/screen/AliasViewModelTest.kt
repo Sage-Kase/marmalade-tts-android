@@ -3,6 +3,8 @@ package app.marmalade.tts.ui.screen
 import app.marmalade.tts.data.BuiltinEffects
 import app.marmalade.tts.data.CloudApiVoiceCatalog
 import app.marmalade.tts.data.KittenDirectVoiceCatalog
+import app.marmalade.tts.data.KokoroDirectVoiceCatalog
+import app.marmalade.tts.data.PocketVoiceCatalog
 import app.marmalade.tts.data.VoiceLatencySource
 import app.marmalade.tts.data.VoicePathResolver
 import app.marmalade.tts.data.db.AppAliasMapping
@@ -634,6 +636,77 @@ class AliasViewModelTest {
         assertEquals("ja", vm.editorState.first().phonemizationLanguage)
     }
 
+    // -- Expressiveness (issue #36) ---------------------------------------------
+
+    @Test
+    fun `opening a Pocket alias loads its expressiveness`() = runTest {
+        // Same round-trip risk as the phonemization field: if the loader
+        // dropped it, any unrelated edit + Save would reset it to Default.
+        val existing = alias(
+            "lively",
+            engine = PocketVoiceCatalog.ENGINE,
+            voiceId = PocketVoiceCatalog.DEFAULT_VOICE_ID,
+            expressiveness = 0.3f,
+        )
+        val vm = newViewModel(aliases = listOf(existing))
+        vm.aliases.first { it.isNotEmpty() }
+
+        vm.openEditor(existing)
+        assertEquals(0.3f, vm.editorState.first().expressiveness)
+    }
+
+    @Test
+    fun `expressiveness change clamps, snaps to the 0_1 grid, and null resets`() = runTest {
+        val vm = newViewModel()
+        vm.openEditor()
+        assertNull("A new alias starts at Default", vm.editorState.first().expressiveness)
+
+        vm.onEditorExpressivenessChange(0.05f)
+        assertEquals(0.2f, vm.editorState.first().expressiveness)
+        vm.onEditorExpressivenessChange(1.7f)
+        assertEquals(1.0f, vm.editorState.first().expressiveness)
+        vm.onEditorExpressivenessChange(0.34f)
+        assertEquals(0.3f, vm.editorState.first().expressiveness)
+        // What the Slider actually hands back near a detent.
+        vm.onEditorExpressivenessChange(0.70000005f)
+        assertEquals(0.7f, vm.editorState.first().expressiveness)
+
+        vm.onEditorExpressivenessChange(null)
+        assertNull(vm.editorState.first().expressiveness)
+    }
+
+    @Test
+    fun `save persists expressiveness on a Pocket alias`() = runTest {
+        val aliasDao = FakeAliasDao()
+        val vm = newViewModel(aliasDao = aliasDao)
+        vm.openEditor()
+        vm.onEditorNameChange("audiobook")
+        vm.onEditorEngineChange(PocketVoiceCatalog.ENGINE)
+        vm.onEditorVoiceChange(PocketVoiceCatalog.DEFAULT_VOICE_ID)
+        vm.onEditorExpressivenessChange(0.9f)
+
+        assertTrue(vm.save())
+        assertEquals(0.9f, aliasDao.upsertedAliases.single().expressiveness)
+    }
+
+    @Test
+    fun `save drops expressiveness when the alias moved off Pocket`() = runTest {
+        // Kokoro is deterministic and never reads it; a value left over
+        // from the alias's Pocket days must not be persisted.
+        val aliasDao = FakeAliasDao()
+        val vm = newViewModel(aliasDao = aliasDao)
+        vm.openEditor()
+        vm.onEditorNameChange("narrator")
+        vm.onEditorEngineChange(PocketVoiceCatalog.ENGINE)
+        vm.onEditorVoiceChange(PocketVoiceCatalog.DEFAULT_VOICE_ID)
+        vm.onEditorExpressivenessChange(0.3f)
+        vm.onEditorEngineChange(KokoroDirectVoiceCatalog.ENGINE)
+        vm.onEditorVoiceChange(KokoroDirectVoiceCatalog.DEFAULT_VOICE_ID)
+
+        assertTrue(vm.save())
+        assertNull(aliasDao.upsertedAliases.single().expressiveness)
+    }
+
     @Test
     fun onEditorEngineChange_resetsVoiceWhenIncompatible() = runTest {
         // Set up: editor in create mode (defaults to engine = "kitten-direct-v0_8"),
@@ -983,6 +1056,7 @@ class AliasViewModelTest {
         effectPreset: String = "NONE",
         createdAt: Long = 0L,
         phonemizationLanguage: String? = null,
+        expressiveness: Float? = null,
     ): VoiceAlias = VoiceAlias(
         name = name,
         // Stable, derived id: the fixtures are keyed by name for
@@ -994,6 +1068,7 @@ class AliasViewModelTest {
         effectPreset = effectPreset,
         createdAt = createdAt,
         phonemizationLanguage = phonemizationLanguage,
+        expressiveness = expressiveness,
     )
 }
 

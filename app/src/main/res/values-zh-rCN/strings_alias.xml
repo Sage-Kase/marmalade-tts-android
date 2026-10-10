@@ -41,6 +41,14 @@
     <string name="alias_speed">语速</string>
     <string name="alias_speed_label">语速：%1$s</string>
     <string name="alias_speed_perf_warning">速度较快时，部分语音的合成速度不够快，某些设备会跟不上。数值较高时，首次出声会有延迟，句子之间也可能出现停顿。</string>
+    <!-- Expressiveness (Pocket only). Steady and Lively are the slider's two ends. -->
+    <string name="alias_expressiveness_label">表现力：%1$s</string>
+    <string name="alias_expressiveness_value">%1$.1f</string>
+    <string name="alias_expressiveness_default">默认</string>
+    <string name="alias_expressiveness_steady">平稳</string>
+    <string name="alias_expressiveness_lively">生动</string>
+    <string name="alias_expressiveness_content_description">表现力，从%1$s到%2$s</string>
+    <string name="alias_expressiveness_reset">恢复默认</string>
     <string name="alias_effect_label">音效</string>
     <string name="alias_pick_effect">选择音效</string>
     <string name="alias_make_primary">设为主别名</string>
