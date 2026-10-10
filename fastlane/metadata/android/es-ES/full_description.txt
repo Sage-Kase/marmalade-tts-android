@@ -7,6 +7,7 @@
 <li><b>Voces en la nube opcionales.</b> De terceros que respetan tu privacidad, con tu propia clave de API (Venice.ai)</li>
 <li><b>Una voz para cada app.</b> Asigna a cada app la voz que quieras</li>
 <li><b>Habla 8 idiomas.</b> Detecta automáticamente el idioma del texto en el motor Kokoro</li>
+<li><b>Voces expresivas en inglés.</b> Pocket TTS añade voces en inglés vivas y naturales que funcionan en tu móvil</li>
 <li><b>Accesible.</b> Compatible con TalkBack y diseñada para cumplir WCAG 2.1 AA</li>
 <li><b>Efectos de voz.</b> 22 efectos predefinidos y un editor para crear los tuyos</li>
 <li><b>Gratis, de código abierto, sin anuncios y sin cuentas</b></li>
@@ -23,6 +24,9 @@
 
 <p><b>HABLA 8 IDIOMAS</b></p>
 <p>El motor multilingüe Kokoro habla inglés (EE. UU. y Reino Unido), español, francés, italiano, portugués (Brasil), hindi, japonés y chino mandarín. Detecta el idioma mientras lee y cambia la pronunciación sobre la marcha.</p>
+
+<p><b>VOCES EXPRESIVAS EN INGLÉS</b></p>
+<p>Pocket TTS, de Kyutai Labs, da al inglés sus voces más expresivas: ritmo y entonación naturales, generados en tu móvil mientras habla. Va lo bastante rápido en la mayoría de móviles de gama media, y Marmalade lo recomienda cuando tu móvil puede moverlo con holgura.</p>
 
 <p><b>PRIVADO, CON NUBE O SIN ELLA</b></p>
 <p>Sin analíticas, sin telemetría, sin cuentas y sin ningún servidor nuestro. Las voces del dispositivo solo usan la red para descargar los motores que elijas. Si quieres voces que van más allá de lo que tu móvil puede mover, añade un motor en la nube con tu propia clave de API. Entre los proveedores está Venice.ai, que afirma no almacenar ni registrar las peticiones. Hasta que configures uno, nada de lo que leas sale de tu móvil. <i>Nota: otros proveedores sí pueden registrar las peticiones. Consulta sus políticas de privacidad.</i></p>

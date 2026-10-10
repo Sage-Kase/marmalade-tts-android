@@ -238,7 +238,7 @@ object EngineCatalog {
     // Unpacked sizes (sum of file sizes after tar extraction). Compute via
     //   find <extracted-dir> -type f -exec stat -c %s {} + | awk '{s+=$1} END {print s}'
     private const val KITTEN_DIRECT_INSTALLED_SIZE_BYTES: Long = 78_417_260L
-    private const val KOKORO_DIRECT_INSTALLED_SIZE_BYTES: Long = 306_030_873L
+    private const val KOKORO_DIRECT_INSTALLED_SIZE_BYTES: Long = 306_245_266L
     private const val KOKORO_DE_INSTALLED_SIZE_BYTES: Long = 183_180_788L
     // v21 bundle: 6 commercial-safe voices (cosette/jean dropped — CC-BY-NC-4.0).
     private const val POCKET_TTS_INSTALLED_SIZE_BYTES: Long = 217_288_756L
@@ -315,24 +315,37 @@ object EngineCatalog {
      * lossless vs fp32 (2026-08-01); 150 MB model vs 326 MB, and measured
      * faster than fp32 on both x86 and the Pixel 8a. Recipe + sweep
      * tooling: scratch/kokoro-quant-experiments (REPORT.md).
+     *
+     * v26 (issues #13, #16, #25) ships the same int8 model cut for streaming,
+     * in place of model.onnx, as ORT-format files ("Fixed" style, ARM):
+     * gen.ort + genstats/<voice>.bin for all 53 voices (the generator), and
+     * the planner as planner-rest.ort fed by a text encoder, textenc.ort
+     * (mixed-int8 ALBERT, every language) or textenc-en.ort (Marmalade's
+     * English student). It drops the unread phonemizer/ espeak-ng-data
+     * (the APK carries its own); model-format.txt stays. An installed v23
+     * keeps working (the engine renders its model.onnx whole) and shows as
+     * Outdated until updated. Build: scratch/kokoro-v26/bundle/make_bundle.sh.
+     * (v24 was prepared with a whole planner.ort and never published.)
      */
     private val KOKORO_DIRECT: EngineDescriptor = EngineDescriptor(
         name = "kokoro-direct-v1_0",
         displayName = "Kokoro (v1.0)",
         descriptionRes = R.string.engine_kokoro_desc,
-        downloadSizeBytes = 194_353_174L,
+        downloadSizeBytes = 194_966_520L,
         installedSizeBytes = KOKORO_DIRECT_INSTALLED_SIZE_BYTES,
         // No longer the default — Kitten is baked + recommended. Kokoro stays
         // the top optional download for best quality + widest language support.
         isRecommended = false,
         archive = EngineArchive(
-            // v23: selectively-quantized QDQ int8 model (see class doc above).
+            // v26: the streaming parts + per-voice generator stats, no phonemizer/
+            // (see class doc above).
+            // v23: selectively-quantized QDQ int8 model.
             // v22: legacy libttsespeak.so removed; espeak-ng-data rebuilt from
             // the 1.52.0 tag (see KITTEN_DIRECT). v18 added openjtalk_dic/
             // (Japanese G2P); v17 added lexicon-zh.txt (Mandarin).
-            url = "https://github.com/maxwhipw/marmalade-tts-android-engines/releases/download/v23/kokoro-direct-v1_0.tar.gz",
-            sha256 = "8e8752c9ec937dd2842510b65a195ee48f2e2ddc7a2c69a478d281fefdd64770",
-            sizeBytes = 194_353_174L,
+            url = "https://github.com/maxwhipw/marmalade-tts-android-engines/releases/download/v26/kokoro-direct-v1_0.tar.gz",
+            sha256 = "d7e2aff992264e2ea8b8b703aa9d6fc24ba7ef039633183f572dcc793cb31047",
+            sizeBytes = 194_966_520L,
             archiveRoot = "kokoro-direct-v1_0/",
         ),
         licenseNotice = "LICENSES/kokoro-direct.md",
