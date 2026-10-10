@@ -91,6 +91,7 @@ import app.marmalade.tts.data.VoicePath
 import app.marmalade.tts.data.db.VoiceMeta
 import app.marmalade.tts.lang.LangDetector
 import app.marmalade.tts.install.EngineCatalog
+import kotlin.math.roundToInt
 
 // -----------------------------------------------------------------------------
 // Data flow
@@ -882,9 +883,9 @@ private fun ExpressivenessSlider(
             value = value ?: Expressiveness.POCKET_DEFAULT,
             onValueChange = { onChange(it) },
             valueRange = Expressiveness.MIN..Expressiveness.MAX,
-            // 0.2 to 1.0 in 0.1 detents is 9 positions; Slider's `steps`
-            // counts only the ones between the endpoints.
-            steps = 7,
+            // One detent per STEP; Slider's `steps` counts only the ones
+            // between the endpoints (0.2 to 0.7 has 4).
+            steps = ((Expressiveness.MAX - Expressiveness.MIN) / Expressiveness.STEP).roundToInt() - 1,
             modifier = Modifier.semantics {
                 contentDescription = description
                 stateDescription = valueText
