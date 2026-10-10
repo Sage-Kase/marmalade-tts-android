@@ -25,10 +25,17 @@ This project follows [Semantic Versioning](https://semver.org/).
   They appear once Pocket is updated on the Engines screen.
 
 ### Changed
-- **Kokoro's speed estimate is more realistic**: setup and the speed
-  warning now expect Kokoro to render a little slower than before, which
-  is how it runs when you listen with the screen off. On phones like the
-  Pixel 6a, setup now marks Kokoro "May be slow".
+- **Reading in the app keeps up with the screen off**: the reader, the
+  Speak screen and shared text now run on the phone's fastest cores while
+  they speak, as Marmalade already did for other apps (Android 12 and
+  later). On a Pixel 6a with the screen off, Kokoro renders about twice
+  as fast and no longer pauses mid-sentence at normal speed, and a long
+  read uses less battery per hour of listening, not more.
+- **Speed estimates match**: setup and the speed warning now expect every
+  engine to render at that faster rate. On phones like the Pixel 6a, the
+  speed warning no longer shows for Kokoro at normal speed (it starts at
+  about 1.75×), and setup recommends Pocket on somewhat slower phones than
+  before.
 - **Pocket voices sound steadier by default**: Pocket now speaks at
   Kyutai's recommended setting, near the Steady end of the slider, with
   fewer slips. To get the livelier sound of earlier versions, move an

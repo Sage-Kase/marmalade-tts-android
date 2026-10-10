@@ -831,16 +831,17 @@ class ReaderViewModelTest {
 
     @Test
     fun `predicted RTF fires the warning when no measured value exists`() = runTest {
-        // Probe measures Kitten at 0.9 RTF → predicted Kitten RTF 0.9. No
-        // stored measured RTF, so the warning runs on the prediction:
-        // 0.9 × 1.0 > 0.8. Alias speed 1.0 keeps the static rule silent.
+        // Probe measures Kitten at 1.5 RTF → predicted Kitten RTF 1.5 × its
+        // cost (0.62) ≈ 0.93. No stored measured RTF, so the warning runs on
+        // the prediction: 0.93 × 1.0 > 0.8. Alias speed 1.0 keeps the static
+        // rule silent.
         val settings = FakeSettings(initialId = "kitten-direct-v0_8:Bella")
         settings.setPrimaryAliasId("id-1x")
         val aliasDao = FakeAliasDao(initial = listOf(alias(id = "id-1x", speed = 1.0f)))
         val vm = newViewModel(
             settings = settings,
             aliasDao = aliasDao,
-            deviceProbe = FakeDeviceProbe(DeviceProbe(measuredKittenRtf = 0.9, computeScore = null)),
+            deviceProbe = FakeDeviceProbe(DeviceProbe(measuredKittenRtf = 1.5, computeScore = null)),
         )
 
         assertTrue(vm.showSpeedWarning.first())

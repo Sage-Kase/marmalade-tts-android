@@ -50,8 +50,8 @@ class EngineRecommenderTest {
     /** A phone twice as fast as the reference. */
     private val fastPhone = DeviceProbe(EngineRecommender.ANCHOR_PROBE_RTF / 2, 20.0)
 
-    /** A phone twice as slow as the reference. */
-    private val slowPhone = DeviceProbe(EngineRecommender.ANCHOR_PROBE_RTF * 2, 5.0)
+    /** A phone three times as slow as the reference. */
+    private val slowPhone = DeviceProbe(EngineRecommender.ANCHOR_PROBE_RTF * 3, 3.4)
 
     private fun EngineRecommendation.pills() = fits.filterValues { it == EngineFit.RECOMMENDED }.keys
 
@@ -134,11 +134,11 @@ class EngineRecommenderTest {
 
     @Test
     fun playReferencePhoneRecommendsPocket() {
-        // The Pixel 6a: Pocket (v27) predicted at 0.49, under the comfort line.
+        // The Pixel 6a: Pocket (v27) predicted at 0.35, under the comfort line.
         val rec = EngineRecommender.recommend(referencePhone, play)!!
         assertEquals(pocket, rec.recommended)
         assertEquals(setOf(pocket), rec.pills())
-        assertEquals(0.49, EngineRecommender.predictedRtf(pocket, referencePhone)!!, 0.005)
+        assertEquals(0.35, EngineRecommender.predictedRtf(pocket, referencePhone)!!, 0.005)
         assertEquals(EngineRecommender.recommend(referencePhone, fdroid), rec)
     }
 
@@ -168,11 +168,18 @@ class EngineRecommenderTest {
     }
 
     @Test
-    fun withoutPocketTheReferencePhoneRecommendsKitten() {
-        // Kokoro's published render is over the comfort line on a Pixel 6a.
+    fun withoutPocketTheReferencePhoneRecommendsKokoro() {
+        // On the top-app cores (#52) Kokoro predicts 0.46 on a Pixel 6a.
         val rec = EngineRecommender.recommend(referencePhone, noPocket)!!
+        assertEquals(kokoro, rec.recommended)
+        assertEquals(setOf(kokoro), rec.pills())
+    }
+
+    @Test
+    fun withoutPocketTheSlowPhoneRecommendsKitten() {
+        val rec = EngineRecommender.recommend(slowPhone, noPocket)!!
         assertEquals(kitten, rec.recommended)
-        assertEquals(setOf(kitten), rec.pills())
+        assertEquals(EngineFit.MAY_BE_SLOW, rec.fits[kokoro])
     }
 
     // -- invariants -------------------------------------------------------------

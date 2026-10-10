@@ -96,8 +96,9 @@ takes Bruno, speed Leo). **Which cores it measures:** Android's TTS manager
 flags `0x80001`, "SLTA"), so system TTS runs on the `top-app` cpuset, X1 cores
 included, whoever asks and screen on or off. The in-app reader with the
 screen off runs in its own foreground service, in the `foreground` cpuset
-(6a: CPUs 0–5, no X1), about half as fast; that slower path is what
-`REFERENCE_COST` predicts (#50). README next to the script.
+(6a: CPUs 0–5, no X1), about half as fast, until #52: it now holds a TTS
+session to its own engine while it plays (`TopAppHold`), so it runs top-app
+too, and `REFERENCE_COST` predicts that path. README next to the script.
 
 **Headless emulator on chocolate (#34):** `scripts/emulator/emulator.sh`
 (`provision` / `start` / `stop`, piped over ssh:
@@ -912,29 +913,29 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   puts new files under it (bundle, voice pack or re-seed:
   `EngineInstaller`'s `EngineFilesChanged` → `clearEngineRtf`, bound in
   `AppModule`). The warning then runs on the prediction until re-measured.
-  Kokoro's cost (4.69) is the v26 streaming render re-measured in #50
-  (screen off, ABBA against Kitten and pre-#49 vs main, see the KDoc;
-  #25's 4.17 was low; #49's cut costs nothing): on the 6a Kokoro predicts
-  0.97, so onboarding marks it "May be slow" there
-  and the warning fires from 1.0×. That is right for the in-app reader with
-  the screen off (it stalls at 1.0×) and over-warns system TTS (which keeps
-  up to 2×): the head's call (#50), the safer error, and #40's measured RTF
-  comes from Narrator renders, the same slow path. Making the reader run
-  on the top-app cores (it moves there whenever a system-TTS session is
-  bound to the app) is its own issue; the costs re-base to the fast path
-  after that.
-- Re-bench before changing a cost or a `SpeedTier`: the probe's in-app RTF
-  (screen on, fast cores) is lower than the bench service's (screen off),
-  so costs are engine service RTF ÷ in-app probe RTF. **Where an engine runs
-  decides its speed on the 6a (#50):** the bench service and the in-app
-  reader with the screen off sit in the `foreground` cpuset (CPUs 0–5: no
-  X1); system TTS is bound by system_server with
+  **The costs model the `top-app` cores (#52):** the in-app reader holds a
+  TTS session to its own engine while it plays (`TopAppHold`, Known
+  quirks), so it renders where system TTS does. #52 re-based every cost by
+  its bench ratio with/without that session (Kitten 0.62, Jenny 0.37,
+  Pocket 1.70, Kokoro 2.25, Kokoro German 2.06; table in the KDoc): on the
+  6a Kokoro predicts 0.46 (system TTS measured 0.40–0.43 in #50), so it is
+  "Fine" in onboarding and warns from about 1.75×. Before #52 they
+  modelled the screen-off `foreground` cpuset (Kokoro 4.69, predicting
+  0.97, warning from 1.0×). Android 11 and older keep the slow placement
+  (no TTS manager service), and their first measured read replaces the
+  prediction.
+- Re-bench before changing a cost or a `SpeedTier`: costs are bench
+  service RTF ÷ in-app probe RTF, and the bench must run on the reader's
+  cores: `EngineBenchService --ez topApp true` holds the reader's TTS
+  session for the run. **Where an engine runs decides its speed on the 6a
+  (#50):** the bench service without that session (and, before #52, the
+  in-app reader with the screen off) sits in the `foreground` cpuset (CPUs
+  0–5: no X1); system TTS is bound by system_server with
   `BIND_SCHEDULE_LIKE_TOP_APP` and gets `top-app` (CPUs 0–7) for every
   client, TalkBack included; so does the app in front. Same text, same
   build: Kokoro v26 RTF 0.97–1.16 vs 0.40–0.43, Jenny 0.16 vs 0.08, Kitten
-  0.24 vs 0.12–0.18, Kokoro German 0.84 vs 0.43. The costs predict the
-  foreground column within ~5% (Kokoro after #50's re-measure). Fewer
-  threads don't help in `foreground` (#25). Check a process's cpuset with
+  0.24 vs 0.12–0.18, Kokoro German 0.84 vs 0.43. Fewer threads don't help
+  in `foreground` (#25). Check a process's cpuset with
   `adb shell cat /proc/<pid>/cpuset`. Debug
   `devbench/DevStateService` replays onboarding and forces a probe value
   (`--ez onboarded false --ef kittenRtf <x>`, <= 0 clears it).
@@ -1270,7 +1271,13 @@ write Marmalade code.
   voice's model next to the reader's, so a service created while
   `TopAppHold.connecting` skips the model warm-up (the rules cache still
   seeds). Debug builds' A/B switch: `topAppHold=off` in
-  `files/dev/engine-knobs.properties`.
+  `files/dev/engine-knobs.properties`. Cost (#52, 6a, 24-min screen-off
+  Kokoro read, A-B-B-A, energy from the power rails via perfetto
+  `android.power`): with the hold 103 J per audio minute vs 123 without
+  (CPU rails 77 vs 89): the X1s finish sooner and idle, where the A55/A76s
+  ran flat out and stalled ~180 times (~3.4 min of silence). Skin peaks
+  ~1 °C higher with the hold, but the read ends cooler. Scripts:
+  `~/coding/scratch/mtts-52/` (`inapp52.py`, `energy.py`).
 
 - **No Quick Settings tile (removed 2026-09-27, before 1.1.0 shipped)**:
   the "Speak clipboard" tile was pulled rather than debugged. If it comes

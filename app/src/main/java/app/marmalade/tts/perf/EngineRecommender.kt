@@ -74,66 +74,55 @@ object EngineRecommender {
     /**
      * Each engine's warm render RTF on the reference phone ÷ the probe's
      * Kitten RTF there ([ANCHOR_PROBE_RTF]). Reference: **Pixel 6a**
-     * (Tensor G1), 2026-10-09, issue #18 (`~/coding/scratch/engine-speed-18/`,
-     * lab `engine-speed-lab.html`). Engines were rendered by the silent bench
-     * service with the screen off, as when listening: RTF = render time ÷
-     * audio over a whole set, the mean of the B1 sentences and a
-     * 3-paragraph set at 1.0×, two runs each in A-B-B-A order:
+     * (Tensor G1). The costs model in-app listening with the screen off,
+     * which since #52 runs on the `top-app` cores, like system TTS: the
+     * reader holds a TTS session to its own engine while it plays
+     * (TopAppHold), and Android's TTS manager binds every engine with
+     * BIND_SCHEDULE_LIKE_TOP_APP (the 6a's two X1 cores included).
      *
-     * | engine | sentences | paragraphs | mean | ÷ 0.206 |
-     * |---|---|---|---|---|
-     * | Kitten (Bella) | 0.256 | 0.251 | 0.253 | 1.23 |
-     * | Jenny | 0.170 | 0.157 | 0.163 | 0.79 |
-     * | Pocket (Alba; v27 bundle, see below) | | | | 2.39 |
-     * | Kokoro (Heart, v26 streaming render, #50, see below) | | | | 4.69 |
-     * | Kokoro German (Thorsten, German text) | 0.832 | 0.835 | 0.834 | 4.05 |
+     * Method (#18, re-based in #52, `~/coding/scratch/mtts-52/`): the
+     * silent bench service, screen off, renders the B1 sentences and a
+     * 3-paragraph set at 1.0× (RTF = render time ÷ audio over a set). #52
+     * ran each engine with the reader's TTS session held and without, in
+     * A-B-B-A order on one build (Kitten's last run was repeated at the
+     * end of the session), and scaled the earlier screen-off costs
+     * (#18; Pocket #38, Kokoro #50) by the ratio:
      *
-     * Kitten costs more than 1: the probe runs in the app with setup on
-     * screen, where Android lets it use the fast cores; the same sentence
-     * in the screen-off service reads 0.267. Replaces the Pixel 8a-era
-     * ratios (Kokoro 1.5× Kitten, Pocket 2× Kokoro), which predate #13,
-     * #15 and #17.
+     * | engine | without (sentences / paragraphs) | with | ratio | was | cost |
+     * |---|---|---|---|---|---|
+     * | Kitten (Bella) | 0.259 / 0.228 | 0.132 / 0.114 | 0.505 | 1.23 | 0.62 |
+     * | Jenny | 0.173 / 0.152 | 0.085 / 0.067 | 0.468 | 0.79 | 0.37 |
+     * | Pocket (Alba, v21 bundle) | 0.715 / 0.504 | 0.456 / 0.412 | 0.712 | 2.39 | 1.70 |
+     * | Kokoro (Heart, v26 streaming) | 1.064 / 0.858 | 0.440 / 0.480 | 0.479 | 4.69 | 2.25 |
+     * | Kokoro German (Thorsten, German text) | 0.834 / 0.850 | 0.408 / 0.448 | 0.508 | 4.05 | 2.06 |
      *
-     * These are the in-app reader's numbers with the screen off: its engine
-     * runs in the app's own foreground service, and on the 6a that cpuset
-     * (CPUs 0–5) leaves out both X1 cores. System TTS is faster: Android's
-     * TTS manager binds the engine for every client (TalkBack, other apps)
-     * with BIND_SCHEDULE_LIKE_TOP_APP, so it gets the top-app cores and
-     * renders about twice as fast (#50: Kokoro v26 RTF ~0.43 through the
-     * release gate). The probe itself runs on screen, so every cost carries
-     * the 6a's gap between the two placements; a phone whose foreground
-     * cpuset keeps more of its big cores (the 8a leaves out only its prime
-     * core) is quoted on the slow side.
+     * On the 6a these predict Kokoro 0.46 and Kokoro German 0.42, as system
+     * TTS measured them in #50 (0.40–0.43 through the release gate), and
+     * the in-app reader's own screen-off reads agree (#52: Kokoro 0.51 with
+     * the session, 0.95 without, where it stalled 3–4 times per set at
+     * 1.0×; with the session, never). Pocket gains least from the X1s (its decoder and AR loop
+     * each keep one core busy). Kitten costs less than 1: the probe renders
+     * one short, cold sentence during setup, where the bench's warm sets
+     * render faster.
      *
-     * Kokoro is its published bundle's render: v26, which streams,
-     * re-measured in issue #50 (same phone and method,
-     * `~/coding/scratch/mtts-50/`). Against Kitten (0.257 / 0.250, as in
-     * #18, so no session scaling) a build from just before #49 read
-     * sentences 1.138, paragraphs 0.886, mean 1.012 (4.91). A second
-     * session ran that build A-B-B-A against today's main: 0.985 vs 0.940
-     * (sentences 1.070 vs 1.006, paragraphs 0.899 vs 0.874), so #49's
-     * later-chunk cut costs nothing (one extra plan per paragraph set,
-     * within noise) and main is 4.91 × 0.940 / 0.985 = 4.69. #25 had read
-     * v26 at 0.904 (sentences 0.936) and scaled it to 4.17; why the short
-     * sentences cost more now isn't known (#35's German streaming touched
-     * the shared engine; session drift is the other candidate). At RTF
-     * ~0.95 Kokoro stalls at 1.0× on a 6a with the screen off: 1–5 stalls of
-     * 0.3–1.5 s in most B1 sentences, 3–9 per paragraph.
+     * Before #52 the costs modelled the slower `foreground` cpuset (CPUs
+     * 0–5, no X1) that a screen-off foreground service gets, about twice
+     * as slow (#50 measured both placements). Android 11 and older still
+     * read that way (the reader's session needs the Android 12 TTS manager);
+     * a measured in-app RTF replaces the prediction there after one read.
      *
-     * Pocket is the v27 bundle's render (issue #38: 2026-09 weights, graphs
-     * with a symbolic cache axis; same phone and method, ABBA against v21,
-     * `~/coding/scratch/pocket-v27-38/bench/`). #18 measured v21 (Alba,
-     * Javert) at sentences 0.640, 0.619, paragraphs 0.529, 0.526, mean
-     * 0.579, cost 2.81. The #38 session read v21 (Alba) at 0.572 (0.619,
-     * 0.524) and v27 at 0.486 (0.485, 0.486), so 2.81 × 0.486 / 0.572 =
-     * 2.39 (unscaled 2.36).
+     * Pocket's 2.39 was the v27 bundle's render (#38: v21 → v27 ratio
+     * 0.486 / 0.572 on the same phone, scaled from #18's v21 cost 2.81);
+     * the debug build here has v21, and the ratio carries over. Kokoro's
+     * 4.69 was #50's re-measure of v26 (#25 had read 4.17; #49's later-chunk
+     * cut costs nothing).
      */
     val REFERENCE_COST: Map<String, Double> = mapOf(
-        KITTEN to 1.23,
-        KOKORO to 4.69,
-        KOKORO_DE to 4.05,
-        POCKET to 2.39,
-        VITS to 0.79,
+        KITTEN to 0.62,
+        KOKORO to 2.25,
+        KOKORO_DE to 2.06,
+        POCKET to 1.70,
+        VITS to 0.37,
     )
 
     /**

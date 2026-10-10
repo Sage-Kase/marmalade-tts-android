@@ -125,13 +125,13 @@ checks that it tells the truth, and that no release gets slower unnoticed.
   `BIND_SCHEDULE_LIKE_TOP_APP`, so a system-TTS engine runs on the
   `top-app` cpuset whatever app asks and whether the screen is on or off:
   the Pixel 6a's two X1 cores included. The gate's numbers are therefore what
-  TalkBack and other apps' users get. The in-app reader is different: with the
-  screen off its engine runs in the app's own foreground service, in the
+  TalkBack and other apps' users get. Since #52 the in-app reader gets the
+  same cores: while it plays it holds a TTS session to its own engine
+  (`TopAppHold`). Before that, with the screen off it ran in the
   `foreground` cpuset (CPUs 0–5 on the 6a, no X1), about half as fast
   (Kokoro v26 at 1.0×: RTF ~0.43 here, ~1.0 there, with 1–2 s stalls). The
-  speed warning's costs are measured on that slower path, so the gate's
-  "warning lies" check is lenient by design: a stall on the fast path where
-  the slow-path prediction shows no warning is a real failure.
+  speed warning's costs now model these cores, so a stall where the
+  prediction shows no warning is a real failure.
 - **Screen off, phone cool.** It runs with the screen off, as when listening
   (it presses the sleep key if the screen is on). Before each engine it
   waits until the phone's skin sensor reads 33 °C or less with no thermal throttling (`--cool-skin-c`,
@@ -218,8 +218,8 @@ it is updated the same way (Engines → Update).
 
 - How the audio sounds. Ear tests stay manual (`docs/release/device-test-lab.html`);
   the speed lab is for listening, the gate only times.
-- The in-app reader (`MarmaladeSynthService` segments): its engine runs on
-  slower cores with the screen off (see Speed stage), and the gate drives
-  system TTS only. Timing the reader would need the R8 build to log its chunk
-  arrivals.
+- The in-app reader (`MarmaladeSynthService` segments): the gate drives system
+  TTS only. The reader runs on the same cores (see Speed stage), and debug
+  builds log its stalls (`AudioTrackOutput: … stall before …`), but R8 strips
+  Debug logs, so timing it on the rc would need an Info-level line.
 - Developer-only engines: system TTS never offers them to other apps.
