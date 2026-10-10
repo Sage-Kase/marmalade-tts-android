@@ -1,0 +1,146 @@
+{
+  "rows": {
+    "kitten-direct-v0_8:Bella@1": {
+      "first_sound_ms": 404,
+      "render_rtf": 0.443,
+      "longest_stall_ms": 0,
+      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
+      "measured": "2026-10-10"
+    },
+    "kitten-direct-v0_8:Bella@1.25": {
+      "first_sound_ms": 411,
+      "render_rtf": 0.52,
+      "longest_stall_ms": 0,
+      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
+      "measured": "2026-10-10"
+    },
+    "kitten-direct-v0_8:Bella@1.5": {
+      "first_sound_ms": 488,
+      "render_rtf": 0.652,
+      "longest_stall_ms": 0,
+      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
+      "measured": "2026-10-10"
+    },
+    "kitten-direct-v0_8:Bella@2": {
+      "first_sound_ms": 443,
+      "render_rtf": 0.81,
+      "longest_stall_ms": 0,
+      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
+      "measured": "2026-10-10"
+    },
+    "kokoro-de-v1_0:thorsten@1": {
+      "first_sound_ms": 592,
+      "render_rtf": 0.398,
+      "longest_stall_ms": 1169,
+      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
+      "measured": "2026-10-10"
+    },
+    "kokoro-de-v1_0:thorsten@1.25": {
+      "first_sound_ms": 558,
+      "render_rtf": 0.584,
+      "longest_stall_ms": 2032,
+      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
+      "measured": "2026-10-10"
+    },
+    "kokoro-de-v1_0:thorsten@1.5": {
+      "first_sound_ms": 593,
+      "render_rtf": 0.621,
+      "longest_stall_ms": 1745,
+      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
+      "measured": "2026-10-10"
+    },
+    "kokoro-de-v1_0:thorsten@2": {
+      "first_sound_ms": 628,
+      "render_rtf": 0.874,
+      "longest_stall_ms": 2140,
+      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
+      "measured": "2026-10-10"
+    },
+    "kokoro-direct-v1_0:af_heart@1": {
+      "first_sound_ms": 625,
+      "render_rtf": 0.43,
+      "longest_stall_ms": 1844,
+      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
+      "measured": "2026-10-10"
+    },
+    "kokoro-direct-v1_0:af_heart@1.25": {
+      "first_sound_ms": 644,
+      "render_rtf": 0.529,
+      "longest_stall_ms": 2142,
+      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
+      "measured": "2026-10-10"
+    },
+    "kokoro-direct-v1_0:af_heart@1.5": {
+      "first_sound_ms": 577,
+      "render_rtf": 0.634,
+      "longest_stall_ms": 2376,
+      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
+      "measured": "2026-10-10"
+    },
+    "kokoro-direct-v1_0:af_heart@2": {
+      "first_sound_ms": 652,
+      "render_rtf": 0.893,
+      "longest_stall_ms": 2649,
+      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
+      "measured": "2026-10-10"
+    },
+    "pocket-tts-en-v2026_04:alba@1": {
+      "first_sound_ms": 474,
+      "render_rtf": 0.459,
+      "longest_stall_ms": 0,
+      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
+      "measured": "2026-10-10"
+    },
+    "pocket-tts-en-v2026_04:alba@1.25": {
+      "first_sound_ms": 424,
+      "render_rtf": 0.523,
+      "longest_stall_ms": 0,
+      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
+      "measured": "2026-10-10"
+    },
+    "pocket-tts-en-v2026_04:alba@1.5": {
+      "first_sound_ms": 399,
+      "render_rtf": 0.622,
+      "longest_stall_ms": 0,
+      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
+      "measured": "2026-10-10"
+    },
+    "pocket-tts-en-v2026_04:alba@2": {
+      "first_sound_ms": 443,
+      "render_rtf": 0.819,
+      "longest_stall_ms": 0,
+      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
+      "measured": "2026-10-10"
+    },
+    "vits-marmalade-v1:en-jenny_dioco-medium@1": {
+      "first_sound_ms": 111,
+      "render_rtf": 0.072,
+      "longest_stall_ms": 0,
+      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
+      "measured": "2026-10-10"
+    },
+    "vits-marmalade-v1:en-jenny_dioco-medium@1.25": {
+      "first_sound_ms": 169,
+      "render_rtf": 0.108,
+      "longest_stall_ms": 0,
+      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
+      "measured": "2026-10-10"
+    },
+    "vits-marmalade-v1:en-jenny_dioco-medium@1.5": {
+      "first_sound_ms": 153,
+      "render_rtf": 0.12,
+      "longest_stall_ms": 111,
+      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
+      "measured": "2026-10-10"
+    },
+    "vits-marmalade-v1:en-jenny_dioco-medium@2": {
+      "first_sound_ms": 118,
+      "render_rtf": 0.149,
+      "longest_stall_ms": 207,
+      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
+      "measured": "2026-10-10"
+    }
+  },
+  "phone": "Pixel 6a",
+  "about": "Speed-stage numbers of the previous release on the reference phone, per voice@speed: best of the takes. Refresh on purpose only (scripts/release-smoke/README.md, Baseline)."
+}
