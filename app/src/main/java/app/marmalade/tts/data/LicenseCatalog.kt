@@ -341,7 +341,9 @@ object LicenseCatalog {
                 "base Kokoro-82M model and the CC0-licensed Thorsten-Voice " +
                 "dataset used for fine-tuning\". The shipped model.onnx is " +
                 "Marmalade's static-QDQ int8 build of the k2-fsa/sherpa-onnx " +
-                "ONNX export of that checkpoint.",
+                "ONNX export of that checkpoint. From download v28 the model " +
+                "is cut into parts so it can stream, and its text encoder " +
+                "(ALBERT) is stored mostly as 8-bit integers.",
         ),
         Component(
             key = "misaki-cutlet",

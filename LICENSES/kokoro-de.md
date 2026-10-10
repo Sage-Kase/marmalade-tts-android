@@ -20,7 +20,7 @@ how each artifact was built and gated; the two are kept consistent.
 
 | Component | Role | License |
 |---|---|---|
-| **Thorsten-Voice/Kokoro** (`model.onnx`, `voices.bin`) | German fine-tune of Kokoro-82M, 1 voice | **Apache-2.0** (Thorsten-Voice / Thorsten Müller) |
+| **Thorsten-Voice/Kokoro** (`voices.bin`; up to bundle v25 `model.onnx`; from v28 `planner-rest.ort`, `textenc.ort`, `gen.ort`, `genstats/thorsten.bin`) | German fine-tune of Kokoro-82M, 1 voice | **Apache-2.0** (Thorsten-Voice / Thorsten Müller) |
 | **tokens.txt** | Kokoro v1.0 phoneme→id vocabulary (114 entries, unchanged from the base model) | **Apache-2.0** (part of the model) |
 | **model-format.txt**, **MODEL_CARD**, **PROVENANCE.md** | Bundle metadata (marks the QDQ int8 build; provenance) | project documentation |
 
@@ -30,7 +30,8 @@ fixed and phonemized in the app.
 
 ## 1. Model — Thorsten-Voice/Kokoro (German fine-tune)
 
-- **Files:** `model.onnx`, `voices.bin`
+- **Files:** `voices.bin`; up to bundle v25 `model.onnx`; from v28
+  `planner-rest.ort`, `textenc.ort`, `gen.ort`, `genstats/thorsten.bin`
 - **Upstream:** https://huggingface.co/Thorsten-Voice/Kokoro
 - **License:** **Apache License, Version 2.0.** The model card states it is
   *"Released under Apache 2.0, consistent with the base Kokoro-82M model and
@@ -55,6 +56,19 @@ fixed and phonemized in the app.
   Thorsten checkpoint. Same graph contract as `kokoro-direct-v1_0`: inputs
   `tokens` int64 [1,N], `style` float32 [1,256], `speed` float32 [1]; outputs
   waveform + per-token durations, 24 kHz.
+- **Modifications (bundle v28 and later, issue #35):** the same int8
+  model is cut into graphs so it can stream, in ONNX Runtime's own `.ort`
+  format, the way the `kokoro-direct-v1_0` bundle is from v26.
+  `gen.ort` holds the iSTFTNet vocoder, with its InstanceNormalization
+  layers reading a per-channel scale and shift from an input;
+  `genstats/thorsten.bin` holds a small model of those values, fitted to
+  the vocoder's own activations on sample text. `planner-rest.ort` holds
+  the durations, pitch, the vocoder's front and the harmonic source. Its
+  input is the text encoder's output from `textenc.ort`: this fine-tune's
+  own text encoder (ALBERT + `bert_encoder`) with most of its matrix
+  weights stored as 8-bit integers (the feed-forward expansion stays
+  32-bit floating point). Nothing was retrained, and no weights come from
+  another model.
 - **Full text:** [`full-texts/Apache-2.0.txt`](full-texts/Apache-2.0.txt) (also
   in the APK at `assets/licenses/Apache-2.0.txt` and shown by Settings → About
   → Open-source licenses). Apache-2.0 carries no embedded licensor copyright,
