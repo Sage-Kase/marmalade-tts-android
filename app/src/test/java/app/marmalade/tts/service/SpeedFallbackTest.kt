@@ -27,6 +27,7 @@ class SpeedFallbackTest {
             voiceId: String,
             speed: Float,
             phonemizationLanguage: String?,
+            expressiveness: Float?,
         ): SynthAudio = SynthAudio(ShortArray(0), sampleRate)
     }
 

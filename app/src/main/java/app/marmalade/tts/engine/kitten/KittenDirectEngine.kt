@@ -406,6 +406,7 @@ open class KittenDirectEngine @Inject constructor(
         voiceId: String,
         speed: Float,
         phonemizationLanguage: String?,
+        expressiveness: Float?,
     ): SynthAudio = withContext(Dispatchers.Default) {
         val parts = ArrayList<ShortArray>()
         synthesizeStream(text, voiceId, speed, phonemizationLanguage).collect { parts.add(it.pcm) }
@@ -442,6 +443,7 @@ open class KittenDirectEngine @Inject constructor(
         // needed. Wire a PrerollGate here (see KokoroDirectEngine) if a
         // slower device ever proves otherwise.
         playbackRate: Float,
+        expressiveness: Float?,
     ): Flow<SynthAudio> = channelFlow {
         // TTFA diagnostic: split "load wait" from the first render.
         // If loadMs > 0 on the first run after a cold start, the user is paying

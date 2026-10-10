@@ -88,6 +88,8 @@ interface SpeechPlayer {
          * Kokoro voices for that reason.
          */
         phonemizationLanguage: String? = null,
+        /** The applied alias's expressiveness (Pocket's temperature); null = engine default. */
+        expressiveness: Float? = null,
     ): Result<Unit>
     fun cancel()
 
@@ -161,6 +163,7 @@ class Synthesizer @Inject constructor(
         speed: Float,
         effectBlocks: List<EffectBlock>,
         phonemizationLanguage: String?,
+        expressiveness: Float?,
     ): Result<Unit> = coroutineScope {
         if (text.isBlank()) return@coroutineScope Result.success(Unit)
         // Playback runs inside MarmaladeSynthService, not on a local
@@ -208,6 +211,7 @@ class Synthesizer @Inject constructor(
                 EffectBlockJson.encode(effectBlocks),
             )
             phonemizationLanguage?.let { putExtra(MarmaladeSynthService.EXTRA_LANG, it) }
+            expressiveness?.let { putExtra(MarmaladeSynthService.EXTRA_EXPRESSIVENESS, it) }
             putExtra(MarmaladeSynthService.EXTRA_REQUEST_ID, requestId)
         }
         activeRequestId = requestId

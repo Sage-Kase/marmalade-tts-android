@@ -7,6 +7,7 @@ import android.content.Context
 import android.util.Log
 import app.marmalade.tts.data.PocketDevVoiceCatalog
 import app.marmalade.tts.data.PocketVoiceCatalog
+import app.marmalade.tts.engine.pocket.pocketNoiseStd
 import app.marmalade.tts.engine.pocket.NpyReader
 import app.marmalade.tts.engine.pocket.PocketAudio
 import app.marmalade.tts.engine.pocket.PocketBundle
@@ -21,7 +22,6 @@ import java.util.Random
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlin.math.sqrt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -66,7 +66,8 @@ import kotlinx.coroutines.withContext
  *  - `split_into_best_sentences` sentence-aware chunker.
  *  - `prepare_text_prompt` preprocessing (capitalize first, trailing dot, etc.).
  *  - Per-chunk AR with NaN backbone_input at frame 0 (model substitutes BOS).
- *  - LSD Euler with `x_0 ~ N(0, sqrt(temp))`, `LSD_DECODE_STEPS=1`, temp=0.7.
+ *  - LSD Euler with `x_0 ~ N(0, sqrt(temp))`, `LSD_DECODE_STEPS=1`, temp from the
+ *    alias's expressiveness (default 0.7, [app.marmalade.tts.data.Expressiveness]).
  *  - `frames_after_eos`: 3 if word-count ≤4, else 1, then +2 safety per Python.
  *  - Voice conditioning via bos_before_voice ++ mimi_encoder(voice.wav).
  */
@@ -196,9 +197,10 @@ class PocketDevEngine @Inject constructor(
         voiceId: String,
         speed: Float,
         phonemizationLanguage: String?,
+        expressiveness: Float?,
     ): SynthAudio = withContext(Dispatchers.Default) {
         val chunks = mutableListOf<ShortArray>()
-        synthesizeStream(text, voiceId, speed, phonemizationLanguage).collect { audio ->
+        synthesizeStream(text, voiceId, speed, phonemizationLanguage, expressiveness = expressiveness).collect { audio ->
             chunks.add(audio.pcm)
         }
         val total = chunks.sumOf { it.size }
@@ -216,6 +218,7 @@ class PocketDevEngine @Inject constructor(
         speed: Float,
         phonemizationLanguage: String?,
         playbackRate: Float, // unused — dev-only engine, strict sequential by design
+        expressiveness: Float?,
     ): Flow<SynthAudio> = flow {
         ensureLoadedSuspending()
         synthLock.withLock {
@@ -223,12 +226,13 @@ class PocketDevEngine @Inject constructor(
             val tokenizer = tokenizer!!
             val voiceName = voiceNameOf(voiceId)
             val voiceEmb = encodeVoiceIfNeeded(voiceName)
+            val noiseStd = pocketNoiseStd(expressiveness)
 
             val chunks = splitIntoBestSentences(tokenizer, text, bundle.maxTokenPerChunk, bundle)
             Log.i(TAG, "PocketDev: ${chunks.size} chunk(s) for input of ${text.length} chars")
 
             for ((i, chunk) in chunks.withIndex()) {
-                val pcm = synthesizeChunk(chunk, voiceEmb, chunkIndex = i)
+                val pcm = synthesizeChunk(chunk, voiceEmb, chunkIndex = i, noiseStd = noiseStd)
                 Log.d(TAG, "PocketDev: chunk $i (${chunk.length} chars) → ${pcm.size} samples")
                 emit(SynthAudio(pcm = floatToPcm16(pcm), sampleRate = bundle.sampleRate))
             }
@@ -237,7 +241,7 @@ class PocketDevEngine @Inject constructor(
 
     // -- chunk synthesis: phase 1 + 2 + AR + decode (all fresh per chunk) ----
 
-    private fun synthesizeChunk(rawText: String, voiceEmb: FloatArray, chunkIndex: Int): FloatArray {
+    private fun synthesizeChunk(rawText: String, voiceEmb: FloatArray, chunkIndex: Int, noiseStd: Float): FloatArray {
         val bundle = bundle!!
         val tokenizer = tokenizer!!
         val ort = env!!
@@ -311,7 +315,7 @@ class PocketDevEngine @Inject constructor(
                 captureConditioning = true,
             )!!
             if (capture.eosLogit > maxEosLogit) maxEosLogit = capture.eosLogit
-            val nextLatent = runFlowEuler(flow, ort, capture.conditioning, bundle.latentDim)
+            val nextLatent = runFlowEuler(flow, ort, capture.conditioning, bundle.latentDim, noiseStd)
             for (v in nextLatent) {
                 if (!v.isFinite()) { sawNonFinite = true; continue }
                 val a = if (v < 0f) -v else v
@@ -431,7 +435,8 @@ class PocketDevEngine @Inject constructor(
      *   x = normal(mean=0, std=std)
      *   for i in 0..num_steps: x += flow_net(c, s, t, x) / num_steps
      *
-     * Defaults from `default_parameters.py`: LSD_DECODE_STEPS=1, TEMPERATURE=0.7.
+     * Defaults from `default_parameters.py`: LSD_DECODE_STEPS=1, TEMPERATURE=0.7
+     * (here [noiseStd] = sqrt of the alias's temperature, [pocketNoiseStd]).
      * noise_clamp default None — we don't clamp either.
      */
     private fun runFlowEuler(
@@ -439,8 +444,8 @@ class PocketDevEngine @Inject constructor(
         ort: OrtEnvironment,
         conditioning: FloatArray,
         latentDim: Int,
+        noiseStd: Float,
     ): FloatArray {
-        val noiseStd = sqrt(TEMPERATURE).toFloat()
         val current = FloatArray(latentDim) { random.nextGaussian().toFloat() * noiseStd }
         val dt = 1f / LSD_DECODE_STEPS
 
@@ -823,8 +828,6 @@ class PocketDevEngine @Inject constructor(
         /** Upstream `pocket_tts/default_parameters.py:DEFAULT_LSD_DECODE_STEPS`. */
         private const val LSD_DECODE_STEPS = 1
 
-        /** Upstream `pocket_tts/default_parameters.py:DEFAULT_TEMPERATURE`. */
-        private const val TEMPERATURE = 0.7
 
         /** From the export wrapper — raw eos_logit threshold. */
         private const val EOS_THRESHOLD = -4.0f

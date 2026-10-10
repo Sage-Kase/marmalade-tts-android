@@ -182,6 +182,13 @@ class SpeakViewModel @Inject constructor(
     val currentPhonemizationLanguage: StateFlow<String?> = _currentPhonemizationLanguage.asStateFlow()
 
     /**
+     * The active alias's [app.marmalade.tts.data.db.VoiceAlias.expressiveness]
+     * (Pocket's temperature). Null = engine default; cleared on manual
+     * voice change. Main-thread only, like the rest of the alias snapshot.
+     */
+    private var currentExpressiveness: Float? = null
+
+    /**
      * The voice the user has chosen as default. Composed from two flows so
      * the lookup re-runs both when the user picks a different voice AND
      * when the underlying voice catalog changes (e.g. the first-launch
@@ -224,6 +231,7 @@ class SpeakViewModel @Inject constructor(
                 _currentEffectBlocks.value = emptyList()
                 _currentSpeed.value = 1.0f
                 _currentPhonemizationLanguage.value = null
+                currentExpressiveness = null
                 expectedAliasVoiceId = null
             }
         },
@@ -334,6 +342,7 @@ class SpeakViewModel @Inject constructor(
                     _currentEffectBlocks.value = effectResolver.blocksFor(fresh.effectId)
                     _currentSpeed.value = fresh.speed
                     _currentPhonemizationLanguage.value = fresh.phonemizationLanguage
+                    currentExpressiveness = fresh.expressiveness
                     // The edit may also have changed the alias's VOICE.
                     // Follow it (mirroring applyAlias) or the chip keeps
                     // claiming the alias while synthesis runs the pre-edit
@@ -496,6 +505,7 @@ class SpeakViewModel @Inject constructor(
             _currentEffectBlocks.value = effectResolver.blocksFor(alias.effectId)
             _currentSpeed.value = alias.speed
             _currentPhonemizationLanguage.value = alias.phonemizationLanguage
+            currentExpressiveness = alias.expressiveness
             _activeAlias.value = alias.id
         }
     }
@@ -529,6 +539,7 @@ class SpeakViewModel @Inject constructor(
         val effectBlocks = _currentEffectBlocks.value
         val speed = _currentSpeed.value
         val language = _currentPhonemizationLanguage.value
+        val expressiveness = currentExpressiveness
         val generation = ++speakGeneration
         // A cold engine can take seconds to page in, all of it before the
         // first sample exists. Saying "Speaking…" through that is a lie the
@@ -551,7 +562,7 @@ class SpeakViewModel @Inject constructor(
                     if (generation != speakGeneration) return@launch // superseded
                     _playbackState.value = PlaybackState.Speaking
                 }
-                val result = synthesizer.speak(currentText, voiceId, speed, effectBlocks, language)
+                val result = synthesizer.speak(currentText, voiceId, speed, effectBlocks, language, expressiveness)
                 if (generation != speakGeneration) return@launch // superseded
                 _playbackState.value = result.fold(
                     onSuccess = { PlaybackState.Idle },

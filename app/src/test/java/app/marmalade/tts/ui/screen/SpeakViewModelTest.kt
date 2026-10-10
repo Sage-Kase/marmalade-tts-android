@@ -166,6 +166,29 @@ class SpeakViewModelTest {
     }
 
     @Test
+    fun speak_passesExpressivenessFromActiveAlias() = runTest {
+        val alias = VoiceAlias(
+            id = "id-steady",
+            name = "steady",
+            engine = "kitten-direct-v0_8",
+            voiceId = "kitten-direct-v0_8:Luna",
+            speed = 1.0f,
+            effectPreset = "NONE",
+            createdAt = 0L,
+            expressiveness = 0.3f,
+        )
+        val player = RecordingPlayer(behaviour = { Result.success(Unit) })
+        val vm = newViewModel(player = player, aliases = listOf(alias))
+        vm.currentVoice.firstNonNull()
+
+        vm.applyAlias("id-steady")
+        vm.currentVoice.filter { it?.id == "kitten-direct-v0_8:Luna" }.first()
+        vm.onTextChanged("Hello")
+        vm.speak()
+        assertEquals(0.3f, player.calls.single().expressiveness)
+    }
+
+    @Test
     fun speak_phonemizationLanguageDefaultsToNullWithoutAlias() = runTest {
         val player = RecordingPlayer(behaviour = { Result.success(Unit) })
         val vm = newViewModel(player = player)

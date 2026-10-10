@@ -208,6 +208,7 @@ open class VitsDirectEngine @Inject constructor(
         voiceId: String,
         speed: Float,
         phonemizationLanguage: String?,
+        expressiveness: Float?,
     ): SynthAudio = withContext(Dispatchers.Default) {
         val parts = ArrayList<ShortArray>()
         var rate = sampleRate
@@ -243,6 +244,7 @@ open class VitsDirectEngine @Inject constructor(
         speed: Float,
         phonemizationLanguage: String?,
         playbackRate: Float, // unused — VITS renders at RTF 0.08–0.21, ample headroom at any speed
+        expressiveness: Float?,
     ): kotlinx.coroutines.flow.Flow<SynthAudio> = kotlinx.coroutines.flow.channelFlow {
         val voice = voiceFrom(voiceId)
         val packId = voice.packId

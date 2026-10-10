@@ -675,6 +675,7 @@ open class KokoroDirectEngine @Inject constructor(
         voiceId: String,
         speed: Float,
         phonemizationLanguage: String?,
+        expressiveness: Float?,
     ): SynthAudio = withContext(Dispatchers.Default) {
         val parts = ArrayList<ShortArray>()
         synthesizeStream(text, voiceId, speed, phonemizationLanguage).collect { parts.add(it.pcm) }
@@ -695,6 +696,7 @@ open class KokoroDirectEngine @Inject constructor(
         speed: Float,
         phonemizationLanguage: String?,
         playbackRate: Float,
+        expressiveness: Float?,
     ): Flow<SynthAudio> = channelFlow {
         // TTFA diagnostic — see KittenDirectEngine for the rationale.
         val streamStartNs = System.nanoTime()

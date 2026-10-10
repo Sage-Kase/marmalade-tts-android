@@ -69,6 +69,7 @@ internal class SegmentRenderer(
             // permit is closed the engine renders at most this far ahead.
             val stream = engine.synthesizeStream(
                 prepared.text, voice.voiceId, 1f, prepared.phonemizationLanguage, playbackRate,
+                voice.expressiveness,
             ).buffer(ENGINE_AHEAD_CHUNKS)
             val startedAt = clock()
             var lastResume = startedAt

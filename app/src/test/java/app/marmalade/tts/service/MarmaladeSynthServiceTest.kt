@@ -61,6 +61,20 @@ class MarmaladeSynthServiceTest {
         assertNull("the voice's own speed, not an override", parsed.request.speed)
     }
 
+    @Test
+    fun `the applied alias's expressiveness rides along, absent means the engine default`() {
+        val with = parse {
+            putExtra(MarmaladeSynthService.EXTRA_VOICE, "pocket-tts-en-v2026_04:alba")
+            putExtra(MarmaladeSynthService.EXTRA_EXPRESSIVENESS, 0.3f)
+        }.request.voice as OneShotVoice.Explicit
+        assertEquals(0.3f, with.expressiveness)
+
+        val without = parse {
+            putExtra(MarmaladeSynthService.EXTRA_VOICE, "pocket-tts-en-v2026_04:alba")
+        }.request.voice as OneShotVoice.Explicit
+        assertNull(without.expressiveness)
+    }
+
     /** No voice named: the primary alias, with the caller's own extras if no alias is set. */
     @Test
     fun `no voice goes to the primary alias, the caller's extras as the fallback`() {
