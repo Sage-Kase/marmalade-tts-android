@@ -792,8 +792,9 @@ and `MarmaladeSynthService` is its foreground host. System TTS
 
 ### Persistence
 - `data/db/MarmaladeDb.kt` — RoomDatabase, schema v12 (history in its
-  kdoc). Every step has a migration except 9→10 (alias re-key: the armed
-  `fallbackToDestructiveMigration()` resets pre-10 databases on purpose).
+  kdoc). Every step has a migration except 1→2 (v1 held no user data) and 9→10
+  (alias re-key): the armed `fallbackToDestructiveMigration()` resets
+  those on purpose.
   The fallback would also hide a broken new migration by wiping aliases,
   so test each one without it: `Migration11To12Test` builds a real v11
   file from `app/schemas/.../11.json` and opens it with the migration

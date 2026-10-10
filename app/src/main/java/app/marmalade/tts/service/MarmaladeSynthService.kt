@@ -693,11 +693,8 @@ class MarmaladeSynthService : Service() {
                 // The explicit EXTRA_ENGINE wins over the voice id's prefix,
                 // so legacy callers that send an engine without a voice work.
                 engine = intent.getStringExtra(EXTRA_ENGINE)?.takeIf { it.isNotBlank() },
-                expressiveness = if (intent.hasExtra(EXTRA_EXPRESSIVENESS)) {
-                    intent.getFloatExtra(EXTRA_EXPRESSIVENESS, 0f)
-                } else {
-                    null
-                },
+                // A missing (or mistyped) extra means the engine's default.
+                expressiveness = intent.extras?.get(EXTRA_EXPRESSIVENESS) as? Float,
             )
             return when {
                 named != null -> given
