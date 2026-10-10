@@ -426,6 +426,7 @@ private fun VoiceRow(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            VoiceCreditLine(voice)
         }
 
         VoiceLatencyChip(badge)

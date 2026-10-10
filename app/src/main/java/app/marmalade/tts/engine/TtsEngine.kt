@@ -116,12 +116,18 @@ interface TtsEngine {
      * KokoroDirect that's per-voice via `espeakVoiceFor(voiceKey)`,
      * for everyone else it's a no-op. Sherpa-backed engines have their
      * lexicon baked in and ignore this field.
+     *
+     * [expressiveness] is the alias's sampling setting
+     * ([app.marmalade.tts.data.Expressiveness]); null = engine default.
+     * Only engines that sample (Pocket, which reads it as its temperature)
+     * act on it; deterministic engines ignore it.
      */
     suspend fun synthesize(
         text: String,
         voiceId: String,
         speed: Float,
         phonemizationLanguage: String? = null,
+        expressiveness: Float? = null,
     ): SynthAudio
 
     /**
@@ -161,6 +167,8 @@ interface TtsEngine {
      * is for); engines with a streaming pre-roll use it to budget
      * against the *played* clock, buffering more chunks up front when
      * the stretch erases their realtime headroom.
+     *
+     * [expressiveness]: as for [synthesize].
      */
     fun synthesizeStream(
         text: String,
@@ -168,8 +176,9 @@ interface TtsEngine {
         speed: Float,
         phonemizationLanguage: String? = null,
         playbackRate: Float = 1f,
+        expressiveness: Float? = null,
     ): Flow<SynthAudio> = flow {
-        emit(synthesize(text, voiceId, speed, phonemizationLanguage))
+        emit(synthesize(text, voiceId, speed, phonemizationLanguage, expressiveness))
     }
 
     /**

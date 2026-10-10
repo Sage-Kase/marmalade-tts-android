@@ -38,13 +38,14 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  * - v10: alias identity re-key (UUID) — deliberately NO 9→10 migration;
  *       see the destructive-fallback note in `AppModule`.
  * - v11: [MIGRATION_10_11] adds `voice_meta.sortOrder`.
+ * - v12: [MIGRATION_11_12] adds `voice_alias.expressiveness`.
  *
  * Schemas are exported under `app/schemas/` so future versions can write
  * migrations against the v4 hash without guesswork.
  */
 @Database(
     entities = [VoiceMeta::class, VoiceAlias::class, AppAliasMapping::class, Effect::class],
-    version = 11,
+    version = 12,
     exportSchema = true,
 )
 abstract class MarmaladeDb : RoomDatabase() {
@@ -212,3 +213,15 @@ val MIGRATION_10_11: Migration = object : Migration(10, 11) {
     }
 }
 
+
+/**
+ * v11 → v12: adds `voice_alias.expressiveness` (issue #36, Pocket's
+ * per-alias sampling temperature). Additive nullable column: every
+ * existing alias reads null = "engine default", which is exactly how it
+ * sounded before. Covered by `Migration11To12Test`.
+ */
+val MIGRATION_11_12: Migration = object : Migration(11, 12) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `voice_alias` ADD COLUMN `expressiveness` REAL")
+    }
+}

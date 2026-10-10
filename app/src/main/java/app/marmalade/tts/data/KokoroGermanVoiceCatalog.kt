@@ -26,6 +26,9 @@ object KokoroGermanVoiceCatalog {
     /** The only voice this engine speaks — used as the "any German voice" default. */
     const val DEFAULT_VOICE_ID = "$ENGINE:$THORSTEN_VOICE_KEY"
 
+    /** The picker's credit line (#37): the speaker recorded and published his own voice, CC0. */
+    val CREDIT = VoiceCredit(source = "Thorsten Müller", license = "CC0")
+
     /**
      * One voice: Thorsten, the male German speaker of the open Thorsten-Voice
      * dataset (recorded and CC0-published by the speaker himself). speaker id

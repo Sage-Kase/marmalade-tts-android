@@ -5,6 +5,16 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Expressiveness for Pocket voices**: an alias that uses a Pocket voice
+  now has an Expressiveness slider, from Steady to Lively. Steady suits a
+  screen reader; Lively suits an audiobook. Each alias keeps its own
+  setting, and "Reset to default" goes back to the engine's own.
+- **Credits in the voice picker**: voices whose recordings come from a
+  named person, donor or corpus now show who, and the licence, under
+  their name (for example "Voice donor · CC0" or "Dioco · model by Bryce
+  Beattie").
+
 ### Changed
 - **No pause between paragraphs**: when Marmalade reads an article or a
   long shared text, one paragraph now runs straight into the next instead

@@ -696,6 +696,7 @@ class MarmaladeTtsService : TextToSpeechService() {
             plan.speed,
             params.phonemizationLanguage,
             plan.playbackRate,
+            params.expressiveness,
         ).collect { audio ->
                 val c = chain ?: StreamingEffectChain(plan.blocks, audio.sampleRate).also {
                     chain = it
@@ -736,7 +737,9 @@ class MarmaladeTtsService : TextToSpeechService() {
             enabledRules = enabledRules,
             effectBlocks = plan.blocks,
             preprocessor = preprocessor,
-            synthesize = { t, v, s -> synthesizeForEngine(engineName, t, v, s, params.phonemizationLanguage) },
+            synthesize = { t, v, s ->
+                synthesizeForEngine(engineName, t, v, s, params.phonemizationLanguage, params.expressiveness)
+            },
         )
         when (result) {
             is PipelineResult.Empty -> callback.done()
@@ -783,6 +786,8 @@ class MarmaladeTtsService : TextToSpeechService() {
          * alias at all.
          */
         val fallbackVoiceId: String? = null,
+        /** See [app.marmalade.tts.data.db.VoiceAlias.expressiveness]. Null = engine default. */
+        val expressiveness: Float? = null,
     )
 
     /**
@@ -832,6 +837,7 @@ class MarmaladeTtsService : TextToSpeechService() {
                     speed = perApp.speed,
                     effectBlocks = effectResolver.blocksFor(perApp.effectId),
                     phonemizationLanguage = perApp.phonemizationLanguage,
+                    expressiveness = perApp.expressiveness,
                 )
             }
 
@@ -878,6 +884,7 @@ class MarmaladeTtsService : TextToSpeechService() {
                     effectBlocks = effectResolver.blocksFor(primary.effectId),
                     phonemizationLanguage = primary.phonemizationLanguage,
                     fallbackVoiceId = router.fallbackVoiceIdFor(primary),
+                    expressiveness = primary.expressiveness,
                 )
             } else {
                 null
@@ -1139,9 +1146,10 @@ class MarmaladeTtsService : TextToSpeechService() {
         voiceId: String,
         speed: Float,
         phonemizationLanguage: String? = null,
+        expressiveness: Float? = null,
     ): SynthAudio {
         val startedAt = SystemClock.elapsedRealtime()
-        val audio = engineHandleFor(engineName).synthesize(text, voiceId, speed, phonemizationLanguage)
+        val audio = engineHandleFor(engineName).synthesize(text, voiceId, speed, phonemizationLanguage, expressiveness)
         recordLatency(engineName, voiceId, text, SystemClock.elapsedRealtime() - startedAt)
         return audio
     }
@@ -1157,9 +1165,10 @@ class MarmaladeTtsService : TextToSpeechService() {
         speed: Float,
         phonemizationLanguage: String? = null,
         playbackRate: Float = 1f,
+        expressiveness: Float? = null,
     ): Flow<SynthAudio> {
         val stream = engineHandleFor(engineName)
-            .synthesizeStream(text, voiceId, speed, phonemizationLanguage, playbackRate)
+            .synthesizeStream(text, voiceId, speed, phonemizationLanguage, playbackRate, expressiveness)
         var startedAt = 0L
         var recorded = false
         return stream

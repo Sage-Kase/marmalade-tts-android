@@ -12,6 +12,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -83,6 +84,9 @@ class FakeEngine(
     /** Every voiceId/language/speed the engine was asked for, in order. */
     val requests = ArrayList<Triple<String, String?, Float>>()
 
+    /** The expressiveness of each request, in the same order as [requests]. */
+    val expressivenessRequests = ArrayList<Float?>()
+
     fun rendersOf(text: String): List<Render> = renders.filter { it.text == text }
 
     fun completedRendersOf(text: String): List<Render> = renders.filter { it.text == text && !it.aborted }
@@ -99,6 +103,7 @@ class FakeEngine(
         voiceId: String,
         speed: Float,
         phonemizationLanguage: String?,
+        expressiveness: Float?,
     ): SynthAudio = throw UnsupportedOperationException("stream only")
 
     override fun synthesizeStream(
@@ -107,7 +112,9 @@ class FakeEngine(
         speed: Float,
         phonemizationLanguage: String?,
         playbackRate: Float,
+        expressiveness: Float?,
     ): Flow<SynthAudio> = stream(text, voiceId, speed, phonemizationLanguage)
+        .onStart { expressivenessRequests += expressiveness }
         // Default capacity (64), like the engines' channelFlow, so the
         // renderer's own buffer(n) fuses with it the same way.
         .let { if (internalBuffer) it.buffer() else it }

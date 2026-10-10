@@ -98,6 +98,7 @@ class NarratorResolver internal constructor(
             aliasSpeed = alias.speed,
             cloud = false,
             rules = emptySet(),
+            expressiveness = alias.expressiveness,
         )
     }
 
@@ -119,6 +120,7 @@ class NarratorResolver internal constructor(
             aliasSpeed = v.speed,
             cloud = false,
             rules = emptySet(),
+            expressiveness = v.expressiveness,
         )
 
         /** An installed voice no alias uses: that voice, dry, at 1.0x, the engine's own language detection. */

@@ -791,8 +791,15 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   "yeah", per acoustic model).
 
 ### Persistence
-- `data/db/MarmaladeDb.kt` — RoomDatabase, schema v4. Migrations
-  v1→v4 are CREATE TABLE-only (no data loss paths).
+- `data/db/MarmaladeDb.kt` — RoomDatabase, schema v12 (history in its
+  kdoc). Every step has a migration except 1→2 (v1 held no user data) and 9→10
+  (alias re-key): the armed `fallbackToDestructiveMigration()` resets
+  those on purpose.
+  The fallback would also hide a broken new migration by wiping aliases,
+  so test each one without it: `Migration11To12Test` builds a real v11
+  file from `app/schemas/.../11.json` and opens it with the migration
+  alone (Robolectric has no instrumentation assets for
+  `MigrationTestHelper`).
 - **Catalog versioning**: `MarmaladeTtsApplication.CATALOG_VERSION` (int,
   bumped on every catalog content change) gates a one-shot `upsertAll`
   re-seed on cold start; the last-applied version lives in DataStore via
@@ -804,8 +811,18 @@ and `MarmaladeSynthService` is its foreground host. System TTS
 - `data/db/VoiceMeta.kt` + DAO — installed voices (engine, voice id,
   display name, gender, language, isInstalled flag)
 - `data/db/VoiceAlias.kt` + DAO — user "personas" (name + engine +
-  voiceId + speed + effectPreset). `fallbackAliasId` holds another
-  alias's **id** (not a FK; the editor writes ids since v1.1.0)
+  voiceId + speed + effectId + phonemizationLanguage + expressiveness).
+  `fallbackAliasId` holds another alias's **id** (not a FK; the editor
+  writes ids since v1.1.0). `expressiveness` (v12, #36) is Pocket's
+  sampling temperature (`data/Expressiveness.kt`: 0.2–1.0, null = the
+  engine default `POCKET_DEFAULT`, the one constant to change). It rides
+  to the engine as `TtsEngine.synthesize/synthesizeStream(…,
+  expressiveness)` on every path an alias reaches: the Narrator
+  (`ResolvedVoice.expressiveness` → `SegmentRenderer`), the Speak screen
+  (`SpeechPlayer.speak` → `EXTRA_EXPRESSIVENESS` →
+  `OneShotVoice.Explicit`) and system TTS (`SynthParams`). Pocket and its
+  dev twin turn it into the flow head's noise std (`pocketNoiseStd`) and
+  log `request temperature=…` per request; every other engine ignores it.
 - `data/db/AppAliasMapping.kt` + DAO — per-app routing (packageName
   → aliasName)
 - `data/SettingsRepository.kt` — DataStore Prefs (theme preset, theme
@@ -1120,6 +1137,16 @@ write Marmalade code.
   `showsUnreleased(...)`: Play hides staged packs even with developer mode
   on, and a `flow.first { … }` waiting for one hangs into an
   `UncompletedCoroutinesError` after a minute instead of failing fast.
+- **Voice credit lines** (#37): both pickers (`VoicePickerScreen`'s and
+  `VoicePickerSheet`'s `VoiceRow`) show `VoiceCreditLine` under a voice,
+  from `data/VoiceCredit.kt` (`VoiceCredits.forVoice`). The data sits next
+  to each catalog: `PocketVoiceCatalog.creditFor(key)` (dev twin shares
+  it), `VoicePack.credit` per pack, `KokoroGermanVoiceCatalog.CREDIT`.
+  Kokoro/Kitten stock voices, cloud voices and Pocket clones have none on
+  purpose (no documented source to credit). Keep it in step with
+  CREDITS.md / LICENSES/ when a voice or pack is added: `VoiceCreditsTest`
+  fails for an offered voice or pack without one. Only "Voice donor" and
+  "model by" are translated; names and licence names are shown as written.
 - **`kokoro-int8-multi-lang-v1_0` is an unblessed power-user export**
   — added to sherpa-onnx releases by PR #2137 but never included in
   the team's own APK build script (`scripts/apk/generate-tts-apk-script.py`).

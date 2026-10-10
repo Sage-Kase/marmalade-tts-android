@@ -41,6 +41,14 @@
     <string name="alias_speed">速度</string>
     <string name="alias_speed_label">速度: %1$s</string>
     <string name="alias_speed_perf_warning">速度を上げると、一部の音声では合成が追いつかず、端末によっては再生に間に合わないことがあります。高い値では、最初の音声が出るまで遅れたり、文の間で止まったりすることがあります。</string>
+    <!-- Expressiveness (Pocket only). Steady and Lively are the slider's two ends. -->
+    <string name="alias_expressiveness_label">表現力: %1$s</string>
+    <string name="alias_expressiveness_value">%1$.1f</string>
+    <string name="alias_expressiveness_default">初期値</string>
+    <string name="alias_expressiveness_steady">落ち着いた</string>
+    <string name="alias_expressiveness_lively">生き生き</string>
+    <string name="alias_expressiveness_content_description">表現力、%1$sから%2$sまで</string>
+    <string name="alias_expressiveness_reset">初期値に戻す</string>
     <string name="alias_effect_label">エフェクト</string>
     <string name="alias_pick_effect">エフェクトを選択</string>
     <string name="alias_make_primary">メインにする</string>

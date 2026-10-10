@@ -8,6 +8,7 @@ import android.content.Context
 import android.os.Build
 import android.util.Log
 import app.marmalade.tts.audio.TextChunker
+import app.marmalade.tts.data.Expressiveness
 import app.marmalade.tts.data.PocketVoiceCatalog
 import app.marmalade.tts.engine.pocket.NpyReader
 import app.marmalade.tts.engine.pocket.PocketAudio
@@ -16,6 +17,7 @@ import app.marmalade.tts.engine.pocket.PocketClonedVoice
 import app.marmalade.tts.engine.pocket.PocketClonedVoiceStore
 import app.marmalade.tts.engine.pocket.PocketClonedVoiceSummary
 import app.marmalade.tts.engine.pocket.PocketLineBreaks
+import app.marmalade.tts.engine.pocket.pocketNoiseStd
 import app.marmalade.tts.engine.pocket.PocketStates
 import app.marmalade.tts.engine.pocket.PocketTokenSplit
 import app.marmalade.tts.engine.pocket.PocketTokenizer
@@ -37,7 +39,6 @@ import java.nio.ByteOrder
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlin.math.sqrt
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -218,6 +219,13 @@ open class PocketEngine @Inject constructor(
 
     /** Debug knob `pocket.seed`: reseeds the noise at each request, for bit-exact A/B checks. */
     private var seed: Long? = null
+
+    /**
+     * The request's starting-noise std, from its alias's expressiveness
+     * ([pocketNoiseStd]). Set under [synthLock] at the start of each
+     * request and read by [runFlowEuler] under the same lock.
+     */
+    private var noiseStd: Float = pocketNoiseStd(null)
 
     /** `[1, 1, 1024]` learned embedding prepended to the voice prompt. */
     private var bosBeforeVoice: FloatArray? = null
@@ -570,12 +578,13 @@ open class PocketEngine @Inject constructor(
         voiceId: String,
         speed: Float,
         phonemizationLanguage: String?,
+        expressiveness: Float?,
     ): SynthAudio = withContext(Dispatchers.Default) {
         // Pocket does its own phonemization upstream of ORT; the espeak
         // language knob doesn't apply.
         val parts = ArrayList<ShortArray>()
         var sampleRate = 0
-        synthesizeStream(text, voiceId, speed, phonemizationLanguage).collect { chunk ->
+        synthesizeStream(text, voiceId, speed, phonemizationLanguage, expressiveness = expressiveness).collect { chunk ->
             parts.add(chunk.pcm)
             sampleRate = chunk.sampleRate
         }
@@ -610,6 +619,7 @@ open class PocketEngine @Inject constructor(
         speed: Float,
         phonemizationLanguage: String?,
         playbackRate: Float,
+        expressiveness: Float?,
     ): Flow<SynthAudio> = channelFlow {
         // TTFA diagnostic — see KittenDirectEngine for the rationale.
         val streamStartNs = System.nanoTime()
@@ -670,6 +680,9 @@ open class PocketEngine @Inject constructor(
             // Under the lock: a first-use voice encodes through mimi_encoder.
             val voiceEmb = embeddingForVoice(voiceName)
             seed?.let { random.setSeed(it) }
+            noiseStd = pocketNoiseStd(expressiveness)
+            Log.d(TAG, "request temperature=${Expressiveness.pocketTemperature(expressiveness)}" +
+                if (expressiveness == null) " (default)" else " (alias)")
             streamChunks(this@channelFlow, bundle, voiceEmb, miniChunks, playbackRate, streamStartNs, loadWaitMs)
             if (profileRequestsLeft > 0 && --profileRequestsLeft == 0) endOrtProfiling()
         } }
@@ -1696,12 +1709,13 @@ open class PocketEngine @Inject constructor(
         // latent — caller holds a reference, so it must stay a per-call
         // allocation (the next stepAr call will overwrite
         // ar.previousLatent and drop our reference).
-        val noiseStd = sqrt(TEMPERATURE).toFloat()
+        val noiseStd = this.noiseStd
         val clamp = NOISE_CLAMP_ABS
         val current = FloatArray(latentDim) {
             var x = random.nextGaussian().toFloat() * noiseStd
             // Rejection sample (trunc_normal_ semantics). Rate ~3e-4 at
-            // std=0.837, clamp=3 — the inner loop almost never re-runs.
+            // std=0.837 (temperature 0.7), ~3e-3 at the slider's 1.0,
+            // clamp=3 — the inner loop almost never re-runs.
             while (x > clamp || x < -clamp) {
                 x = random.nextGaussian().toFloat() * noiseStd
             }
@@ -2047,9 +2061,6 @@ open class PocketEngine @Inject constructor(
          * bug to fix at the source, not a reason to re-inflate steps.
          */
         private const val LSD_DECODE_STEPS = 1
-
-        /** Sampling temperature for the initial noise. Python default. */
-        private const val TEMPERATURE = 0.7
 
         /**
          * P-AC.C — absolute bound applied to each component of the

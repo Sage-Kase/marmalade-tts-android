@@ -3,6 +3,7 @@ package app.marmalade.tts.ui.screen
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.marmalade.tts.data.CloudApiVoiceCatalog
+import app.marmalade.tts.data.Expressiveness
 import app.marmalade.tts.data.InstalledVoiceAssets
 import app.marmalade.tts.data.KittenDirectVoiceCatalog
 import app.marmalade.tts.data.KokoroDirectVoiceCatalog
@@ -30,6 +31,7 @@ import app.marmalade.tts.perf.EngineRecommender
 import app.marmalade.tts.perf.SpeedPerfWarning
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlin.math.roundToInt
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -60,7 +62,7 @@ import kotlinx.coroutines.launch
 //     │                          │ MutableStateFlow
 //     │                          │
 //     │            openEditor(existing?) / dismissEditor()
-//     │            onEditor{Name,Engine,Voice,Speed,Effect}Change(...)
+//     │            onEditor{Name,Engine,Voice,Speed,Expressiveness,Effect}Change(...)
 //     │
 //     ├── engines   ◄────── AliasViewModel.engines (EngineCatalog, dev-filtered)
 //     ├── voicesFor ◄────── AliasViewModel.voicesForSelectedEngine
@@ -130,6 +132,13 @@ data class EditorState(
      * surfaced in the editor for cloud voices; see [VoiceAlias.fallbackAliasId].
      */
     val fallbackAliasId: String? = null,
+    /**
+     * Pocket's sampling temperature, [Expressiveness.MIN]–[Expressiveness.MAX]
+     * on the 0.1 grid. Null = "Default" (the engine's own value). Only
+     * surfaced for [Expressiveness.appliesTo] engines; see
+     * [VoiceAlias.expressiveness].
+     */
+    val expressiveness: Float? = null,
     val error: SaveError? = null,
 )
 
@@ -511,6 +520,7 @@ class AliasViewModel @Inject constructor(
                 // Carried over so saving any other edit doesn't silently
                 // disarm a cloud alias's offline fallback.
                 fallbackAliasId = fallbackIdOf(existing),
+                expressiveness = existing.expressiveness,
             )
         }
     }
@@ -548,6 +558,20 @@ class AliasViewModel @Inject constructor(
         val clamped = speed.coerceIn(VoiceAlias.MIN_SPEED, VoiceAlias.MAX_SPEED)
         val current = _editorState.value
         _editorState.value = current.copy(speed = clamped)
+    }
+
+    /**
+     * Pass null to go back to "Default". A value is clamped into
+     * [Expressiveness.MIN]..[Expressiveness.MAX] and snapped to one decimal
+     * (the [Expressiveness.STEP] grid): the slider hands back floats like
+     * 0.70000005, and those shouldn't be what gets stored.
+     */
+    fun onEditorExpressivenessChange(value: Float?) {
+        val snapped = value
+            ?.coerceIn(Expressiveness.MIN, Expressiveness.MAX)
+            ?.let { (it * 10).roundToInt() / 10f }
+        val current = _editorState.value
+        _editorState.value = current.copy(expressiveness = snapped)
     }
 
     /** Pass null to clear the effect (= "No effect" — dry). */
@@ -630,6 +654,12 @@ class AliasViewModel @Inject constructor(
             // dead data that later reads have to remember to ignore.
             fallbackAliasId = state.fallbackAliasId
                 ?.takeIf { voicePaths.resolve(state.voiceId, state.engine).isCloud },
+            // Only a sampling engine (Pocket) reads it. A value left behind
+            // by switching a Pocket alias to another engine is dropped rather
+            // than persisted as dead data — and rather than coming back,
+            // unasked, the day the alias is pointed at Pocket again.
+            expressiveness = state.expressiveness
+                ?.takeIf { Expressiveness.appliesTo(state.engine) },
         )
 
         viewModelScope.launch {

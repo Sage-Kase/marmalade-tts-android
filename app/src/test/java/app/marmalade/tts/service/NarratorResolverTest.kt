@@ -105,6 +105,24 @@ class NarratorResolverTest {
         assertEquals(1.4f, v.aliasSpeed)
     }
 
+    @Test
+    fun `an alias's expressiveness is carried to the engine, and an explicit voice's too`() = runTest {
+        aliases[primary.id] = primary.copy(expressiveness = 0.3f)
+        assertEquals(0.3f, resolver.resolve(ResolveTarget.Article(VoiceChoice.Primary, "")).expressiveness)
+
+        val explicit = resolver.resolve(oneShot(OneShotVoice.Explicit("kitten-direct-v0_8:Bella", expressiveness = 0.9f)))
+        assertEquals(0.9f, explicit.expressiveness)
+    }
+
+    @Test
+    fun `no expressiveness means the engine default`() = runTest {
+        assertNull(resolver.resolve(ResolveTarget.Article(VoiceChoice.Primary, "")).expressiveness)
+        val installed = resolver.resolve(
+            ResolveTarget.Article(VoiceChoice.Installed("kokoro-direct-v1_0:zf_xiaobei", "kokoro-direct-v1_0"), ""),
+        )
+        assertNull(installed.expressiveness)
+    }
+
     /** Tasker with no voice and no primary alias: its own engine, speed and effect extras. */
     @Test
     fun `a routed one-shot with no alias speaks its fallback`() = runTest {

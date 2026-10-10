@@ -373,11 +373,12 @@ class MarmaladeTtsServiceTest {
     // the "kitten primary alias keeps speaking Bella Kokoro" bug.
 
     /** Wire a kitten primary alias ("kitty", 1.5×) into the service's router. */
-    private fun installKittenPrimary(phonemizationLanguage: String? = null) {
+    private fun installKittenPrimary(phonemizationLanguage: String? = null, expressiveness: Float? = null) {
         installPrimary(
             engine = "kitten-direct-v0_8",
             voiceId = "kitten-direct-v0_8:Bella",
             phonemizationLanguage = phonemizationLanguage,
+            expressiveness = expressiveness,
         )
     }
 
@@ -403,6 +404,7 @@ class MarmaladeTtsServiceTest {
         voiceId: String,
         phonemizationLanguage: String?,
         fallbackTo: app.marmalade.tts.data.db.VoiceAlias? = null,
+        expressiveness: Float? = null,
     ) {
         val alias = app.marmalade.tts.data.db.VoiceAlias(
             name = "kitty",
@@ -414,6 +416,7 @@ class MarmaladeTtsServiceTest {
             createdAt = 0L,
             phonemizationLanguage = phonemizationLanguage,
             fallbackAliasId = fallbackTo?.id,
+            expressiveness = expressiveness,
         )
         val rows = listOfNotNull(alias, fallbackTo)
         val aliasDao = object : app.marmalade.tts.data.db.VoiceAliasDao {
@@ -1056,6 +1059,28 @@ class MarmaladeTtsServiceTest {
         assertEquals("ja", fakeKokoroDirectEngine.languages.single())
     }
 
+    // -- expressiveness (#36) --------------------------------------------------
+
+    @Test
+    fun onSynthesizeText_primaryAliasExpressivenessReachesTheEngine() {
+        installKittenPrimary(expressiveness = 0.4f)
+        fakeEngine.nextPcm = ShortArray(1024)
+
+        service.onSynthesizeText(SynthesisRequest("Hello there.", Bundle()), FakeSynthesisCallback())
+
+        assertEquals(listOf<Float?>(0.4f), fakeEngine.expressivenesses)
+    }
+
+    @Test
+    fun onSynthesizeText_aliasWithoutExpressivenessLeavesTheEngineDefault() {
+        installKittenPrimary()
+        fakeEngine.nextPcm = ShortArray(1024)
+
+        service.onSynthesizeText(SynthesisRequest("Hello there.", Bundle()), FakeSynthesisCallback())
+
+        assertEquals(listOf<Float?>(null), fakeEngine.expressivenesses)
+    }
+
     @Test
     fun onSynthesizeText_kittenAliasWithNoStoredLanguageIsUntouched() {
         // The English-only engines are pinned at English in the UI, so a
@@ -1390,6 +1415,9 @@ internal class FakeKittenDirectEngine(
     /** phonemizationLanguage of each call, index-aligned with [calls]. */
     val languages: MutableList<String?> = mutableListOf()
 
+    /** expressiveness of each call, index-aligned with [calls]. */
+    val expressivenesses: MutableList<Float?> = mutableListOf()
+
     override val sampleRate: Int get() = 24_000
 
     override fun isInstalled(): Boolean = synthesizeException !is EngineNotInstalledException
@@ -1399,9 +1427,11 @@ internal class FakeKittenDirectEngine(
         voiceId: String,
         speed: Float,
         phonemizationLanguage: String?,
+        expressiveness: Float?,
     ): SynthAudio {
         calls += Triple(text, voiceId, speed)
         languages += phonemizationLanguage
+        expressivenesses += expressiveness
         synthesizeException?.let { throw it }
         return SynthAudio(pcm = nextPcm, sampleRate = sampleRate)
     }
@@ -1415,9 +1445,11 @@ internal class FakeKittenDirectEngine(
         speed: Float,
         phonemizationLanguage: String?,
         playbackRate: Float,
+        expressiveness: Float?,
     ): Flow<SynthAudio> = kotlinx.coroutines.flow.flow {
         calls += Triple(text, voiceId, speed)
         languages += phonemizationLanguage
+        expressivenesses += expressiveness
         synthesizeException?.let { throw it }
         emit(SynthAudio(pcm = nextPcm, sampleRate = sampleRate))
     }
@@ -1455,6 +1487,7 @@ internal class FakeKokoroDirectEngine(
         voiceId: String,
         speed: Float,
         phonemizationLanguage: String?,
+        expressiveness: Float?,
     ): SynthAudio {
         calls += Triple(text, voiceId, speed)
         languages += phonemizationLanguage
@@ -1482,6 +1515,7 @@ internal class FakeKokoroDirectEngine(
         speed: Float,
         phonemizationLanguage: String?,
         playbackRate: Float,
+        expressiveness: Float?,
     ): Flow<SynthAudio> = kotlinx.coroutines.flow.flow {
         calls += Triple(text, voiceId, speed)
         languages += phonemizationLanguage
@@ -1532,6 +1566,7 @@ internal class FakeVitsDirectEngine(
         voiceId: String,
         speed: Float,
         phonemizationLanguage: String?,
+        expressiveness: Float?,
     ): SynthAudio {
         calls += Triple(text, voiceId, speed)
         languages += phonemizationLanguage
@@ -1545,6 +1580,7 @@ internal class FakeVitsDirectEngine(
         speed: Float,
         phonemizationLanguage: String?,
         playbackRate: Float,
+        expressiveness: Float?,
     ): Flow<SynthAudio> = kotlinx.coroutines.flow.flow {
         calls += Triple(text, voiceId, speed)
         languages += phonemizationLanguage

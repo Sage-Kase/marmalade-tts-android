@@ -42,6 +42,14 @@
     <string name="alias_speed">Speed</string>
     <string name="alias_speed_label">Speed: %1$s</string>
     <string name="alias_speed_perf_warning">At faster speeds some voices can’t render fast enough for some devices to keep up. Expect delays in time to first audio and pauses between sentences at higher values.</string>
+    <!-- Expressiveness (Pocket only). Steady and Lively are the slider's two ends. -->
+    <string name="alias_expressiveness_label">Expressiveness: %1$s</string>
+    <string name="alias_expressiveness_value">%1$.1f</string>
+    <string name="alias_expressiveness_default">Default</string>
+    <string name="alias_expressiveness_steady">Steady</string>
+    <string name="alias_expressiveness_lively">Lively</string>
+    <string name="alias_expressiveness_content_description">Expressiveness, %1$s to %2$s</string>
+    <string name="alias_expressiveness_reset">Reset to default</string>
     <string name="alias_effect_label">Effect</string>
     <string name="alias_pick_effect">Pick effect</string>
     <string name="alias_make_primary">Make primary</string>

@@ -22,6 +22,9 @@
 
     <!-- Rows -->
     <string name="voices_row_subtitle">%1$s · %2$s</string>
+    <!-- Credit line under a voice in the pickers (#37). Names and licence names stay as written. -->
+    <string name="voice_credit_donor">Voice donor</string>
+    <string name="voice_credit_model_by">model by %1$s</string>
     <string name="voices_gender_unknown">—</string>
     <string name="voices_gender_female">female</string>
     <string name="voices_gender_male">male</string>

@@ -102,6 +102,19 @@ object PocketVoiceCatalog {
         (setOf("marius") + if (OFFER_VCTK_VOICES) emptySet<String>() else VCTK_VOICE_KEYS)
             .associate { voiceId(it) to DEFAULT_VOICE_ID }
 
+    /**
+     * The picker's credit line per voice key (#37), from
+     * `LICENSES/pocket-tts.md`'s per-voice table. The CC BY voices name
+     * their source; javert's donor gave it CC0 and stays anonymous.
+     * `marius` is absent: no longer offered.
+     */
+    fun creditFor(voiceKey: String): VoiceCredit? = when (voiceKey) {
+        "alba" -> VoiceCredit(source = "Alba Mackenna (Kyutai)", license = "CC BY 4.0")
+        in VCTK_VOICE_KEYS -> VoiceCredit(source = "VCTK (University of Edinburgh)", license = "CC BY 4.0")
+        "javert" -> VoiceCredit(donor = true, license = "CC0")
+        else -> null
+    }
+
     private fun seed(name: String, gender: String): VoiceMeta = VoiceMeta(
         id = voiceId(name),
         engine = ENGINE,

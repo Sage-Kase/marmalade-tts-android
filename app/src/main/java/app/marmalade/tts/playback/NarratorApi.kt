@@ -221,6 +221,8 @@ sealed interface OneShotVoice {
         val speed: Float = 1f,
         /** The engine, when the caller named one; else the voice id's prefix. */
         val engine: String? = null,
+        /** The applied alias's expressiveness (Pocket's temperature); null = engine default. */
+        val expressiveness: Float? = null,
     ) : OneShotVoice
 
     /**
@@ -257,6 +259,8 @@ data class ResolvedVoice(
     val cloud: Boolean,
     /** Enabled preprocessing rules for [engine]. */
     val rules: Set<String>,
+    /** The alias's expressiveness, handed to the engine per render; null = engine default. */
+    val expressiveness: Float? = null,
 )
 
 sealed interface ResolveTarget {

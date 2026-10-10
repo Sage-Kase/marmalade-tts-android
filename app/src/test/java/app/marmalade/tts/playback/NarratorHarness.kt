@@ -172,7 +172,8 @@ class NarratorHarness(private val test: TestScope, config: NarratorConfig = Narr
             language: String? = null,
             aliasSpeed: Float = 1f,
             cloud: Boolean = false,
-        ) = ResolvedVoice(engine, voiceId, effects, language, aliasSpeed, cloud, rules = emptySet())
+            expressiveness: Float? = null,
+        ) = ResolvedVoice(engine, voiceId, effects, language, aliasSpeed, cloud, rules = emptySet(), expressiveness)
 
         /** A sentence of [chars] characters ending in a period. */
         fun sentence(chars: Int, fill: Char = 'a'): String = fill.toString().repeat(chars - 1) + "."

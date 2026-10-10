@@ -35,6 +35,7 @@ class EngineRegistryTest {
             voiceId: String,
             speed: Float,
             phonemizationLanguage: String?,
+            expressiveness: Float?,
         ): SynthAudio = SynthAudio(ShortArray(0), sampleRate)
         override fun release() = Unit
     }

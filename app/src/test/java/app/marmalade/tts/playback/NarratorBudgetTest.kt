@@ -247,6 +247,16 @@ class NarratorBudgetTest {
     }
 
     @Test
+    fun `the alias's expressiveness reaches the engine with every render`() = runTest {
+        val h = harness()
+        h.articleVoice = voice(expressiveness = 0.3f)
+        h.open(article(1))
+        h.runUntil { h.article.status == Status.Playing }
+        assertEquals(listOf<Float?>(0.3f), h.kokoro.expressivenessRequests.distinct())
+        h.done()
+    }
+
+    @Test
     fun `25 - session speed replaces the alias speed, alias effect and language kept`() = runTest {
         val h = harness()
         val cave = listOf(EffectBlock.Reverb(reverberance = 60f))

@@ -22,6 +22,8 @@
 
     <!-- Rows -->
     <string name="voices_row_subtitle">%1$s · %2$s</string>
+    <string name="voice_credit_donor">声音捐赠者</string>
+    <string name="voice_credit_model_by">模型：%1$s</string>
     <string name="voices_gender_unknown">—</string>
     <string name="voices_gender_female">女声</string>
     <string name="voices_gender_male">男声</string>

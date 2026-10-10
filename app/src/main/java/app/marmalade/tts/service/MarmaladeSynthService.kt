@@ -693,6 +693,8 @@ class MarmaladeSynthService : Service() {
                 // The explicit EXTRA_ENGINE wins over the voice id's prefix,
                 // so legacy callers that send an engine without a voice work.
                 engine = intent.getStringExtra(EXTRA_ENGINE)?.takeIf { it.isNotBlank() },
+                // A missing (or mistyped) extra means the engine's default.
+                expressiveness = intent.extras?.get(EXTRA_EXPRESSIVENESS) as? Float,
             )
             return when {
                 named != null -> given
@@ -740,6 +742,9 @@ class MarmaladeSynthService : Service() {
 
         /** Espeak phonemization override — see [app.marmalade.tts.data.db.VoiceAlias.phonemizationLanguage]. */
         const val EXTRA_LANG: String = "app.marmalade.tts.extra.LANG"
+
+        /** Float; absent = engine default. See [app.marmalade.tts.data.db.VoiceAlias.expressiveness]. */
+        const val EXTRA_EXPRESSIVENESS: String = "app.marmalade.tts.extra.EXPRESSIVENESS"
 
         /** [PreviewCompletions] request id (Long). */
         const val EXTRA_REQUEST_ID: String = "app.marmalade.tts.extra.REQUEST_ID"

@@ -46,6 +46,7 @@ internal data class Call(
     val speed: Float,
     val effectBlocks: List<EffectBlock>,
     val phonemizationLanguage: String? = null,
+    val expressiveness: Float? = null,
 )
 
 internal class RecordingPlayer(
@@ -61,8 +62,9 @@ internal class RecordingPlayer(
         speed: Float,
         effectBlocks: List<EffectBlock>,
         phonemizationLanguage: String?,
+        expressiveness: Float?,
     ): Result<Unit> {
-        calls += Call(text, voiceId, speed, effectBlocks, phonemizationLanguage)
+        calls += Call(text, voiceId, speed, effectBlocks, phonemizationLanguage, expressiveness)
         return behaviour()
     }
 
