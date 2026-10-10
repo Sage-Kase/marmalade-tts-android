@@ -490,7 +490,8 @@ When investigating **{concern}**, start at **{files}**:
   - **Symbolic cache axes** ("F", `PocketCacheShapes`): if a bundle ships
     `*_dyncache` graphs (cache axis −1 in the declared shape), flow_lm's caches
     are sized per voice (`roundUp64(promptRows + tokens + maxFrames)`, ≤ 1000)
-    and mimi's ring at 320 (batch ≤ 4). The published bundle doesn't have them.
+    and mimi's ring at 320 (batch ≤ 4). v21 doesn't have them; the v27 bundle
+    (#31, 2026-09 weights) declares them as its default graphs in bundle.json.
   - **Weights versions** (#31): Kyutai's `english_2026-09` only retrained
     the flow_lm backbone (transformer, text conditioner, speaker projection,
     EOS head, BOS embeddings). The flow head and the whole Mimi codec are
