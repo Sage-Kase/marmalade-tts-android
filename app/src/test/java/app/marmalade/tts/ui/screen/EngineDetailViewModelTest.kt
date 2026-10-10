@@ -299,9 +299,7 @@ class EngineDetailViewModelTest {
         // ("$filesDir/engines/$engineName" being a directory triggers the
         // Installed initial value). The contents don't matter for the VM
         // test — we never call verify() through to verifyLayout().
-        val root = java.io.File.createTempFile("engine-detail-test-", "")
-        root.delete()
-        root.mkdirs()
+        val root = tempRoot("engine-detail-test-")
         java.io.File(root, "engines/$engineName").mkdirs()
         return root
     }
@@ -343,6 +341,12 @@ class EngineDetailViewModelTest {
     }
 }
 
+/** A fresh temp dir, deleted with its contents when the test JVM exits. */
+private fun tempRoot(prefix: String): java.io.File =
+    kotlin.io.path.createTempDirectory(prefix).toFile().also { dir ->
+        Runtime.getRuntime().addShutdownHook(Thread { dir.deleteRecursively() })
+    }
+
 /**
  * The real install pipeline over a fetcher that blocks until [gate] opens and
  * then drops the connection — a download that's genuinely in flight in the
@@ -351,11 +355,7 @@ class EngineDetailViewModelTest {
 private class BlockedDownloadInstaller(
     gate: java.util.concurrent.CountDownLatch,
 ) : EngineInstaller(
-    filesDir = java.io.File.createTempFile("engine-detail-dl-", "").let { temp ->
-        temp.delete()
-        temp.mkdirs()
-        EngineFilesDir { temp }
-    },
+    filesDir = tempRoot("engine-detail-dl-").let { temp -> EngineFilesDir { temp } },
     engineHandle = { /* no-op release */ },
     httpFetcher = { _ ->
         gate.await()
@@ -381,11 +381,7 @@ private class BlockedDownloadInstaller(
  * them with deterministic no-ops to avoid an HTTP fetch.
  */
 private class FakeInstaller(
-    filesRoot: java.io.File = java.io.File.createTempFile("engine-detail-", "").let { temp ->
-        temp.delete()
-        temp.mkdirs()
-        temp
-    },
+    filesRoot: java.io.File = tempRoot("engine-detail-"),
     installedPacks: Set<String> = emptySet(),
 ) : EngineInstaller(
     filesDir = { filesRoot },
