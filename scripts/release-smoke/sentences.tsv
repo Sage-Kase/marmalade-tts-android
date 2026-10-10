@@ -20,3 +20,10 @@ ja	おはようございます。今日は晴れていて、そよ風が吹い�
 zh	早上好。今天阳光明媚，微风轻轻地吹着。
 accented:de	Der Schlüssel liegt auf dem Küchentisch.
 accented:bg	Добро утро. Днес времето е слънчево и духа лек вятър.
+# `speed:<lang>` is the speed stage's sentence pair (speed.py): every engine
+# reads the same two sentences at 1.0x to 2.0x, Kokoro German its German twin.
+# A short sentence, then a long one: the next chunk must be ready before the
+# short one has played out, so a chunk seam falls where stalls show. Common in
+# real text ("Good morning.", "Chapter one.") and the hardest case for it.
+speed:en	Good morning. The sun is out today, and a light breeze is moving over the hills while we walk down to the river after lunch to watch the boats go by.
+speed:de	Guten Morgen. Heute scheint die Sonne, und über den Hügeln weht ein leichter Wind, während wir nach dem Mittagessen zum Fluss hinuntergehen und den Booten zuschauen.

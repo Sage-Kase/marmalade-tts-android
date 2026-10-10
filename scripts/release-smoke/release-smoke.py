@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
-"""Release gate: every engine x every language speaks one sentence on the test phone.
+"""Release gate: every engine x every language speaks on the test phone, and keeps up at speed.
 
-Installs the build under test with `adb install -r`, then, through Android's
-public TextToSpeech API (the probe APK, see probe/), renders one sentence per
-(engine, language) the build advertises to a WAV on the phone. Nothing is
-played. A row passes when audio came out (samples, plausible length, not
-silence) and the app's process logged no exception while rendering it.
+Installs the build under test with `adb install -r`, then drives it through
+Android's public TextToSpeech API (the probe APK, see probe/). Nothing is
+played aloud. Two stages, both run by default:
 
-Prints a pass/fail table and exits 1 if any row fails (2 on a setup error).
+  smoke  one sentence per (engine, language) the build advertises, rendered to
+         a WAV. A row passes when audio came out (samples, plausible length,
+         not silence) and the app's process logged no exception.
+  speed  one voice per engine at 1.0x, 1.25x, 1.5x and 2.0x (speed.py): first
+         sound, and whether real-time playback would have stalled, judged
+         against the app's own speed warning and the last release's baseline.
+
+Prints pass/fail tables and exits 1 if any row fails (2 on a setup error).
 Usage and the one-time phone setup: README.md next to this file.
 """
 from __future__ import annotations
@@ -23,6 +28,8 @@ import sys
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+
+import speed
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
@@ -57,6 +64,8 @@ SEC_PER_CHAR = {"ja": 0.17, "zh": 0.25}
 SEC_PER_CHAR_DEFAULT = 0.065
 MIN_FACTOR, MAX_FACTOR = 0.35, 4.0
 ROW_TIMEOUT_S = 240
+SPEED_BASELINE = HERE / "speed-baseline.json"
+WHISPER_CHECK = HERE / "whisper-check.py"
 
 LOGCAT_RE = re.compile(r"^\s*(\d+\.\d+)\s+(\d+)\s+(\d+)\s+([VDIWEF])\s+(.*?)\s*:\s?(.*)$")
 EXCEPTION_RE = re.compile(r"\b[\w.$]*(Exception|Error)\b|^\s*at [\w.$<>]+\(|^Caused by:")
@@ -106,6 +115,17 @@ class Phone:
         """The system TTS speech rate as a multiplier (Settings.Secure tts_default_rate, 100 = 1.0x)."""
         v = self.sh("settings get secure tts_default_rate").strip()
         return int(v) / 100 if v.isdigit() and int(v) > 0 else 1.0
+
+    def skin(self) -> tuple[float, int]:
+        """VIRTUAL-SKIN from the thermal HAL's live readings (the cached section
+        goes stale while the screen is off): (°C, throttling status, 0 = none)."""
+        hal = self.sh("dumpsys thermalservice").split("Current temperatures from HAL", 1)[-1]
+        m = re.search(r"mValue=([\d.]+), mType=\d+, mName=VIRTUAL-SKIN, mStatus=(\d+)", hal)
+        return (float(m.group(1)), int(m.group(2))) if m else (0.0, 0)
+
+    def mem_available_mb(self) -> int:
+        m = re.search(r"MemAvailable:\s+(\d+)", self.sh("cat /proc/meminfo"))
+        return int(m.group(1)) // 1024 if m else -1
 
     def pids(self, pkg: str) -> set[str]:
         return set(self.sh(f"pidof {pkg}", check=False).split())
@@ -381,6 +401,10 @@ def print_table(rows: list[Row], header: str) -> str:
                      f"{r.rms_db:.1f}" if r.rms_db is not None else "-",
                      f"{r.synth_ms / 1000:.1f} s" if r.synth_ms else "-",
                      "; ".join(r.reasons)[:160]])
+    return print_rows(header, cols, data)
+
+
+def print_rows(header: str, cols: list[str], data: list[list[str]]) -> str:
     widths = [max(len(c), *(len(d[i]) for d in data)) if data else len(c) for i, c in enumerate(cols)]
     fmt = lambda cells: "| " + " | ".join(c.ljust(w) for c, w in zip(cells, widths)) + " |"
     lines = [header, "", fmt(cols), "|" + "|".join("-" * (w + 2) for w in widths) + "|"]
@@ -390,53 +414,13 @@ def print_table(rows: list[Row], header: str) -> str:
     return table
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--apk", type=Path, help="install this build first (adb install -r); default: test what's installed")
-    ap.add_argument("--package", default="app.marmalade.tts.rc", help="app under test (default: the R8 smoke build)")
-    ap.add_argument("--serial", help="adb serial (default: $ANDROID_SERIAL, else the connected --model)")
-    ap.add_argument("--model", default="Pixel 6a", help="refuse any phone but this model (default: Pixel 6a)")
-    ap.add_argument("--all-voices", action="store_true", help="speak every advertised voice, not one per language")
-    ap.add_argument("--out", type=Path, help="results dir (default: build/release-smoke/<time> in the repo)")
-    ap.add_argument("--lock", type=Path, default=Path.home() / ".cache/pixel8a-bench.lock",
-                    help="shared test-phone lock, held for the whole run")
-    ap.add_argument("--backup-dir", type=Path,
-                    default=Path(os.environ.get("MTTS_BACKUP_DIR", Path.home() / "coding/scratch/mtts-device-backups")),
-                    help="where a debuggable app's DB/datastore is copied before an install")
-    a = ap.parse_args()
+def wake_state(phone: Phone) -> str:
+    m = re.search(r"mWakefulness=(\w+)", phone.sh("dumpsys power"))
+    return m.group(1) if m else "?"
 
-    sentences = load_sentences()
-    bundles, partial = read_catalog()
-    detector = LangDetector(REPO / "app/src/main/assets/langdetect.tab")
-    allow = load_allowlist()
-    out = a.out or REPO / "build" / "release-smoke" / time.strftime("%Y-%m-%d-%H%M%S")
-    (out / "wav").mkdir(parents=True, exist_ok=True)
-    if not PROBE_APK.exists():
-        subprocess.run([str(HERE / "build-probe.sh")], check=True)
 
-    serial = find_serial(a.model, a.serial)
-    phone = Phone(serial)
-    _lock = hold_phone_lock(a.lock)
-    print(f"phone lock held; testing on {serial}")
-
-    pkg = install(phone, a.apk, a.backup_dir) if a.apk else a.package
-    info = phone.package_info(pkg)
-    if not info["installed"]:
-        die(f"{pkg} is not installed (pass --apk)")
-    phone.adb("install", "-r", str(PROBE_APK))
-    build = f"{pkg} {info.get('versionName')} ({info.get('versionCode')})"
-    rate = phone.speech_rate()
-    print(f"under test: {build}; system speech rate {rate:.2f}x")
-
-    listed = probe(phone, engine=pkg, mode="list")
-    if listed.get("status") != "ok":
-        die(f"can't list {pkg}'s voices: {listed.get('error')}")
-    voices = [tuple(v.split(",", 1)) for v in listed.get("voices", "").split(";") if "," in v]
-    rows = pick_rows(voices, a.all_voices, partial)
-    advertised = {r.engine for r in rows}
-    missing = [Row(engine=e, locale="-", voice="-", reasons=["engine not installed on the phone"])
-               for e in EXPECTED_ENGINES if e not in advertised]
-
+def smoke_stage(phone: Phone, pkg: str, rows: list[Row], sentences: dict[str, str], detector: LangDetector,
+                bundles: dict[str, str], allow: list[re.Pattern], rate: float, out: Path) -> None:
     for i, row in enumerate(rows, 1):
         row.bundle = bundles.get(row.engine, "?")
         key = f"accented:{row.request_lang}" if row.request_lang else row.locale.split("-")[0]
@@ -468,21 +452,225 @@ def main() -> int:
             row.reasons.append(f"app logged: {row.exceptions[0][:120]}")
         if res.get("file"):
             local = out / "wav" / f"{tag}.wav"
-            if subprocess.run(["adb", "-s", serial, "pull", res["file"], str(local)], capture_output=True).returncode == 0:
+            if subprocess.run(["adb", "-s", phone.serial, "pull", res["file"], str(local)],
+                              capture_output=True).returncode == 0:
                 row.wav = str(local)
         row.result = "PASS" if not row.reasons else "FAIL"
 
-    rows += missing
-    failed = [r for r in rows if r.result != "PASS"]
-    header = (f"release smoke — {build} — {time.strftime('%Y-%m-%d %H:%M')} — speech rate {rate:.2f}x — "
-              f"{len(rows) - len(failed)}/{len(rows)} pass")
-    table = print_table(rows, header)
-    (out / "table.md").write_text(table + "\n")
-    (out / "results.json").write_text(json.dumps({"build": build, "serial": serial, "speech_rate": rate,
-                                                  "rows": [asdict(r) for r in rows]}, indent=2, ensure_ascii=False))
+
+def speed_voices(advertised: set[str], engines: list[str]) -> list[tuple[str, str | None]]:
+    """(engine, voice) per speed-stage row group: SPEED_VOICES, plus the first
+    advertised voice of each released VITS pack. None = not advertised."""
+    picks = [(e, v if v in advertised else None) for e, v in speed.SPEED_VOICES.items()]
+    for pack in speed.released_vits_packs(REPO):
+        voice = next((v for v in sorted(advertised)
+                      if v.startswith(VITS_ENGINE + ":") and v.split(":", 1)[1].split("#")[0] == pack), None)
+        picks.append((VITS_ENGINE, voice or f"{VITS_ENGINE}:{pack}?"))
+    return [(e, v) for e, v in picks if e in engines]
+
+
+def wait_cool(phone: Phone, max_skin_c: float, timeout_s: float) -> tuple[float, int, bool]:
+    """Wait until the phone's skin is at most [max_skin_c] and unthrottled.
+    A warm phone renders a third slower, which would read as a regression."""
+    deadline = time.monotonic() + timeout_s
+    while True:
+        skin, status = phone.skin()
+        if (skin <= max_skin_c and status == 0) or time.monotonic() > deadline:
+            return skin, status, skin <= max_skin_c and status == 0
+        print(f"[speed] cooling down: skin {skin:.1f} °C (status {status}), waiting for {max_skin_c:.1f} °C …",
+              flush=True)
+        time.sleep(30)
+
+
+def speed_stage(phone: Phone, pkg: str, picks: list[tuple[str, str | None]], texts: dict[str, str],
+                bundles: dict[str, str], allow: list[re.Pattern], takes: int, out: Path,
+                max_skin_c: float, cool_timeout_s: float) -> list[speed.SpeedRow]:
+    """Render every (voice, speed) [takes] times, interleaved (take 1 of every
+    speed, then take 2, ...) so thermal drift spreads across speeds. Each
+    voice starts on a cool phone and is warmed up first, so first sound is a
+    loaded engine's."""
+    (out / "speed").mkdir(exist_ok=True)
+    rows = []
+    for engine, voice in picks:
+        group = [speed.SpeedRow(engine=engine, voice=voice or speed.SPEED_VOICES.get(engine, engine), speed=s,
+                                bundle=bundles.get(engine, "?")) for s in speed.SPEEDS]
+        rows += group
+        if voice is None or voice.endswith("?"):
+            for r in group:
+                r.reasons.append("voice not advertised (engine or pack not installed on the phone)")
+            continue
+        skin, status, cool = wait_cool(phone, max_skin_c, cool_timeout_s)
+        for r in group:
+            r.skin_c, r.mem_available_mb = round(skin, 1), phone.mem_available_mb()
+        if not cool:
+            for r in group:
+                r.reasons.append(f"phone too warm to measure: skin {skin:.1f} °C, status {status}, "
+                                 f"after {cool_timeout_s / 60:.0f} min")
+            continue
+        text = texts["de" if engine == "kokoro-de-v1_0" else "en"]
+        text64 = base64.b64encode(text.encode()).decode()
+        print(f"[speed] {voice}: skin {skin:.1f} °C, {group[0].mem_available_mb} MB free; warm-up", flush=True)
+        probe(phone, engine=pkg, mode="speak", voice=voice, rate="1.0", out="speed-warmup",
+              text64=base64.b64encode(b"Hello there.").decode())
+        for take in range(takes):
+            for r in group:
+                print(f"[speed] {voice} {r.speed:g}x take {take + 1}/{takes} …", flush=True)
+                since, pids = phone.now(), phone.pids(pkg)
+                tag = re.sub(r"[^\w.-]", "_", f"{voice}-{r.speed:g}x")
+                res = probe(phone, watch=pkg, since=since, start_pids=frozenset(pids), engine=pkg, mode="speak",
+                            voice=voice, rate=f"{r.speed:g}", text64=text64, out=f"speed-{tag}")
+                time.sleep(0.5)
+                r.exceptions += app_exceptions(phone, pkg, since, pids | phone.pids(pkg), allow)
+                if res.get("status") != "ok" or int(res.get("samples", 0)) == 0 or not res.get("chunks"):
+                    r.reasons.append(res.get("error", "no audio"))
+                    continue
+                first, stalls = speed.replay(speed.parse_chunks(res["chunks"]), int(res["sampleRate"]))
+                t = speed.Take(first_sound_ms=first, synth_ms=int(res["synthMs"]),
+                               duration_ms=int(res["durationMs"]), stalls=stalls)
+                if take == 0:
+                    local = out / "speed" / f"{tag}.wav"
+                    if subprocess.run(["adb", "-s", phone.serial, "pull", res["file"], str(local)],
+                                      capture_output=True).returncode == 0:
+                        t.wav = f"speed/{local.name}"
+                        if stalls:
+                            speed.write_as_heard(local, stalls, out / speed.as_heard_name(t.wav))
+                r.takes.append(t)
+    return rows
+
+
+def whisper(rows: list[speed.SpeedRow], texts: dict[str, str], python: str, out: Path) -> None:
+    """Transcribe each row's clip (needs a Python with faster_whisper; offline)."""
+    jobs = [{"wav": str(out / r.takes[0].wav), "lang": "de" if r.engine == "kokoro-de-v1_0" else "en"}
+            for r in rows if r.takes and r.takes[0].wav]
+    if not jobs:
+        return
+    p = subprocess.run([python, str(WHISPER_CHECK)], input=json.dumps(jobs), capture_output=True, text=True)
+    if p.returncode != 0:
+        print(f"whisper check failed (not part of the gate): {p.stderr.strip()[-300:]}", file=sys.stderr)
+        return
+    heard = json.loads(p.stdout)
+    for r in rows:
+        if r.takes and r.takes[0].wav and str(out / r.takes[0].wav) in heard:
+            r.whisper = heard[str(out / r.takes[0].wav)]
+            r.whisper_match = speed.word_match(texts["de" if r.engine == "kokoro-de-v1_0" else "en"], r.whisper)
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--apk", type=Path, help="install this build first (adb install -r); default: test what's installed")
+    ap.add_argument("--package", default="app.marmalade.tts.rc", help="app under test (default: the R8 smoke build)")
+    ap.add_argument("--serial", help="adb serial (default: $ANDROID_SERIAL, else the connected --model)")
+    ap.add_argument("--model", default="Pixel 6a", help="refuse any phone but this model (default: Pixel 6a)")
+    ap.add_argument("--stage", choices=["all", "smoke", "speed"], default="all", help="which stages to run (default: all)")
+    ap.add_argument("--engines", help="only these engines, comma-separated (e.g. kokoro-de-v1_0 after a bundle swap)")
+    ap.add_argument("--all-voices", action="store_true", help="smoke: speak every advertised voice, not one per language")
+    ap.add_argument("--takes", type=int, default=2, help="speed: renders per row; judged on the best (default: 2)")
+    ap.add_argument("--cool-skin-c", type=float, default=33.0,
+                    help="speed: wait until the phone's skin is this cool before each engine (default: 33)")
+    ap.add_argument("--cool-timeout", type=float, default=15,
+                    help="speed: minutes to wait for that; an engine still too warm fails (default: 15)")
+    ap.add_argument("--write-baseline", action="store_true",
+                    help="speed: after judging, store this run's rows as the baseline (README, Baseline)")
+    ap.add_argument("--whisper-python", default=os.environ.get("MTTS_WHISPER_PYTHON"),
+                    help="speed: a Python with faster_whisper, to transcribe the clips for the lab (not gated)")
+    ap.add_argument("--out", type=Path, help="results dir (default: build/release-smoke/<time> in the repo)")
+    ap.add_argument("--lock", type=Path, default=Path.home() / ".cache/pixel8a-bench.lock",
+                    help="shared test-phone lock, held for the whole run")
+    ap.add_argument("--backup-dir", type=Path,
+                    default=Path(os.environ.get("MTTS_BACKUP_DIR", Path.home() / "coding/scratch/mtts-device-backups")),
+                    help="where a debuggable app's DB/datastore is copied before an install")
+    a = ap.parse_args()
+
+    sentences = load_sentences()
+    bundles, partial = read_catalog()
+    detector = LangDetector(REPO / "app/src/main/assets/langdetect.tab")
+    model = speed.read_warning_model(REPO)
+    allow = load_allowlist()
+    engines = a.engines.split(",") if a.engines else EXPECTED_ENGINES
+    unknown = [e for e in engines if e not in EXPECTED_ENGINES]
+    if unknown:
+        die(f"unknown engine(s) {unknown}; expected some of {EXPECTED_ENGINES}")
+    out = a.out or REPO / "build" / "release-smoke" / time.strftime("%Y-%m-%d-%H%M%S")
+    (out / "wav").mkdir(parents=True, exist_ok=True)
+    if not PROBE_APK.exists():
+        subprocess.run([str(HERE / "build-probe.sh")], check=True)
+
+    serial = find_serial(a.model, a.serial)
+    phone = Phone(serial)
+    _lock = hold_phone_lock(a.lock)
+    print(f"phone lock held; testing on {serial}")
+
+    pkg = install(phone, a.apk, a.backup_dir) if a.apk else a.package
+    info = phone.package_info(pkg)
+    if not info["installed"]:
+        die(f"{pkg} is not installed (pass --apk)")
+    phone.adb("install", "-r", str(PROBE_APK))
+    build = f"{pkg} {info.get('versionName')} ({info.get('versionCode')})"
+    rate = phone.speech_rate()
+    print(f"under test: {build}; system speech rate {rate:.2f}x")
+
+    listed = probe(phone, engine=pkg, mode="list")
+    if listed.get("status") != "ok":
+        die(f"can't list {pkg}'s voices: {listed.get('error')}")
+    voices = [tuple(v.split(",", 1)) for v in listed.get("voices", "").split(";") if "," in v]
+    stamp = time.strftime("%Y-%m-%d %H:%M")
+    results: dict = {"build": build, "serial": serial, "speech_rate": rate}
+    failed = 0
+
+    if a.stage in ("all", "smoke"):
+        rows = [r for r in pick_rows(voices, a.all_voices, partial) if r.engine in engines]
+        advertised = {r.engine for r in rows}
+        missing = [Row(engine=e, locale="-", voice="-", reasons=["engine not installed on the phone"])
+                   for e in engines if e not in advertised]
+        smoke_stage(phone, pkg, rows, sentences, detector, bundles, allow, rate, out)
+        rows += missing
+        bad = [r for r in rows if r.result != "PASS"]
+        failed += len(bad)
+        header = f"release smoke — {build} — {stamp} — speech rate {rate:.2f}x — {len(rows) - len(bad)}/{len(rows)} pass"
+        table = print_table(rows, header)
+        (out / "table.md").write_text(table + "\n")
+        results["rows"] = [asdict(r) for r in rows]
+
+    if a.stage in ("all", "speed"):
+        texts = {"en": sentences["speed:en"], "de": sentences["speed:de"]}
+        screen = wake_state(phone)
+        if screen == "Awake":  # measure as when listening: screen off
+            phone.sh("input keyevent KEYCODE_SLEEP")
+            time.sleep(2)
+            screen = f"{wake_state(phone)}, after sleep key"
+        print(f"\nspeed stage: screen {screen}; {a.takes} take(s) per row", flush=True)
+        picks = speed_voices({name for name, _ in voices}, engines)
+        srows = speed_stage(phone, pkg, picks, texts, bundles, allow, a.takes, out,
+                            a.cool_skin_c, a.cool_timeout * 60)
+        if a.whisper_python:
+            whisper(srows, texts, a.whisper_python, out)
+        base = speed.load_baseline(SPEED_BASELINE)["rows"]
+        for group in (srows[i:i + len(speed.SPEEDS)] for i in range(0, len(srows), len(speed.SPEEDS))):
+            at_1x = next((r.best("duration_ms") for r in group if r.speed == 1.0 and r.takes), None)
+            for r in group:
+                speed.judge(r, model, at_1x, base.get(r.key))
+        bad = [r for r in srows if r.result == "FAIL"]
+        failed += len(bad)
+        warned = sum(r.result == "WARNED" for r in srows)
+        summary = (f"{len(srows) - len(bad)}/{len(srows)} rows pass"
+                   + (f" ({warned} stall where the app warns)" if warned else "")
+                   + (f"; {len(bad)} FAIL" if bad else ""))
+        header = f"speed stage — {build} — {stamp} — {summary}"
+        table = print_rows(header, speed.TABLE_COLS, speed.table(srows))
+        (out / "speed-table.md").write_text(table + "\n")
+        lab = speed.write_lab(out, srows, {"build": build, "date": stamp, "phone": f"{a.model} {serial}",
+                                           "screen": f"screen {screen}", "takes": a.takes, "summary": summary,
+                                           "threshold": model.threshold}, texts)
+        print(f"lab: {lab}")
+        results["speed"] = {"screen": screen, "takes": a.takes, "rows": [asdict(r) for r in srows]}
+        if a.write_baseline:
+            n = speed.merge_baseline(SPEED_BASELINE, srows, build, time.strftime("%Y-%m-%d"), a.model)
+            print(f"baseline: wrote {n} row(s) to {SPEED_BASELINE} (review and commit it)")
+
+    (out / "results.json").write_text(json.dumps(results, indent=2, ensure_ascii=False))
     print(f"\nresults: {out}")
     if failed:
-        print(f"GATE FAILED: {len(failed)} row(s)", file=sys.stderr)
+        print(f"GATE FAILED: {failed} row(s)", file=sys.stderr)
         return 1
     print("GATE PASSED")
     return 0

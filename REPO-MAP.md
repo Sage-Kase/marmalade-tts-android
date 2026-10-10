@@ -61,11 +61,22 @@ Unit tests can't catch what it catches: v1.1.0's German died on ICU regex
 request language with a Kokoro voice. Kokoro honours it only when
 `LangDetector` abstains on the text, and it reads most German prose as en or
 fr, so those sentences are picked (and checked) to make it abstain. Not
-covered: developer-only engines (system TTS never offers them). Gotcha: the phone's
-system speech rate (`settings get secure tts_default_rate`) reaches
-`SynthesisRequest.speechRate` even when the client called
-`setSpeechRate(1.0f)`, so the gate scales its length check by it. README
-next to the script.
+covered: developer-only engines (system TTS never offers them). Gotcha: a
+client that sets no rate gets the phone's system speech rate
+(`settings get secure tts_default_rate`; 1.82× on the 6a) in
+`SynthesisRequest.speechRate`, so the smoke stage, which sets none, scales its
+length check by it; `setSpeechRate(x)` is honoured as given (measured
+2026-10-10). **Speed stage (#42), run by default:** one voice per engine ×
+1.0/1.25/1.5/2.0×, silently: the probe timestamps each chunk
+(`onAudioAvailable`) and `speed.py` replays the arrivals against a real-time
+clock for first sound and stalls, screen off, waiting before each engine for
+the phone to cool (skin ≤ 33 °C: a warm 6a renders a third slower). A stall where `SpeedPerfWarning` (the
+reference phone's prediction, constants read from the Kotlin) shows no warning
+fails, as does a regression against the committed `speed-baseline.json`
+(refresh on purpose: `--write-baseline`, per engine with `--engines`). It
+writes a listening lab (`speed-lab.html`, “as heard” clips with the stalls
+put in). System-TTS path only; the in-app reader's segment scheduling isn't
+measured. README next to the script.
 
 **Headless emulator on chocolate (#34):** `scripts/emulator/emulator.sh`
 (`provision` / `start` / `stop`, piped over ssh:
