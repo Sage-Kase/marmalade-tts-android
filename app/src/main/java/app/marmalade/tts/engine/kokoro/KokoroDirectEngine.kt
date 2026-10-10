@@ -80,7 +80,10 @@ import kotlinx.coroutines.withContext
 //   linear model ([KokoroGenStats]) and the planned durations; that makes it
 //   purely convolutional, so the slices join exactly. Sentences stay whole up
 //   to the 500-token cap, except a long first sentence whose plan would be
-//   heard, which gets an ~80-token head ([kokoroStreamCutFirst]). Pre-roll
+//   heard, which gets an ~80-token head ([kokoroStreamCutFirst]), and a
+//   later one whose plan would outrun the audio still to play, cut at a
+//   clause while rendering ([kokoroLaterHead], #49; the whole path does the
+//   same with its render time). Pre-roll
 //   above 1× banks slices worth of audio, sized up front from the last
 //   measured streamed RTF ([PrerollGate.streamBankMs]). Both graphs run on
 //   the CPU EP with intra-op spinning (#5: first sound median 1.81 s →
@@ -267,6 +270,16 @@ internal fun kokoroLaterHead(tokens: Int, aheadMs: Long, msPerToken: Double, fix
     if (fixedMs + tokens * msPerToken <= aheadMs + SEAM_WAIT_TOLERANCE_MS) return null
     return ((aheadMs - fixedMs) / msPerToken).toInt().coerceIn(LATER_HEAD_MIN_TOKENS, maxHead)
 }
+
+/**
+ * [budget] for cutting a later chunk at a head of about [head] tokens (#49).
+ * The head may run over [head] as far as the packer's top-up allows (one
+ * more clause when the first is under half of it, up to
+ * [TextChunker.WHOLE_TOL] × [head]): rejecting that head would leave the
+ * whole chunk, the worse wait.
+ */
+internal fun kokoroLaterCutBudget(budget: TextChunker.TokenBudget, head: Int): TextChunker.TokenBudget =
+    budget.copy(firstPiece = head, firstPieceMin = LATER_HEAD_MIN_TOKENS, firstPieceMax = (head * TextChunker.WHOLE_TOL).toInt())
 
 /** Samples per duration frame (25 ms at 24 kHz), the generator's grid. */
 private const val FRAME_SAMPLES = TailTrim.FRAME_SAMPLES
@@ -944,7 +957,7 @@ open class KokoroDirectEngine @Inject constructor(
         val chunk = queue.removeFirst()
         val head = kokoroLaterHead(chunk.tokens, aheadMs, msPerToken, fixedMs, budget.firstPieceMax) ?: return chunk
         val pieces = synthLock.withLock {
-            TextChunker.clauseHead(chunk, budget.copy(firstPiece = head, firstPieceMin = LATER_HEAD_MIN_TOKENS)) { part ->
+            TextChunker.clauseHead(chunk, kokoroLaterCutBudget(budget, head)) { part ->
                 encoded.getOrPut(part) { encodeTextToTokens(part, lang) }.size
             }
         }
@@ -967,7 +980,9 @@ open class KokoroDirectEngine @Inject constructor(
      * The planner reads a whole piece before its first slice (~5 ms a
      * token on the 8a), so a long first sentence is cut at a clause into a
      * ~80-token head when that wait would be heard ([kokoroStreamCutFirst]:
-     * nothing playing to cover it, or a pre-roll to bank).
+     * nothing playing to cover it, or a pre-roll to bank), and so is any
+     * later chunk whose plan would outrun the audio still to play
+     * ([nextChunk], #49: "Good morning." then a long sentence).
      *
      * Pre-roll is sized in audio, not chunks: slices are held until they
      * hold [PrerollGate.streamBankMs] of played audio, worked out up front
