@@ -354,7 +354,8 @@ When investigating **{concern}**, start at **{files}**:
   is a `SynthAudio.resumePoint` (see the Narrator's resume points).
 - **Kokoro streams** (issue #13 "E", `engine/kokoro/KokoroDirectEngine.kt`,
   prototyped in #5): a bundle with `planner.onnx` + `gen.onnx`
-  + `genstats/<voice>.bin` (a non-empty file for every catalog voice, or it
+  + `genstats/<voice>.bin` (a non-empty file for every one of the engine's
+  `genStatsVoiceKeys`, all 53 catalog voices or German's `thorsten`, or it
   isn't the streaming layout: `hasAllGenStats`; an unknown voice key renders
   with speaker 0's stats, `genStatsKeyFor`; the int8 v23 model cut in two,
   weights unchanged; scripts `~/coding/scratch/kokoro-stream-d1c/`) plans
@@ -378,7 +379,7 @@ When investigating **{concern}**, start at **{files}**:
   Both graphs: CPU EP (QDQ),
   intra-op spinning ON (#5 clean phone bench, Heart: first sound median /
   worst 1.81 s / 5.6 s unsplit → 0.94 s / 1.38 s streamed + spinning). A
-  bundle without the layout (v23 and older, the German engine, the debug 7M)
+  bundle without the layout (v23 and older, the German engine's v25, the debug 7M)
   renders exactly as before
   through `model.onnx` (the whole path: short first
   piece, chunk-grain `PrerollGate`, spinning off). `isInstalled` and the
@@ -417,6 +418,18 @@ When investigating **{concern}**, start at **{files}**:
   v26 files, for an A/B), `kokoro.affinity` (ORT
   `session.intra_op_thread_affinities` for the streaming graphs). The plan
   line names the encoder (`enc=`), the load line both files.
+  **Kokoro German streams the same way** (issue #35): `KokoroGermanEngine`
+  only overrides `genStatsVoiceKeys` (`thorsten`), and the installer's
+  `verifyKokoroDeLayout` accepts the whole model or planner-rest + textenc
+  + gen + `genstats/thorsten.bin` (no textenc-en: `lang` is always `de`).
+  Its v28 bundle is cut from v25's model.onnx exactly like v26
+  (`~/coding/scratch/kokoro-de-k35/`, `graphs/README.md`). Thorsten's
+  ALBERT differs from base Kokoro's (fine-tuned, ~0.01 per weight), so its
+  `textenc` is int8f of its OWN ALBERT; v26's can't be reused. Thorsten's
+  graph names match base's except the duration output (`onnx::Shape_3392`).
+  Its genstats are fitted on German only (250 lines, CV sentence-collector
+  CC0 + PD Kafka/Hesse; tokens from the app-exact G2P spec
+  `kokoro-german-lab/fixtures/gen_fixtures_de.py`): 0.84 dB held out.
 - **Pocket streams** (issue #15, `engine/PocketEngine.kt` + `engine/pocket/`;
   both flavors since #29). Five graphs: text_conditioner, mimi_encoder (voice prompt),
   flow_lm_main (the AR transformer, int8, 6 KV caches of 1000 rows), flow_lm_flow

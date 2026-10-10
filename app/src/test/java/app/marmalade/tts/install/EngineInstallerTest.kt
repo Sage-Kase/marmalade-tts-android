@@ -338,6 +338,57 @@ class EngineInstallerTest {
         assertEquals(InstallState.Installed, installer.verifyAgainst(descriptor))
     }
 
+    /** A German Kokoro dir with what every layout needs: voices, tokens, model-format (no lexicon-zh, no openjtalk_dic). */
+    private fun stageKokoroDeCommon(): Pair<EngineDescriptor, File> {
+        val descriptor = engineDescriptor(
+            name = "kokoro-de-v1_0",
+            url = "https://test/kokoro-de.tar.gz",
+            archiveBytes = ByteArray(0),
+        )
+        val dir = File(filesDir, "engines/${descriptor.name}").apply { mkdirs() }
+        File(dir, "voices.bin").writeText("voices")
+        File(dir, "tokens.txt").writeText("tokens")
+        File(dir, "model-format.txt").writeText("qdq-int8")
+        return descriptor to dir
+    }
+
+    @Test
+    fun verifyAcceptsTheGermanKokoroWholeModel() = runTest {
+        // The v25 German bundle: model.onnx, no streaming files.
+        val (descriptor, dir) = stageKokoroDeCommon()
+        assertEquals("no model at all", InstallState.Corrupt, installer.verifyAgainst(descriptor))
+        File(dir, "model.onnx").writeText("too small")
+        assertEquals(InstallState.Corrupt, installer.verifyAgainst(descriptor))
+        File(dir, "model.onnx").writeBytes(ByteArray(2 * 1024 * 1024) { 0x42 })
+        assertEquals(InstallState.Installed, installer.verifyAgainst(descriptor))
+        File(dir, "model-format.txt").delete()
+        assertEquals("model-format.txt is required", InstallState.Corrupt, installer.verifyAgainst(descriptor))
+    }
+
+    @Test
+    fun verifyAcceptsTheGermanKokoroStreamingLayout() = runTest {
+        // Issue #35: the v28 German bundle is the v26 layout with one voice's
+        // stats (genstats/thorsten.bin), no textenc-en and no model.onnx.
+        val (descriptor, dir) = stageKokoroDeCommon()
+        val big = ByteArray(2 * 1024 * 1024) { 0x42 }
+        File(dir, "planner-rest.ort").writeBytes(big)
+        File(dir, "textenc.ort").writeBytes(big)
+        File(dir, "gen.ort").writeBytes(big)
+        assertEquals("no genstats/", InstallState.Corrupt, installer.verifyAgainst(descriptor))
+        File(dir, "genstats").mkdirs()
+        File(dir, "genstats/thorsten.bin").writeBytes(ByteArray(0))
+        assertEquals("empty stats", InstallState.Corrupt, installer.verifyAgainst(descriptor))
+        File(dir, "genstats/thorsten.bin").writeText("stats")
+        assertEquals(InstallState.Installed, installer.verifyAgainst(descriptor))
+
+        File(dir, "textenc.ort").delete()
+        assertEquals("no text encoder", InstallState.Corrupt, installer.verifyAgainst(descriptor))
+        File(dir, "textenc.onnx").writeBytes(big)
+        assertEquals("a graph may be .onnx", InstallState.Installed, installer.verifyAgainst(descriptor))
+        File(dir, "gen.ort").writeText("too small")
+        assertEquals("graph-less", InstallState.Corrupt, installer.verifyAgainst(descriptor))
+    }
+
     /** Write a complete KittenDirect on-disk layout into [dir]. */
     private fun stageKittenDirectLayout(dir: File) {
         File(dir, "planner.onnx").writeBytes(ByteArray(2 * 1024 * 1024) { 0x42 })

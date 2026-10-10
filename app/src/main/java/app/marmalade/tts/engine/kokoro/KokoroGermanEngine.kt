@@ -20,11 +20,16 @@ import javax.inject.Singleton
 // separate downloadable engine with its own directory and `voices.bin`.
 //
 // Everything about running the model — ORT session setup (CPU-EP-only because
-// the bundle's model-format.txt starts with "qdq"), the streaming pre-roll
-// gate, style-row mmap, tail trim — is inherited unchanged from
-// [KokoroDirectEngine]. This subclass only redirects the catalog-shaped seams:
+// the bundle's model-format.txt starts with "qdq"), both render paths and
+// their pre-roll, style-row mmap, tail trim — is inherited unchanged from
+// [KokoroDirectEngine]. The v25 bundle is the whole model (model.onnx); the
+// v28 bundle (not yet published) is the v26-style streaming layout:
+// planner-rest + textenc + gen and genstats/thorsten.bin, no model.onnx and
+// no textenc-en (German never uses the English student). The base picks the
+// path from the files. This subclass only redirects the catalog-shaped seams:
 //
-//   * one speaker → [speakerIdFor] is always 0;
+//   * one speaker → [speakerIdFor] is always 0, and [genStatsVoiceKeys] is
+//     just "thorsten" (the layout check and the stats lookup);
 //   * German-only → [espeakVoiceFor] is always "de", so the base
 //     [KokoroDirectEngine.espeakPhonemes] routes every span through
 //     [app.marmalade.tts.phonemizer.GermanG2P] (normalizer + override lexicon +
@@ -54,4 +59,7 @@ class KokoroGermanEngine @Inject constructor(
     override fun espeakVoiceFor(voiceKey: String): String = "de"
 
     override val warmupVoiceKey: String = KokoroGermanVoiceCatalog.THORSTEN_VOICE_KEY
+
+    /** The streaming bundle's one generator-stats file: genstats/thorsten.bin. */
+    override val genStatsVoiceKeys: List<String> = listOf(KokoroGermanVoiceCatalog.THORSTEN_VOICE_KEY)
 }
