@@ -1249,6 +1249,14 @@ open class PocketEngine @Inject constructor(
      * also added to the in-memory cache so the first synth call after
      * cloning doesn't pay the file-read cost.
      *
+     * **Cap the clip length before wiring this to a UI.** [encodePcm]'s
+     * only cap is 30 s, and `mimi_encoder`'s peak memory grows roughly
+     * with the square of the clip length (desktop ORT, 3 threads, issue
+     * #38: 10 s 0.9 GB, 15 s 1.7 GB, 20 s 3.0 GB, 26 s 4.4 GB). A 26 s
+     * reference got the app OOM-killed on a 4 GB emulator, so a user's
+     * clip must be cut to ~15–17 s (the longest built-in reference is
+     * Alba's 20 s) before it gets here.
+     *
      * @param displayName user-facing label (≤ 256 UTF-8 bytes)
      * @param pcm mono float32 PCM in [-1, 1]
      * @param srcSampleRate sample rate of [pcm]

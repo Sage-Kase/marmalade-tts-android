@@ -343,7 +343,11 @@ When investigating **{concern}**, start at **{files}**:
   roughly with the square of the WAV's length (desktop ORT, 3 threads:
   10 s 0.9 GB, 15 s 1.7 GB, 20 s 3.0 GB, 26 s 4.4 GB; the app caps at 30 s).
   Alba's 20 s is the longest shipped; keep new references at or under the
-  VCTK voices' ~17 s.
+  VCTK voices' ~17 s. The same holds for user cloning: `PocketEngine.cloneVoice`
+  (no caller yet) only applies the 30 s cap, which is ~6 GB at peak and
+  more than a phone can give (#30's 26 s Jenny reference got the app
+  OOM-killed on a 4 GB emulator). Whoever wires up a cloning UI must cap
+  the clip at ~15–17 s first (its kdoc says so).
   Deferred to a later release, names already chosen by Max (don't ship
   yet): Kyutai donors Greggy = Greg, Roscoe = Roscoe, P0LFR = Jason,
   Andrea_(Spanish) = Andrea (no "Spanish" label), LC = Bogdan,
