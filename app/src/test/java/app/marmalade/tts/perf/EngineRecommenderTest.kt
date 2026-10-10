@@ -134,11 +134,11 @@ class EngineRecommenderTest {
 
     @Test
     fun playReferencePhoneRecommendsPocket() {
-        // The Pixel 6a: Pocket predicted at 0.58, under the comfort line.
+        // The Pixel 6a: Pocket (v27) predicted at 0.49, under the comfort line.
         val rec = EngineRecommender.recommend(referencePhone, play)!!
         assertEquals(pocket, rec.recommended)
         assertEquals(setOf(pocket), rec.pills())
-        assertEquals(0.58, EngineRecommender.predictedRtf(pocket, referencePhone)!!, 0.005)
+        assertEquals(0.49, EngineRecommender.predictedRtf(pocket, referencePhone)!!, 0.005)
         assertEquals(EngineRecommender.recommend(referencePhone, fdroid), rec)
     }
 

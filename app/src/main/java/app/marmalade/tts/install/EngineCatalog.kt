@@ -67,7 +67,8 @@ data class EngineArchive(
  *
  * Tiers follow one same-phone bench (issue #18, Pixel 6a, 2026-10-09; RTF =
  * render time ÷ audio, B1 sentences): FASTEST = Kitten (0.26, first sound
- * 0.4 s) and Jenny (0.17, 0.7 s); FAST = Pocket (0.63, 0.55 s);
+ * 0.4 s) and Jenny (0.17, 0.7 s); FAST = Pocket (0.63, 0.55 s; the v27
+ * bundle 0.49, 0.38 s, issue #38's same-phone re-bench, so still FAST);
  * MODERATE = Kokoro (0.87 published render, 2.1 s) and Kokoro German (0.83,
  * 3.1 s), which barely keep up on that phone. HEAVY is left for the Pocket
  * clean-reference build. Re-bench before moving an engine.

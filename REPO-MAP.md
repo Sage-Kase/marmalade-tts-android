@@ -811,7 +811,9 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   Recommended pill; others are FINE up to 0.9, then MAY_BE_SLOW; Kitten is
   never warned. Flavor-aware only through `EngineCatalog.visibleTo`; since
   Pocket reached Play (#29) both builds offer the same engines, so a phone
-  gets the same pill on either (the Pixel 6a: Pocket, predicted 0.58).
+  gets the same pill on either (the Pixel 6a: Pocket, predicted 0.49).
+  Pocket's cost (2.39) is the v27 bundle's render, from #38's ABBA against
+  v21 scaled by that session's v21 re-measure (see the KDoc).
   `predictedRtf` feeds the speed-up warning before measured RTFs accrue.
   Kokoro's cost (4.17) is the v26 streaming render, from #25's same-phone
   bench scaled by that session's v23 re-measure (see the KDoc): on the 6a
@@ -822,7 +824,7 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   `devbench/DevStateService` replays onboarding and forces a probe value
   (`--ez onboarded false --ef kittenRtf <x>`, <= 0 clears it).
 - `install/EngineCatalog.kt` `SpeedTier` — the card's 4-segment meter,
-  from the same bench: Kitten/Jenny 4, Pocket 3, Kokoro/Kokoro German 2
+  from the same bench: Kitten/Jenny 4, Pocket 3 (v27 0.49 RTF, still FAST), Kokoro/Kokoro German 2
   (MODERATE), HEAVY only the Pocket clean-reference build.
 
 ### Preprocessing
