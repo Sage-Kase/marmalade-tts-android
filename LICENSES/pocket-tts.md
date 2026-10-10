@@ -119,6 +119,13 @@ were added in v27 (issue #38):
   The app names the voice "Jenny" and credits it "Jenny (Dioco)" under
   its name in the voice pickers.
 
+From v27 the bundle also ships `voice_cache/<voice>.emb` for each voice:
+the voice's reference WAV run through the bundle's own Mimi encoder
+(`scripts/pocket-bundle/make_voice_cache.py`), so the phone doesn't have
+to. Each file derives from its voice's recording and from the weights, and
+carries both licences: the voice's (table above) and the weights'
+CC-BY-4.0 (section 1).
+
 ### Attribution
 
 The CC-BY-4.0 voices and `jenny` require attribution. The reference recordings are

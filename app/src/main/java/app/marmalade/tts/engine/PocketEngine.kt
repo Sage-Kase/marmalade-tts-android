@@ -1257,7 +1257,8 @@ open class PocketEngine @Inject constructor(
      * 6a a 10 s reference peaked at +1.1 GB and a 16.8 s one at +2.65 GB).
      * A 26 s reference got the app OOM-killed on a 4 GB emulator, so cut a
      * user's clip to about the built-in voices' 10–13 s before it gets
-     * here.
+     * here. The built-in voices avoid the encoder entirely (v27 ships their
+     * `voice_cache/<voice>.emb`); a clone can't, so this cap stands.
      *
      * @param displayName user-facing label (≤ 256 UTF-8 bytes)
      * @param pcm mono float32 PCM in [-1, 1]

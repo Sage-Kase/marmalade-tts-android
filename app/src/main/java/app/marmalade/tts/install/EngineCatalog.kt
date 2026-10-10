@@ -242,10 +242,10 @@ object EngineCatalog {
     private const val KOKORO_DE_INSTALLED_SIZE_BYTES: Long = 183_180_788L
     // v27 bundle: english_2026-09 weights, symbolic-cache graphs, v21's
     // voices minus marius plus the five #38 voices (cosette/jean dropped
-    // since v21 — CC-BY-NC-4.0).
-    private const val POCKET_TTS_INSTALLED_SIZE_BYTES: Long = 219_390_613L
+    // since v21 — CC-BY-NC-4.0), and each voice's precomputed embedding.
+    private const val POCKET_TTS_INSTALLED_SIZE_BYTES: Long = 224_998_077L
     // The clean-reference dev engine still pins the older 8-voice v10 archive
-    // (2026-04 weights, ~1 MB smaller); it's developer-only, so the small
+    // (2026-04 weights, ~6 MB smaller); it's developer-only, so the small
     // estimate drift is immaterial.
     private const val POCKET_TTS_DEV_INSTALLED_SIZE_BYTES: Long = POCKET_TTS_INSTALLED_SIZE_BYTES
 
@@ -439,7 +439,12 @@ object EngineCatalog {
      * weights). v27 also drops `marius.wav` and adds five voices (issue #38:
      * four CC0 Kyutai voice donations and Jenny), so their rows only become
      * pickable once v27 is installed (the layout check asks for every
-     * offered voice's WAV).
+     * offered voice's WAV). It is the first bundle to ship
+     * `voice_cache/<voice>.emb`, each voice's embedding precomputed by
+     * `scripts/pocket-bundle/make_voice_cache.py` from the bundle's own
+     * encoder, so no phone encodes a built-in voice (first use used to peak
+     * at +1.1 GB on a Pixel 6a, +2.65 GB for Jenny). An update replaces the
+     * whole directory, so an older bundle's cache never meets new weights.
      *
      * Licensing: the Kyutai model **code** is MIT (not Apache-2.0) and its
      * **weights** are CC-BY-4.0 (huggingface.co/kyutai/pocket-tts). Each
@@ -455,13 +460,13 @@ object EngineCatalog {
         name = "pocket-tts-en-v2026_04",
         displayName = "Pocket TTS (English, 2026-09)",
         descriptionRes = R.string.engine_pocket_desc,
-        downloadSizeBytes = 99_359_339L,
+        downloadSizeBytes = 104_703_288L,
         installedSizeBytes = POCKET_TTS_INSTALLED_SIZE_BYTES,
         isRecommended = false,
         archive = EngineArchive(
             url = "https://github.com/maxwhipw/marmalade-tts-android-engines/releases/download/v27/pocket-tts-en-v2026_09-mixed.tar.bz2",
-            sha256 = "1fd125fff52edb29ff6ee93e223a026c3d8322675568d7f8ddf691cc67dec3f4",
-            sizeBytes = 99_359_339L,
+            sha256 = "00cf24b87111de48717c26a4dcc126f2c80de056b061d5de888dac653f8b1cdf",
+            sizeBytes = 104_703_288L,
             archiveRoot = "pocket-tts-en/",
         ),
         licenseNotice = "LICENSES/pocket-tts.md",

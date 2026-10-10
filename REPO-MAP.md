@@ -335,11 +335,26 @@ When investigating **{concern}**, start at **{files}**:
   the encoder-memory note below). Adding a voice = WAV in the bundle's
   `voices/` + `predefined_voices` in bundle.json + `PocketVoiceCatalog.voices`
   and `creditFor` + CATALOG_VERSION bump + LICENSES/pocket-tts.md, CREDITS,
-  NOTICE, LicenseCatalog + the voice count in `engine_pocket_desc`.
+  NOTICE, LicenseCatalog + the voice count in `engine_pocket_desc` + rerun
+  `scripts/pocket-bundle/make_voice_cache.py <bundle-dir>` before packing.
   Re-check each Kyutai donor file is still on HF before a release (donors
   can ask for deletion, ToU §8). The clean twin
   (`PocketDevVoiceCatalog.BUNDLE_VOICE_KEYS`) keeps its v10 archive's five.
-  **Reference length costs memory on first use**: `mimi_encoder` peaks
+  **Precomputed embeddings** (#38, from v27): the bundle ships
+  `voice_cache/<voice>.emb` for every predefined voice, made by
+  `scripts/pocket-bundle/make_voice_cache.py` from the bundle's own WAVs and
+  `mimi_encoder` (the app's preprocessing ported exactly, one ORT thread,
+  checked bit-identical over two runs; against the app's own encode on the
+  x86 emulator the max abs diff is ≤ 7.5e-7). PocketEngine reads the `.emb`
+  before it would encode, so a phone never runs the encoder for a built-in
+  voice; a missing or wrong-size `.emb` falls back to the WAV. The cache is
+  tied to one weights version, and an update replaces the whole engine dir
+  (`EngineInstallerTest.anUpdateLeavesNoFileFromTheOldInstallBehind`), so
+  an old cache never meets new weights. A ~1e-7 embedding difference still
+  changes a seeded take (the sampler amplifies it), so a shipped `.emb` and
+  an on-phone encode give different takes of the same voice.
+  **Reference length costs memory when the encoder does run** (a missing
+  `.emb`, a bundle before v27, user cloning): `mimi_encoder` peaks
   roughly with the square of the WAV's length (desktop ORT, 3 threads:
   10 s 0.9 GB, 15 s 1.7 GB, 20 s 3.0 GB, 26 s 4.4 GB; the app caps at 30 s).
   Pixel 6a, first use (fresh `voice_cache`), peak PSS over the idle app:
@@ -347,7 +362,8 @@ When investigating **{concern}**, start at **{files}**:
   (VmHWM 2.83 GB); with the embedding cached, +0.43 GB. Read a WAV's length
   with `soxi`, not from its size: alba is 48 kHz and the VCTK voices 32 kHz.
   Upstream's references run 7.9–12.9 s (azelma the longest) and Jenny's
-  16.8 s is the outlier. The same holds for user cloning:
+  16.8 s is the outlier; with the shipped `.emb` that no longer matters.
+  It does for user cloning, which always encodes:
   `PocketEngine.cloneVoice` (no caller yet) only applies the 30 s cap, ~6 GB
   at peak, more than a phone can give (#30's 26 s Jenny reference got the
   app OOM-killed on a 4 GB emulator). Whoever wires up a cloning UI must

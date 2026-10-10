@@ -4,8 +4,8 @@ import app.marmalade.tts.data.db.VoiceMeta
 
 /**
  * Static catalog of the predefined voices the app offers from the
- * `pocket-tts-en-v2026_09-mixed` bundle (engines release v27, ~100 MB
- * compressed, ~220 MB on-disk).
+ * `pocket-tts-en-v2026_09-mixed` bundle (engines release v27, ~105 MB
+ * compressed, ~225 MB on-disk).
  *
  * Upstream pocket-tts defines 8 predefined voices; `cosette` (Expresso) and
  * `jean` (EARS) are **CC-BY-NC-4.0 (non-commercial)** and were dropped before
@@ -30,9 +30,11 @@ import app.marmalade.tts.data.db.VoiceMeta
  *  - It uses a 5-graph pipeline (text conditioner + flow_lm + flow + mimi
  *    encoder + mimi decoder) with Latent Space Diffusion inference.
  *  - The predefined voices are reference WAVs in `voices/<name>.wav`
- *    inside the bundle. On first use of each voice, the engine encodes
- *    the WAV through `mimi_encoder` to produce a `[numFrames, 1024]`
- *    embedding it caches on disk for subsequent runs.
+ *    inside the bundle. The engine turns a WAV into a `[numFrames, 1024]`
+ *    embedding through `mimi_encoder` and caches it in
+ *    `voice_cache/<name>.emb`; since v27 the bundle ships those files
+ *    (issue #38), so the encoder only runs for a voice whose `.emb` is
+ *    missing or unreadable.
  *  - Users can ALSO clone new voices from their own audio (recorder or
  *    file picker) — that path lands in v0.3.0 once the inference loop is
  *    in. Cloned voices get inserted into `voice_meta` at clone time.
