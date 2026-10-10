@@ -27,6 +27,7 @@ import app.marmalade.tts.engine.vits.VitsDirectEngine
 import app.marmalade.tts.audio.StreamingEffectChain
 import app.marmalade.tts.engine.EngineRegistry
 import app.marmalade.tts.engine.PocketEngine
+import app.marmalade.tts.engine.pocket.PocketVoiceFiles
 import app.marmalade.tts.engine.SynthAudio
 import app.marmalade.tts.engine.TtsEngine
 import app.marmalade.tts.lang.LangDetector
@@ -1279,15 +1280,10 @@ class MarmaladeTtsService : TextToSpeechService() {
                     isVoiceReleased(meta) && packId in vitsPacks
                 } else {
                     engineInstalled.getOrPut(meta.engine) { isEngineInstalled(meta.engine) } &&
-                        (meta.engine != PocketVoiceCatalog.ENGINE ||
-                            meta.id !in POCKET_CATALOG_IDS ||
-                            meta.id.substringAfter(':') in pocketVoices)
+                        (meta.engine != PocketVoiceCatalog.ENGINE || PocketVoiceFiles.isOffered(meta.id, pocketVoices))
                 }
             }
         }
-
-        /** Pocket's built-in voice ids, the rows [advertisableVoices] checks per file. */
-        private val POCKET_CATALOG_IDS: Set<String> = PocketVoiceCatalog.voices.mapTo(HashSet()) { it.id }
 
         /** What [onGetLanguage] reports until a language is loaded. */
         private val DEFAULT_LANGUAGE = arrayOf("eng", "USA", "")
