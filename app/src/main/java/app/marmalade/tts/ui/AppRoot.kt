@@ -60,6 +60,7 @@ import app.marmalade.tts.ui.screen.PrivacyPolicyScreen
 import app.marmalade.tts.ui.screen.SettingsScreen
 import app.marmalade.tts.ui.screen.SpeakScreen
 import app.marmalade.tts.ui.screen.VoicePickerScreen
+import app.marmalade.tts.ui.whatsnew.WhatsNewDialog
 
 // -----------------------------------------------------------------------------
 // Data flow
@@ -86,6 +87,8 @@ import app.marmalade.tts.ui.screen.VoicePickerScreen
 //                                │                          EngineDetailScreen)
 //                                └── engine/{name}        → EngineDetailScreen
 //                                                          (detail; no nav bar)
+//                              + WhatsNewDialog over Speak, once per release
+//                                (AppRootViewModel.showWhatsNew)
 //
 //   Bottom-nav tabs use popUpTo(startDestinationId) + saveState/restoreState
 //   so tab switching never grows the back stack — matches marmalade-android.
@@ -355,6 +358,14 @@ fun AppRoot(
     // the default so scrollable detail pages don't slide under the gesture
     // area — they rely on this Scaffold's bottom padding.
     val readerOwnsBottomInset = currentRoute?.startsWith(Routes.Reader) == true
+
+    // The once-per-release "What's new" pop-up (#41) waits for the Speak
+    // screen: a launch straight into the reader from a shared link gets it
+    // the next time Speak is on screen, not over the article.
+    val showWhatsNew by viewModel.showWhatsNew.collectAsStateWithLifecycle()
+    if (showWhatsNew && currentRoute == Routes.Speak) {
+        WhatsNewDialog(onDismiss = viewModel::dismissWhatsNew)
+    }
 
     Scaffold(
         contentWindowInsets = if (readerOwnsBottomInset) {

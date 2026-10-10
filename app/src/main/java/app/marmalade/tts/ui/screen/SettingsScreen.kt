@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -32,6 +33,9 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -46,6 +50,7 @@ import app.marmalade.tts.service.KeepaliveMode
 import app.marmalade.tts.ui.MarmaladeFilterChip
 import app.marmalade.tts.ui.MarmaladeIcons
 import app.marmalade.tts.ui.theme.ThemePreset
+import app.marmalade.tts.ui.whatsnew.WhatsNewDialog
 
 // -----------------------------------------------------------------------------
 // Data flow
@@ -94,7 +99,8 @@ import app.marmalade.tts.ui.theme.ThemePreset
  * Sections (separated by HorizontalDivider):
  *  1. Appearance     — mode (system/light/dark) + color preset chips.
  *  2. System default — opens Android's TTS engine picker.
- *  3. About          — version string from [BuildConfig].
+ *  3. About          — "What's new", privacy, licenses, version string from
+ *                      [BuildConfig].
  *
  * Text preprocessing toggles used to live here. They're per-engine settings
  * and now live on [EngineDetailScreen] — see Engines tab → tap a card →
@@ -397,6 +403,21 @@ private fun AboutSection(
     onNavigateToPrivacy: () -> Unit,
 ) {
     SectionHeader(stringResource(R.string.settings_about))
+
+    // The same pop-up AppRoot shows once after an update (#41), on demand.
+    // Opening it here records nothing: it only ever shows unasked once.
+    var showWhatsNew by rememberSaveable { mutableStateOf(false) }
+    AboutRow(
+        label = stringResource(R.string.settings_whats_new),
+        supporting = stringResource(R.string.settings_whats_new_desc),
+        leading = {
+            Icon(imageVector = Icons.Filled.Star, contentDescription = null)
+        },
+        modifier = Modifier.clickable { showWhatsNew = true },
+    )
+    if (showWhatsNew) {
+        WhatsNewDialog(onDismiss = { showWhatsNew = false })
+    }
 
     AboutRow(
         label = stringResource(R.string.settings_privacy),

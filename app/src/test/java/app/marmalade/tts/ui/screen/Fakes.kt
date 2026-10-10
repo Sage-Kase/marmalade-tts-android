@@ -200,6 +200,15 @@ internal class FakeSettings(
         disclaimerAccepted.value = true
     }
 
+    // "What's new" seen version (#41). Null = never stored, as on every
+    // install from before 1.2 and on a fresh one; AppRootViewModel reads it
+    // once at creation.
+    private val whatsNewSeenState = MutableStateFlow<Int?>(null)
+    override val whatsNewSeenVersion: Flow<Int?> = whatsNewSeenState
+    override suspend fun setWhatsNewSeenVersion(version: Int) {
+        whatsNewSeenState.value = version
+    }
+
     // Reader display settings. Same trap as above — ReaderViewModel combines
     // all three, so leaving them on the NoOp store would freeze its `display`
     // flow at the constructor default. Null = "user hasn't chosen", which is

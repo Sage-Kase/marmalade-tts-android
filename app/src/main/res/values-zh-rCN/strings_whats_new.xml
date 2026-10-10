@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="whats_new_title">Marmalade 1.2 新功能</string>
+    <string-array name="whats_new_items">
+        <item>语音开口更快了。在大多数手机上，Kitten、Kokoro 和 Pocket 现在约一秒或更短即可开始朗读。（Kokoro 需要在“引擎”页面更新。）</item>
+        <item>Pocket 新增五个语音：Mary、Rita、Stephen、Ramone 和 Jenny。</item>
+        <item>表现力：可在别名中为每个 Pocket 语音选择生动程度，从“平稳”到“生动”。</item>
+        <item>德语引擎已修复。</item>
+    </string-array>
+    <string name="whats_new_got_it">知道了</string>
+
+    <!-- Settings → About row that reopens it. -->
+    <string name="settings_whats_new">新功能</string>
+    <string name="settings_whats_new_desc">查看此版本的更新内容。</string>
+</resources>
