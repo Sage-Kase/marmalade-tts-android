@@ -64,27 +64,64 @@ converted, so CC-BY-4.0 is the licence that governs them.
 
 Pocket addresses voices by a reference WAV in `voices/<name>.wav`. Each
 predefined voice's audio comes from a different source dataset, and the
-**license is determined by that source** (authoritative mapping:
-Kyutai's own `pocket_tts/utils/utils.py`; folder→license per
-https://huggingface.co/kyutai/tts-voices).
+**license is determined by that source** (authoritative mapping for the
+upstream voices: Kyutai's own `pocket_tts/utils/utils.py`; folder→license
+per https://huggingface.co/kyutai/tts-voices).
 
-We ship **only the 6 commercial-safe voices**. The upstream `cosette`
+We ship **only commercial-safe voices**: 10 in v27. The upstream `cosette`
 (Expresso) and `jean` (EARS) voices are **CC-BY-NC-4.0 (non-commercial
 only)** and are **deliberately excluded** so the store build distributes
-no non-commercial voice data.
+no non-commercial voice data. `marius` (`voice-donations/Selfie.wav`, CC0)
+was in v21 but not offered by the app since 2026-10-09, and v27 drops it.
 
-| Voice | Source (Kyutai `utils.py`) | Dataset | License |
+| Voice | Source | Dataset | License |
 |---|---|---|---|
 | `alba` | `alba-mackenna/casual.wav` | Alba Mackenna | **CC-BY-4.0** |
 | `azelma` | `vctk/p303_023_enhanced.wav` | VCTK | **CC-BY-4.0** |
 | `eponine` | `vctk/p262_023_enhanced.wav` | VCTK | **CC-BY-4.0** |
 | `fantine` | `vctk/p244_023_enhanced.wav` | VCTK | **CC-BY-4.0** |
 | `javert` | `voice-donations/Butter.wav` | Unmute Voice Donation | **CC0** |
-| `marius` | `voice-donations/Selfie.wav` | Unmute Voice Donation | **CC0** (in the bundle, not offered by the app since 2026-10-09) |
+| `mary` | `voice-donations/3973.wav` | Unmute Voice Donation | **CC0** |
+| `rita` | `voice-donations/spanish-limaperu.wav` | Unmute Voice Donation | **CC0** |
+| `stephen` | `voice-donations/thepolishdane.wav` | Unmute Voice Donation | **CC0** |
+| `ramone` | `voice-donations/floyd2026.wav` | Unmute Voice Donation | **CC0** |
+| `jenny` | 26 s cut from jenny-tts-dataset recordings | Jenny (Dioco) | **Custom attribution** (below) |
 
-### Attribution (CC-BY-4.0)
+The first five are Kyutai's predefined voices (`utils.py`). The other five
+were added in v27 (issue #38):
 
-The CC-BY-4.0 voices require attribution. The reference recordings are
+- **`mary`, `rita`, `stephen`, `ramone`** are donors' clips from
+  `kyutai/tts-voices` `voice-donations/` (README: CC0), shipped unchanged
+  (byte-identical to the published files, checked against Hugging Face on
+  2026-10-09; donors may ask Kyutai to remove a clip, so re-check before
+  re-releasing a bundle). Donors accepted Kyutai's Unmute Voice Donation
+  Terms of Use v1, §5: "anyone, individuals or organizations, may
+  download, copy, modify, transform, and use your Voice Contribution for
+  any purpose (commercial or non-commercial) without restriction,
+  subject to our Acceptable Use Policy" (Kyutai doesn't link that policy
+  anywhere we could find). `rita`'s clip is Spanish speech.
+- **`jenny`** is a 26 s reference made from clips of the
+  **jenny-tts-dataset**, recorded and released by Jenny (dioco-group) for
+  TTS training (https://github.com/dioco-group/jenny-tts-dataset; taken
+  from the `reach-vb/jenny_tts_dataset` mirror on Hugging Face):
+  silence trimmed, joined with short gaps, resampled to 24 kHz mono and
+  normalized. Licence, verbatim from the dataset README:
+
+  > Attribution is required in software/websites/projects/interfaces
+  > (including voice interfaces) that generate audio in response to user
+  > action using this dataset. Atribution means: the voice must be
+  > referred to as "Jenny", and where at all practical, "Jenny (Dioco)".
+  > Attribution is not required when distributing the generated clips
+  > (although welcome). Commercial use is permitted. Don't do unfair
+  > things like claim the dataset is your own. No further restrictions
+  > apply.
+
+  The app names the voice "Jenny" and credits it "Jenny (Dioco)" under
+  its name in the voice pickers.
+
+### Attribution
+
+The CC-BY-4.0 voices and `jenny` require attribution. The reference recordings are
 derived from:
 
 - **`alba`** — "Alba Mackenna", released by Kyutai under CC-BY-4.0
@@ -92,9 +129,11 @@ derived from:
 - **`azelma`, `eponine`, `fantine`** — the **CSTR VCTK Corpus**
   (speakers p303, p262, p244), Centre for Speech Technology Research,
   University of Edinburgh, CC-BY-4.0. https://doi.org/10.7488/ds/2645
-- **`javert`** (and `marius`, still in the bundle but not offered by the
-  app since 2026-10-09) — Unmute Voice Donation Project contributors,
-  released CC0 (no attribution required; acknowledged with thanks).
+- **`javert`, `mary`, `rita`, `stephen`, `ramone`** (and `marius`, in
+  v21 only) — Unmute Voice Donation Project contributors, released CC0
+  (no attribution required; acknowledged with thanks).
+- **`jenny`** — "Jenny (Dioco)", the jenny-tts-dataset's attribution
+  (custom licence, quoted above).
 
 This attribution is also recorded in [`../CREDITS.md`](../CREDITS.md).
 

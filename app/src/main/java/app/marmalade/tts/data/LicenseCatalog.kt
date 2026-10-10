@@ -153,7 +153,8 @@ object LicenseCatalog {
         // line, so (like MIT/BSD) the component ships its own exact text.
         // Used by the English "Jenny (Dioco)" VITS pack, whose model weights
         // and training dataset each carry their own short custom-attribution
-        // terms (quoted verbatim in the component's bundled text).
+        // terms, and by Pocket's Jenny voice (the dataset's terms only); each
+        // component's bundled text quotes them verbatim.
         License(
             "Custom attribution", null,
             "https://github.com/dioco-group/jenny-tts-dataset",
@@ -449,8 +450,25 @@ object LicenseCatalog {
             licenseId = "CC0-1.0",
             copyright = listOf(
                 "Unmute Voice Donation Project contributors — public-domain " +
-                    "dedication, no attribution required (javert)",
+                    "dedication, no attribution required (javert, mary, rita, " +
+                    "stephen, ramone)",
             ),
+        ),
+        Component(
+            key = "pocket-voice-jenny",
+            name = "Pocket TTS voice Jenny (Dioco)", role = "Reference voice prompt",
+            shipsIn = "Engine bundle",
+            licenseId = "Custom attribution",
+            copyright = listOf(
+                "jenny-tts-dataset: Copyright (c) Jenny / dioco-group " +
+                    "(https://github.com/dioco-group/jenny-tts-dataset)",
+            ),
+            textAsset = "pocket-jenny.txt",
+            note = "A 26-second reference cut from the dataset's recordings. " +
+                "The dataset's attribution term requires the voice be called " +
+                "\"Jenny\", and where practical \"Jenny (Dioco)\": the voice " +
+                "is named Jenny and credited \"Jenny (Dioco)\" in the voice " +
+                "pickers. Commercial use is permitted.",
         ),
         Component(
             key = "openjtalk-dict",
