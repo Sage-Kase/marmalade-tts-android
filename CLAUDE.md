@@ -191,8 +191,9 @@ serves both stores. The MIT JNI shim (`app/src/main/cpp/espeak_jni.c`)
 
 **Engine bundles and voice packs** (downloaded after user opt-in into
 `${filesDir}/engines/`) carry models and pronunciation data only, never
-executable code. The Kitten and Kokoro bundles still hold a copy of
-`espeak-ng-data` that the app no longer reads. [NOTICE.md](NOTICE.md) is
+executable code. The Kitten bundle and Kokoro bundles up to v23 still
+hold a copy of `espeak-ng-data` that the app no longer reads (Kokoro v26
+dropped it). [NOTICE.md](NOTICE.md) is
 the authority on the licensing posture; keep it, `LICENSES/`, CREDITS.md
 and the in-app catalog (`data/LicenseCatalog.kt`) in agreement.
 
