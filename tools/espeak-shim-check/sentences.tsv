@@ -1,0 +1,55 @@
+# voice<TAB>text — fixed set for tools/espeak-shim-check/run.sh (#46).
+# Clause ends, mid-clause decimals and dashes, trailing quotes, no end punctuation.
+# Voices are the espeak names EspeakPhonemizer.normalizeVoice passes (en-gb -> en, fr-fr -> fr).
+en-us	Hello, world. How are you?
+en-us	Wait! Really?! Yes...
+en-us	It costs 3.5 dollars, not 1,5 euros.
+en-us	Read pages 10–20 tonight.
+en-us	Read pages 10–20 tonight
+en-us	First — second – third.
+en-us	She said "hi." Then she left.
+en-us	He waited (for a while), then spoke.
+en-us	Dr. Smith arrived at 10:30; we left…
+en-us	No punctuation at the end
+en-us	Version 2.0 is out: try it.
+en	Hello, world. How are you?
+en	It costs 3.5 pounds, e.g. today.
+en	Read pages 10–20 tonight.
+de	Seiten 10–20 lesen.
+de	Es kostet 1,5 Euro, nicht 3.5.
+de	Hallo, Welt! Wie geht's?
+de	Sie halfen einander — und miteinander.
+de	Das ist z.B. gut; oder?
+de	Sie sprach: „Ja.“ Dann ging sie.
+de	Kein Satzzeichen am Ende
+de	Sie lehnten aneinander.
+es	Hola, mundo. ¿Cómo estás?
+es	Cuesta 3,5 euros, no 10.
+es	Lee las páginas 10–20 hoy.
+es	¡Qué bien!
+fr	Bonjour, le monde. Ça va ?
+fr	Ça coûte 3,5 euros !
+fr	Lisez les pages 10–20 ce soir.
+fr	Il a dit : « oui. » Puis il est parti.
+it	Ciao, mondo. Come stai?
+it	Costa 3,5 euro, non 10.
+it	Leggi le pagine 10–20 stasera.
+it	Che bello!
+pt-br	Olá, mundo. Tudo bem?
+pt-br	Custa 3,5 reais, não 10.
+pt-br	Leia as páginas 10–20 hoje.
+pt-br	Que legal!
+hi	नमस्ते, दुनिया। आप कैसे हैं?
+hi	यह 3.5 रुपये का है, 10 का नहीं।
+hi	पृष्ठ 10–20 पढ़ें।
+bg	Здравей, свят. Как си?
+bg	Струва 3,5 лева, не 10.
+bg	Прочети страници 10–20 довечера.
+en-us	Stop.Go now.
+en-us	Hi!  Two spaces, here.
+en-us	(Aside.) Next one.
+en-us	He said: “OK.”
+en-us	Wait… what? Yes!
+en-us	One; two: three, four.
+en-us	Is it 3.14?
+en-us	Done. "Next" starts here.

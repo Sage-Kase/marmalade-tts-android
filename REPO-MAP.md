@@ -881,8 +881,17 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   (`engine/kitten/IpaTokenVocab.kt`) has only the em dash (9), so the en
   dash is aliased to it; VITS packs have neither, so
   `VitsPhonemeIds.splitClauses` turns a spaced dash into a `;` clause (what
-  Piper trained on). Known leftover token 0: espeak-de 1.52 phonemizes the
-  single word "aneinander" with a literal `1`.
+  Piper trained on). espeak-de 1.52 phonemizes "aneinander" with a literal
+  `1` (its de_list entry); a `GermanOverrides` MARMALADE entry covers it
+  (#46). A hyphenated compound ("aneinander-geklebt") still gets the `1`.
+- Clause punctuation (#46): `espeak_jni.c` re-injects the LAST mark of
+  each clause that only spaces/closing quotes follow, so marks espeak
+  reads through ("3.5", "10–20") don't replace the terminator. espeak's
+  cursor runs one character past each clause (its lookahead, carried
+  into the next call), which the shim drops before scanning.
+  `tools/espeak-shim-check/run.sh` compiles the real shim on the host
+  against `app/build/espeak-hostgen` and prints its IPA over a fixed
+  9-language sentence set; diff two runs to see what a shim change does.
 
 ### Persistence
 - `data/db/MarmaladeDb.kt` — RoomDatabase, schema v12 (history in its

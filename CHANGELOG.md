@@ -122,6 +122,14 @@ This project follows [Semantic Versioning](https://semver.org/).
   or Jenny) by name while Pocket is still on its previous download now
   hears the default voice, Alba, instead of an error. Until Pocket is
   updated, other apps are offered only the voices it actually has.
+- **Pauses follow the punctuation that ends a phrase**: when a phrase
+  held a decimal number, a time or a range ("3.5 dollars, not 4",
+  "10:30; then", "Seiten 10–20 lesen."), the Kokoro, Kitten and VITS
+  Marmalade voices paused for the mark inside it (the point, colon or
+  dash) instead of the comma, semicolon or full stop that ended it, so
+  sentence-end pauses were lost. They now pause for the mark that ends the phrase.
+- **German "aneinander" no longer has a stray sound**: the word reached
+  the German voices with an extra unknown symbol in the middle.
 - **A spaced en dash is read as a pause**: an en dash between words
   ("Hallo – wie geht's?"), common in German typing, reached the Kokoro and
   Kitten voices as an unknown symbol mid-sentence. They now pause there as
