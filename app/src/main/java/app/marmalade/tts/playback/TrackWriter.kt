@@ -135,6 +135,9 @@ class TrackWriter(
     private var underrunMs = 0L
     private var lastChunkEnd: ChunkTag? = null
 
+    /** When a playing session's real audio ran out (its next chunk late: a stall, #52); null otherwise. */
+    private var dryAt: Long? = null
+
     /** Apply one command. Stream items queue; controls act now. */
     fun apply(c: OutputCommand) {
         when (c) {
@@ -357,6 +360,7 @@ class TrackWriter(
             // at every later session end or underrun).
             if (started) padAheadMs = PAD_AHEAD_MS
             if (started && h >= written && emptySince == null && realEnd > 0) emptySince = now
+            if (started && session != null && realEnd > 0 && dryAt == null) dryAt = now
             if (session == null && queue.isEmpty() && marks.isEmpty() && h >= realEnd) {
                 val since = idleSince ?: now.also { idleSince = it }
                 val left = idleReleaseMs - (now - since)
@@ -476,6 +480,7 @@ class TrackWriter(
         lastHead = -1
         lastProgressAt = clock()
         emptySince = null
+        dryAt = null
     }
 
     private fun dropSession() {
@@ -494,6 +499,7 @@ class TrackWriter(
         } else if (!playing && started) {
             t.pause()
             started = false
+            dryAt = null
         }
     }
 
@@ -548,7 +554,11 @@ class TrackWriter(
         }
     }
 
-    /** Log the silence a block boundary cost: padding written plus time the track sat empty. */
+    /**
+     * Log the silence a block boundary cost: padding written plus time the
+     * track sat empty. And any chunk that came after the session's real audio
+     * had run out: a stall, silent from then until now (#52).
+     */
     private fun noteBoundary(tag: ChunkTag) {
         val prev = lastChunkEnd
         val t = out
@@ -557,8 +567,13 @@ class TrackWriter(
             val emptyMs = underrunMs + (emptySince?.let { clock() - it } ?: 0)
             log("$name: seg ${prev.segment}→${tag.segment} session=${tag.sessionId} pad=${padMs}ms underrun=${emptyMs}ms")
         }
+        val dry = dryAt
+        if (dry != null && prev?.sessionId == tag.sessionId) {
+            log("$name: stall before seg ${tag.segment} chunk ${tag.chunk} session=${tag.sessionId} silent=${clock() - dry}ms")
+        }
         paddedFrames = 0
         underrunMs = 0
+        dryAt = null
     }
 
     private val name: String get() = track.name.lowercase()

@@ -779,7 +779,10 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   dry mid-session, the writer pushes it out (`drainLiveTempo`, later effects
   keep their state, one ring-out at the session end).
   Logcat `D/AudioTrackOutput`: `track opened|released|rebuild`, and per block
-  boundary `seg A→B session=S pad=Xms underrun=Yms` (0/0 = gapless). A refused
+  boundary `seg A→B session=S pad=Xms underrun=Yms` (0/0 = gapless); a chunk
+  that came after the session's real audio ran out (the render fell behind,
+  #52) logs `stall before seg S chunk C session=X silent=Yms`, from when the
+  audio ran dry to the late chunk's write. A refused
   format, failed write or parked track (head frozen 2.5 s while playing real
   audio) → `OutputEvent.TrackFailed` for EVERY session with audio on or queued
   for that track (a short one-shot can sit on it whole, End applied) → each

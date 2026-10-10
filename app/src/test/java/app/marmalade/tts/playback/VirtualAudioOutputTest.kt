@@ -152,6 +152,11 @@ class VirtualAudioOutputTest {
         val c1 = r.at { it is OutputEvent.ChunkStarted && it.tag.chunk == 1 }!!
         assertTrue("chunk 1 heard ${c1 - t} ms after it was written", c1 - t <= 100)
         assertEquals(1_005.0, r.heardMs(), 0.01)
+        // The late chunk is logged as a stall: silent from chunk 0's end until it came.
+        val stall = r.out.writerLog.single { "stall" in it }
+        assertTrue(stall, "main: stall before seg 0 chunk 1 session=7 silent=" in stall)
+        val silent = stall.substringAfter("silent=").removeSuffix("ms").toLong()
+        assertTrue("$stall, chunk 0 finished at $finished, chunk 1 written at $t", silent in t - finished - 50..t - finished + 50)
     }
 
     @Test
