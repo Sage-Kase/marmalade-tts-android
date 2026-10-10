@@ -22,7 +22,17 @@ device shows: JNI, missing assets, classes R8 stripped.
    test-only APK that drives the app through Android's public
    `TextToSpeech` API: the same path TalkBack and every other app use, and
    one that works however R8 renamed the app's classes.
-4. Lists the voices the app advertises and picks one per engine × language
+4. Checks that every engine under test is on the download the build's
+   catalog offers. It restarts the app (`am force-stop`) and reads the lines
+   its TTS service logs on start (tag `EngineBundle`, one per engine and voice
+   pack on disk: the release its `.install_meta.json` records, the catalog's,
+   and whether they match). If one isn't, the gate stops before measuring
+   (exit 2) and names it: update it in the app's Engines screen, or pass
+   `--allow-outdated` to measure it as it is. A build from before #51 logs no
+   such lines and is refused the same way. Why: the rc keeps whatever its
+   Engines screen last installed, and #42's Kokoro rows timed the pre-v26
+   bundle while the table said v26.
+5. Lists the voices the app advertises and picks one per engine × language
    (per voice pack for VITS; `--all-voices` for every voice). It renders that
    language's line from `sentences.tsv` to a WAV on the phone. Nothing is
    played, here or in the speed stage: the gate never needs sound.
@@ -33,7 +43,7 @@ device shows: JNI, missing assets, classes R8 stripped.
    on the text, so those rows' `accented:<code>` sentences must make it abstain.
    The gate checks that with the app's own `langdetect.tab` and fails the row
    if not. Most German prose reads as English or French to the detector.
-5. A row passes when audio came out (samples, a plausible length for the
+6. A row passes when audio came out (samples, a plausible length for the
    sentence, not silence) and the app's process logged no error or exception
    while rendering it. This stage sets no speech rate, so the phone's system
    speech rate (Settings → Text-to-speech → Speech rate) applies; the length
@@ -42,14 +52,15 @@ device shows: JNI, missing assets, classes R8 stripped.
    fails at once and the run carries on. An expected engine that the phone
    doesn't advertise is a FAIL row, not a skip. Cloud voices are skipped
    (network + key).
-6. Runs the speed stage (below).
-7. Prints a pass/fail table per stage and exits 1 on any failure (2 on a
+7. Runs the speed stage (below).
+8. Prints a pass/fail table per stage and exits 1 on any failure (2 on a
    setup error). Results (`table.md`, `speed-table.md`, `results.json`, the
    WAVs, `speed-lab.html`) go to `build/release-smoke/<time>/`.
 
-The `bundle` column is the engine bundle release the build's catalog
-downloads. The rc's bundles come from its own installer, so that is what ran,
-unless the Engines screen shows the engine as having an update.
+The `bundle` column is the release the engine's files on the phone came
+from (a VITS row: its pack's), read from the app's `EngineBundle` lines. With
+`--allow-outdated` an engine off the catalog shows as `v23 (catalog v26)`.
+`results.json` keeps every logged bundle under `bundles`.
 
 ## Speed stage
 
@@ -66,6 +77,13 @@ checks that it tells the truth, and that no release gets slower unnoticed.
   short sentence then a long one, the hardest common case for chunking.
   The engine is warmed up first, and each row is rendered `--takes` times
   (default 2, interleaved across speeds) and judged on the best take.
+- **Every take starts cold.** After each render the gate waits until its
+  audio would have finished playing in real time (from first sound, plus any
+  stalls), plus 1 s (`COLD_MARGIN_MS`). The app's playback horizon
+  (`engine/PlaybackHorizon.kt`) counts emitted audio as still playing until
+  then, and its chunking reads it: renders back to back saw 4–6 s of audio
+  "still ahead", kept whole sentences and hid the stall a listener meets
+  after a pause.
 - **How it measures, silently.** The probe asks for the speed with
   `setSpeechRate`, as a client app would, renders to a file, and timestamps
   every chunk as the engine hands it to Android (`onAudioAvailable`).
@@ -154,7 +172,9 @@ The rc build is a separate app (`app.marmalade.tts.rc`) with its own data, and
 it isn't debuggable, so engine bundles can't be copied into it. Install each
 engine once through the rc's own UI: open Marmalade (rc) → Engines → install
 Kokoro, Kokoro German, Pocket TTS and VITS Marmalade's Jenny pack (Kitten is
-built in). `adb install -r` keeps them across later builds.
+built in). `adb install -r` keeps them across later builds. When a build's
+catalog moves an engine to a new download, the gate refuses that engine until
+it is updated the same way (Engines → Update).
 
 ## Changing it
 

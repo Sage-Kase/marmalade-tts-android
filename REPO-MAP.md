@@ -73,7 +73,14 @@ clock for first sound and stalls, screen off, waiting before each engine for
 the phone to cool (skin ≤ 33 °C: a warm 6a renders a third slower). A stall where `SpeedPerfWarning` (the
 reference phone's prediction, constants read from the Kotlin) shows no warning
 fails, as does a regression against the committed `speed-baseline.json`
-(refresh on purpose: `--write-baseline`, per engine with `--engines`). It
+(refresh on purpose: `--write-baseline`, per engine with `--engines`).
+Before measuring it restarts the app and reads the `EngineBundle` lines its
+TTS service logs on start (`install/InstalledBundle.kt`: per engine/pack on
+disk, the download its install meta records vs the catalog's) and refuses
+an engine that isn't on the catalog's download (#51: #42 timed a pre-v26
+Kokoro while its table read the catalog); every speed take waits until the
+previous take's audio would have finished playing, so the playback horizon
+is empty and each take is the cold case. It
 writes a listening lab (`speed-lab.html`, “as heard” clips with the stalls
 put in). System-TTS path only; the in-app reader's segment scheduling isn't
 measured. README next to the script.
