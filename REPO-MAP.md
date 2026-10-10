@@ -63,6 +63,18 @@ system speech rate (`settings get secure tts_default_rate`) reaches
 `setSpeechRate(1.0f)`, so the gate scales its length check by it. README
 next to the script.
 
+**Headless emulator on chocolate (#34):** `scripts/emulator/emulator.sh`
+(`provision` / `start` / `stop`, piped over ssh:
+`ssh chocolate 'bash -s' -- start < scripts/emulator/emulator.sh`) boots
+an API 35 x86_64 AVD with no window or audio as `emulator-5580`. Only the
+debug build carries x86_64, so it runs debug builds, not the R8 rc. Bundles
+are sideloaded by extracting a tarball into `files/engines/` with `run-as`
+(no install meta = treated as current), and the release gate's probe speaks
+through the public TTS API to WAVs. Use it for wide checks a phone would
+tie up (every language, two bundles A/B); it checks the app's path, not
+phone-exact audio (x86 ORT rounds differently) and not speed. Always `stop`
+it when done. README next to the script.
+
 ## Module structure
 
 Single Gradle module `:app`. No multi-module split (yet).
