@@ -763,6 +763,16 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   Pocket reached Play (#29) both builds offer the same engines, so a phone
   gets the same pill on either (the Pixel 6a: Pocket, predicted 0.58).
   `predictedRtf` feeds the speed-up warning before measured RTFs accrue.
+- `perf/SpeedPerfWarning.kt` — the speed-up warning: measured RTF ×
+  effective speed > 0.8, else the probe prediction, else the static 1.35.
+  The measured RTF is an EMA per engine (`SettingsRepository.engineRtf`,
+  fed by `SegmentRenderer` via `SynthStatsPort.recordRtf`). It is dropped
+  when stale (#40): every value when the app's versionCode differs from
+  the one stamped with them (`measured_rtf_version_code`; read as absent,
+  wiped by the next `recordEngineRtf`), and one engine's when an install
+  puts new files under it (bundle, voice pack or re-seed:
+  `EngineInstaller`'s `EngineFilesChanged` → `clearEngineRtf`, bound in
+  `AppModule`). The warning then runs on the prediction until re-measured.
   Kokoro's cost (4.17) is the v26 streaming render, from #25's same-phone
   bench scaled by that session's v23 re-measure (see the KDoc): on the 6a
   Kokoro predicts 0.86, so the Play build still recommends Kitten there.

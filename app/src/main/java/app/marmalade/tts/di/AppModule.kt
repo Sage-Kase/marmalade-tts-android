@@ -25,6 +25,7 @@ import app.marmalade.tts.data.db.VoiceAliasDao
 import app.marmalade.tts.data.db.VoiceMetaDao
 import app.marmalade.tts.engine.EngineRegistry
 import app.marmalade.tts.data.cloud.CloudJsonHttp
+import app.marmalade.tts.data.SettingsRepository
 import app.marmalade.tts.data.VoiceLatencySource
 import app.marmalade.tts.data.VoiceLatencyTracker
 import app.marmalade.tts.data.cloud.CloudProviderDirectory
@@ -34,6 +35,7 @@ import app.marmalade.tts.engine.api.CloudSpeechHttp
 import app.marmalade.tts.engine.api.CompressedAudioDecoder
 import app.marmalade.tts.engine.api.MediaCodecAudioDecoder
 import app.marmalade.tts.engine.api.UrlCloudSpeechHttp
+import app.marmalade.tts.install.EngineFilesChanged
 import app.marmalade.tts.install.EngineFilesDir
 import app.marmalade.tts.lang.LangDetector
 import app.marmalade.tts.install.HttpFetcher
@@ -181,6 +183,15 @@ object AppModule {
     @Provides
     @Singleton
     fun provideSeedAssets(@ApplicationContext ctx: Context): SeedAssets = SeedAssets { ctx.assets }
+
+    /**
+     * New engine files can run at a different speed, so an install drops the
+     * engine's measured RTF and the speed-up warning re-learns it (#40).
+     */
+    @Provides
+    @Singleton
+    fun provideEngineFilesChanged(settings: SettingsRepository): EngineFilesChanged =
+        EngineFilesChanged { settings.clearEngineRtf(it) }
 
     /**
      * Routes the installer's `NativeEngineHandle` to the live engine
