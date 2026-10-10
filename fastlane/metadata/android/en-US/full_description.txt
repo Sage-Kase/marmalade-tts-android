@@ -7,6 +7,7 @@
 <li><b>Optional cloud voices.</b> From private third parties with your own API key (Venice.ai)</li>
 <li><b>Per app voices.</b> Route each app to its own voice</li>
 <li><b>Speaks 8 languages.</b> Auto detects what language is being read on the Kokoro TTS engine</li>
+<li><b>Expressive English voices.</b> Pocket TTS adds lively, natural-sounding English voices that run on your phone</li>
 <li><b>Accessible.</b> TalkBack supported and designed to meet WCAG 2.1 AA</li>
 <li><b>Voice effects.</b> 22 voice effect presets plus an editor to make your own</li>
 <li><b>Free, open source, no ads, no accounts</b></li>
@@ -23,6 +24,9 @@
 
 <p><b>SPEAKS 8 LANGUAGES</b></p>
 <p>The multilingual Kokoro engine speaks English (US and UK), Spanish, French, Italian, Portuguese (Brazil), Hindi, Japanese, and Mandarin Chinese. It detects the language as it reads and switches pronunciation on the fly.</p>
+
+<p><b>EXPRESSIVE ENGLISH VOICES</b></p>
+<p>Pocket TTS, from Kyutai Labs, gives English its most expressive voices: natural rhythm and intonation, generated on your phone as it speaks. It keeps up on most mid-range phones, and Marmalade recommends it when your phone can run it comfortably.</p>
 
 <p><b>PRIVATE, WITH OR WITHOUT THE CLOUD</b></p>
 <p>No analytics, no telemetry, no accounts, and no backend of ours. On-device voices touch the network only to download the engines you pick. If you want voices beyond what your phone can run, add a cloud engine with your own API key. Providers include Venice.ai, which says it does not store or log requests. Until you set one up, nothing you read ever leaves your phone. <i>Note: other providers may log requests. Refer to their privacy policies.</i></p>

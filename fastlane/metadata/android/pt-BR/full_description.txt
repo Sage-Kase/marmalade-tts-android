@@ -7,6 +7,7 @@
 <li><b>Vozes na nuvem opcionais.</b> De provedores externos que respeitam a privacidade, com a sua própria chave de API (Venice.ai)</li>
 <li><b>Vozes por app.</b> Direcione cada aplicativo para a sua própria voz</li>
 <li><b>Fala 8 idiomas.</b> Detecta sozinho o idioma do texto no mecanismo Kokoro TTS</li>
+<li><b>Vozes expressivas em inglês.</b> O Pocket TTS adiciona vozes em inglês vivas e naturais que rodam no seu celular</li>
 <li><b>Acessível.</b> Compatível com o TalkBack e projetado para atender à WCAG 2.1 AA</li>
 <li><b>Efeitos de voz.</b> 22 predefinições de efeito, mais um editor para criar as suas</li>
 <li><b>Grátis, código aberto, sem anúncios, sem contas</b></li>
@@ -23,6 +24,9 @@
 
 <p><b>FALA 8 IDIOMAS</b></p>
 <p>O mecanismo multilíngue Kokoro fala inglês (EUA e Reino Unido), espanhol, francês, italiano, português (Brasil), híndi, japonês e chinês mandarim. Ele detecta o idioma enquanto lê e troca a pronúncia na hora.</p>
+
+<p><b>VOZES EXPRESSIVAS EM INGLÊS</b></p>
+<p>O Pocket TTS, da Kyutai Labs, dá ao inglês as suas vozes mais expressivas: ritmo e entonação naturais, gerados no seu celular enquanto ele fala. Ele dá conta na maioria dos celulares intermediários, e o Marmalade o recomenda quando o seu celular consegue rodá-lo com folga.</p>
 
 <p><b>PRIVADO, COM OU SEM A NUVEM</b></p>
 <p>Sem análises de uso, sem telemetria, sem contas e sem nenhum servidor nosso. As vozes no dispositivo acessam a rede apenas para baixar os mecanismos que você escolher. Se quiser vozes além do que o seu celular consegue rodar, adicione um mecanismo de nuvem com a sua própria chave de API. Entre os provedores está a Venice.ai, que afirma não armazenar nem registrar as solicitações. Até você configurar um, nada do que você lê sai do seu celular. <i>Observação: outros provedores podem registrar as solicitações. Consulte as políticas de privacidade deles.</i></p>
