@@ -47,8 +47,12 @@ and its own sessions, not here.
   F-Droid verifies our signed APK against its own rebuild.
 - **Planning docs stay local.** HANDOFF.md, `*-PLAN.md`, labs and design
   notes are gitignored; never add them to the tracked tree.
-- **All public text needs Max's sign-off in final form**: CHANGELOG,
-  fastlane metadata, README, NOTICE/LICENSES/PRIVACY, in-app copy.
+- **All public text needs Max's sign-off in final form**: fastlane
+  metadata, README, NOTICE/LICENSES/PRIVACY, in-app copy. **Except the
+  CHANGELOG** (Max, 2026-10-10: "You don't need to ask me about changelog
+  as long as no sensitive info is released"): write it factually, check it
+  for personal, infrastructure and security details, and commit it without
+  a sign-off card. The GitHub push itself still needs his all-clear.
 - **New user-visible strings go in all 8 locales** (`values`, `-es`,
   `-fr`, `-hi`, `-it`, `-ja`, `-pt-rBR`, `-zh-rCN`).
 - **All in-app playback goes through `MarmaladeSynthService`.** Android

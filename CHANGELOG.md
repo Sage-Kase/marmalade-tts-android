@@ -16,6 +16,10 @@ This project follows [Semantic Versioning](https://semver.org/).
   Beattie").
 
 ### Changed
+- **Pocket voices sound steadier by default**: Pocket now speaks at
+  Kyutai's recommended setting, near the Steady end of the slider, with
+  fewer slips. To get the livelier sound of earlier versions, move an
+  alias's Expressiveness slider all the way to Lively.
 - **No pause between paragraphs**: when Marmalade reads an article or a
   long shared text, one paragraph now runs straight into the next instead
   of stopping briefly at every paragraph break.
