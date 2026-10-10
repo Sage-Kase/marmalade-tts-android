@@ -1,29 +1,29 @@
 {
   "rows": {
     "kitten-direct-v0_8:Bella@1": {
-      "first_sound_ms": 404,
-      "render_rtf": 0.443,
+      "first_sound_ms": 271,
+      "render_rtf": 0.3,
       "longest_stall_ms": 0,
       "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
       "measured": "2026-10-10"
     },
     "kitten-direct-v0_8:Bella@1.25": {
-      "first_sound_ms": 411,
-      "render_rtf": 0.52,
+      "first_sound_ms": 309,
+      "render_rtf": 0.383,
       "longest_stall_ms": 0,
       "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
       "measured": "2026-10-10"
     },
     "kitten-direct-v0_8:Bella@1.5": {
-      "first_sound_ms": 488,
-      "render_rtf": 0.652,
+      "first_sound_ms": 287,
+      "render_rtf": 0.448,
       "longest_stall_ms": 0,
       "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
       "measured": "2026-10-10"
     },
     "kitten-direct-v0_8:Bella@2": {
-      "first_sound_ms": 443,
-      "render_rtf": 0.81,
+      "first_sound_ms": 296,
+      "render_rtf": 0.604,
       "longest_stall_ms": 0,
       "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
       "measured": "2026-10-10"
@@ -113,30 +113,30 @@
       "measured": "2026-10-10"
     },
     "vits-marmalade-v1:en-jenny_dioco-medium@1": {
-      "first_sound_ms": 111,
-      "render_rtf": 0.072,
+      "first_sound_ms": 165,
+      "render_rtf": 0.084,
       "longest_stall_ms": 0,
       "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
       "measured": "2026-10-10"
     },
     "vits-marmalade-v1:en-jenny_dioco-medium@1.25": {
-      "first_sound_ms": 169,
-      "render_rtf": 0.108,
+      "first_sound_ms": 132,
+      "render_rtf": 0.096,
       "longest_stall_ms": 0,
       "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
       "measured": "2026-10-10"
     },
     "vits-marmalade-v1:en-jenny_dioco-medium@1.5": {
-      "first_sound_ms": 153,
-      "render_rtf": 0.12,
-      "longest_stall_ms": 111,
+      "first_sound_ms": 119,
+      "render_rtf": 0.114,
+      "longest_stall_ms": 145,
       "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
       "measured": "2026-10-10"
     },
     "vits-marmalade-v1:en-jenny_dioco-medium@2": {
-      "first_sound_ms": 118,
-      "render_rtf": 0.149,
-      "longest_stall_ms": 207,
+      "first_sound_ms": 162,
+      "render_rtf": 0.164,
+      "longest_stall_ms": 191,
       "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
       "measured": "2026-10-10"
     }
