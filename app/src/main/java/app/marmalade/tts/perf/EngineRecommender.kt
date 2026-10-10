@@ -85,7 +85,7 @@ object EngineRecommender {
      * | Kitten (Bella) | 0.256 | 0.251 | 0.253 | 1.23 |
      * | Jenny | 0.170 | 0.157 | 0.163 | 0.79 |
      * | Pocket (Alba; v27 bundle, see below) | | | | 2.39 |
-     * | Kokoro (Heart, v26 streaming render, #50) | 1.138 | 0.886 | 1.012 | 4.91 |
+     * | Kokoro (Heart, v26 streaming render, #50, see below) | | | | 4.69 |
      * | Kokoro German (Thorsten, German text) | 0.832 | 0.835 | 0.834 | 4.05 |
      *
      * Kitten costs more than 1: the probe runs in the app with setup on
@@ -106,12 +106,18 @@ object EngineRecommender {
      * core) is quoted on the slow side.
      *
      * Kokoro is its published bundle's render: v26, which streams,
-     * re-measured in issue #50 (same phone and method, A-B-B-A against
-     * Kitten, which read 0.257 / 0.250, as in #18, so no session scaling;
-     * `~/coding/scratch/mtts-50/`). #25 had read v26 at 0.904 (sentences
-     * 0.936) and scaled it to 4.17. The short B1 sentences now cost more
-     * (Kokoro's only change since was #49's later-chunk cut). At RTF ~1.0
-     * it stalls at 1.0× on a 6a with the screen off: 1–5 stalls of
+     * re-measured in issue #50 (same phone and method,
+     * `~/coding/scratch/mtts-50/`). Against Kitten (0.257 / 0.250, as in
+     * #18, so no session scaling) a build from just before #49 read
+     * sentences 1.138, paragraphs 0.886, mean 1.012 (4.91). A second
+     * session ran that build A-B-B-A against today's main: 0.985 vs 0.940
+     * (sentences 1.070 vs 1.006, paragraphs 0.899 vs 0.874), so #49's
+     * later-chunk cut costs nothing (one extra plan per paragraph set,
+     * within noise) and main is 4.91 × 0.940 / 0.985 = 4.69. #25 had read
+     * v26 at 0.904 (sentences 0.936) and scaled it to 4.17; why the short
+     * sentences cost more now isn't known (#35's German streaming touched
+     * the shared engine; session drift is the other candidate). At RTF
+     * ~0.95 Kokoro stalls at 1.0× on a 6a with the screen off: 1–5 stalls of
      * 0.3–1.5 s in most B1 sentences, 3–9 per paragraph.
      *
      * Pocket is the v27 bundle's render (issue #38: 2026-09 weights, graphs
@@ -124,7 +130,7 @@ object EngineRecommender {
      */
     val REFERENCE_COST: Map<String, Double> = mapOf(
         KITTEN to 1.23,
-        KOKORO to 4.91,
+        KOKORO to 4.69,
         KOKORO_DE to 4.05,
         POCKET to 2.39,
         VITS to 0.79,

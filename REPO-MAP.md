@@ -906,9 +906,10 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   puts new files under it (bundle, voice pack or re-seed:
   `EngineInstaller`'s `EngineFilesChanged` → `clearEngineRtf`, bound in
   `AppModule`). The warning then runs on the prediction until re-measured.
-  Kokoro's cost (4.91) is the v26 streaming render re-measured in #50
-  (screen off, ABBA against Kitten, see the KDoc; #25's 4.17 was low): on
-  the 6a Kokoro predicts 1.01, so onboarding marks it "May be slow" there
+  Kokoro's cost (4.69) is the v26 streaming render re-measured in #50
+  (screen off, ABBA against Kitten and pre-#49 vs main, see the KDoc;
+  #25's 4.17 was low; #49's cut costs nothing): on the 6a Kokoro predicts
+  0.97, so onboarding marks it "May be slow" there
   and the warning fires from 1.0×. That is right for the in-app reader with
   the screen off (it stalls at 1.0×) and over-warns system TTS (which keeps
   up to 2×): the head's call (#50), the safer error, and #40's measured RTF
