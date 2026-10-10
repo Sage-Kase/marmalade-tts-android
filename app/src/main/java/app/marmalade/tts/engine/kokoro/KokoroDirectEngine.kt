@@ -95,8 +95,8 @@ import kotlinx.coroutines.withContext
 //
 //   Whole: one call of the unsplit model per chunk, the short first piece
 //   (T9) and chunk-grain pre-roll ([PrerollGate]). A bundle without the
-//   streaming files renders this way: v23 and older, the German engine, the
-//   debug 7M student. Debug builds can force it while model.onnx is present
+//   streaming files renders this way: v23 and older, the German engine's v25
+//   bundle, the debug 7M student. Debug builds can force it while model.onnx is present
 //   (`kokoro.stream=false`, [EngineDevKnobs]) for an A/B.
 //
 // Bundle layout (`${filesDir}/engines/kokoro-direct-v1_0/`):
@@ -106,7 +106,8 @@ import kotlinx.coroutines.withContext
 //                                         (tokens → d_en); English uses
 //                                         textenc when textenc-en is absent
 //   genstats/<voice>.bin                — float32 [9, S] generator-stats model,
-//                                         one per voice (all 53)
+//                                         one per voice ([genStatsVoiceKeys]:
+//                                         all 53 here, thorsten for German)
 //   model.onnx                          — the unsplit model (v23 and older)
 //   voices.bin                          — float32 [53, 510, 256] style table
 //   tokens.txt                          — phoneme→ID lookup (114 entries)
@@ -303,7 +304,7 @@ open class KokoroDirectEngine @Inject constructor(
     // KokoroGermanEngine (`kokoro-de-v1_0`) reuses this whole ORT/streaming
     // machinery unchanged and only redirects the catalog-shaped lookups: its
     // bundle is a German fine-tune of the same graph with one speaker and a
-    // fixed espeak-de phonemization language. Overriding these three members
+    // fixed espeak-de phonemization language. Overriding these four members
     // (plus [engineName] and [sampleRate]) is all it needs — the base
     // behaviour stays byte-identical because each seam resolves against
     // [KokoroDirectVoiceCatalog], exactly as before.
@@ -319,6 +320,14 @@ open class KokoroDirectEngine @Inject constructor(
     /** Raw voice key the async warmup synthesizes one character with. */
     protected open val warmupVoiceKey: String
         get() = KokoroDirectVoiceCatalog.voices.first().id.substringAfter(':')
+
+    /**
+     * Raw keys of the voices a streaming bundle ships `genstats/<key>.bin`
+     * for, speaker 0 first: the layout check needs every one, and an unknown
+     * voice renders with the first ([genStatsKeyFor]).
+     */
+    protected open val genStatsVoiceKeys: List<String>
+        get() = CATALOG_VOICE_KEYS
 
     /**
      * English IPA for [text] — see [espeakPhonemes]. Kokoro-82M takes untied
@@ -452,7 +461,7 @@ open class KokoroDirectEngine @Inject constructor(
      */
     @Volatile private var measuredStreamRtf = Double.NaN
 
-    override fun isInstalled(): Boolean = isInstalledIn(engineDir)
+    override fun isInstalled(): Boolean = isInstalledIn(engineDir, genStatsVoiceKeys)
 
     /**
      * [env] is the publish-last marker `doLoad` writes only after every
@@ -494,7 +503,7 @@ open class KokoroDirectEngine @Inject constructor(
         // ORT copies the options into the native session; close them after
         // so keepalive evict/reload cycles don't leak native memory.
         shrinkArena = EngineDevKnobs.get(ctx.filesDir, "shrink") != "false"
-        val path = renderPathFor(engineDir, EngineDevKnobs.get(ctx.filesDir, "kokoro.stream"))
+        val path = renderPathFor(engineDir, EngineDevKnobs.get(ctx.filesDir, "kokoro.stream"), genStatsVoiceKeys)
         val sessionsStart = System.currentTimeMillis()
         if (path == RenderPath.STREAMING) {
             val spin = streamSpinning(EngineDevKnobs.get(ctx.filesDir, "kokoro.spin"))
@@ -635,11 +644,12 @@ open class KokoroDirectEngine @Inject constructor(
      * one-word synth whose audio is dropped, so ORT's first-call kernel
      * compilation costs fold into engine load. Mirrors the Pocket and
      * KittenDirect warmup strategy. Takes [synthLock] per ORT call, like any
-     * synth. The one word is English, so with the v26 planner it opens the
-     * English encoder; when the default voice is one of this engine's
-     * non-English voices, the warmup opens the int8 ALBERT encoder too
-     * (~230 ms on a Pixel 6a), so that voice's first sentence doesn't wait
-     * for it.
+     * synth. The one word is in [warmupVoiceKey]'s language (English here,
+     * so with the v26 planner it opens the English encoder; German in
+     * [KokoroGermanEngine], which opens `textenc`); when the default voice is
+     * one of this engine's non-English voices, the warmup opens the int8
+     * ALBERT encoder too (~230 ms on a Pixel 6a), so that voice's first
+     * sentence doesn't wait for it.
      */
     private suspend fun warmupSynth() {
         val t0 = System.currentTimeMillis()
@@ -1126,10 +1136,13 @@ open class KokoroDirectEngine @Inject constructor(
      * read on first use. A streaming bundle ships one for every voice, so a
      * missing file is a broken bundle, not a fallback. Caller holds [synthLock].
      */
-    private fun genStatsModel(voiceKey: String): FloatArray = genStatsModels.getOrPut(genStatsKeyFor(voiceKey)) {
-        // The streaming layout check ([hasStreamingLayout]) found every catalog voice's file.
-        val bytes = File(engineDir, "$GENSTATS_DIR/${genStatsKeyFor(voiceKey)}.bin").readBytes()
-        FloatArray(bytes.size / 4).also { ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer().get(it) }
+    private fun genStatsModel(voiceKey: String): FloatArray {
+        val key = genStatsKeyFor(voiceKey, genStatsVoiceKeys)
+        return genStatsModels.getOrPut(key) {
+            // The streaming layout check ([hasStreamingLayout]) found every one of [genStatsVoiceKeys].
+            val bytes = File(engineDir, "$GENSTATS_DIR/$key.bin").readBytes()
+            FloatArray(bytes.size / 4).also { ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer().get(it) }
+        }
     }
 
     private fun floatsOf(tensor: OnnxTensor): FloatArray =
@@ -1630,10 +1643,18 @@ open class KokoroDirectEngine @Inject constructor(
         internal fun modelFile(dir: File, graph: String): File =
             File(dir, "$graph.ort").takeIf { it.isFile } ?: File(dir, "$graph.onnx")
 
-        /** Whether [dir] holds the streaming pair and every voice's generator statistics. */
-        internal fun hasStreamingLayout(dir: File): Boolean =
+        /**
+         * Raw keys of the multilingual catalog's 53 voices: the default
+         * [voiceKeys] of the layout helpers below. An engine with its own
+         * voices passes its own keys ([genStatsVoiceKeys]).
+         */
+        internal val CATALOG_VOICE_KEYS: List<String> =
+            KokoroDirectVoiceCatalog.voices.map { it.id.substringAfter(':') }
+
+        /** Whether [dir] holds the streaming pair and the generator statistics of every one of [voiceKeys]. */
+        internal fun hasStreamingLayout(dir: File, voiceKeys: List<String> = CATALOG_VOICE_KEYS): Boolean =
             (modelFile(dir, PLANNER_GRAPH).isFile || hasSplitPlanner(dir)) &&
-                modelFile(dir, GEN_GRAPH).isFile && hasAllGenStats(dir)
+                modelFile(dir, GEN_GRAPH).isFile && hasAllGenStats(dir, voiceKeys)
 
         /**
          * Whether [dir] holds the v26 planner: planner-rest and the text
@@ -1670,40 +1691,42 @@ open class KokoroDirectEngine @Inject constructor(
             }
 
         /**
-         * Whether [dir]'s genstats/ has a non-empty file for every catalog
-         * voice. An empty or partial directory is not a streaming layout: the
-         * bundle renders whole if it has model.onnx, and is not installed
-         * if it doesn't.
+         * Whether [dir]'s genstats/ has a non-empty file for every one of
+         * [voiceKeys] (the engine's voices, speaker order). An empty or
+         * partial directory is not a streaming layout: the bundle renders
+         * whole if it has model.onnx, and is not installed if it doesn't.
          */
-        internal fun hasAllGenStats(dir: File): Boolean =
-            KokoroDirectVoiceCatalog.voices.all { v ->
-                File(dir, "$GENSTATS_DIR/${v.id.substringAfter(':')}.bin").let { it.isFile && it.length() > 0 }
-            }
+        internal fun hasAllGenStats(dir: File, voiceKeys: List<String> = CATALOG_VOICE_KEYS): Boolean =
+            voiceKeys.all { key -> File(dir, "$GENSTATS_DIR/$key.bin").let { it.isFile && it.length() > 0 } }
 
         /**
-         * The catalog voice whose generator statistics [voiceKey] renders
-         * with: itself when the catalog knows it, else speaker 0, the voice
-         * the style lookup falls back to as well. Never a raw key in a path.
+         * The voice of [voiceKeys] whose generator statistics [voiceKey]
+         * renders with: itself when it is one of them, else the first
+         * (speaker 0, the voice the style lookup falls back to as well).
+         * Never a raw key in a path.
          */
-        internal fun genStatsKeyFor(voiceKey: String): String =
-            if (KokoroDirectVoiceCatalog.speakerIdFor(voiceKey) >= 0) {
-                voiceKey
-            } else {
-                KokoroDirectVoiceCatalog.voices.first().id.substringAfter(':')
-            }
+        internal fun genStatsKeyFor(voiceKey: String, voiceKeys: List<String> = CATALOG_VOICE_KEYS): String =
+            if (voiceKey in voiceKeys) voiceKey else voiceKeys.first()
 
-        /** A bundle either path can render: voices and tokens, plus the unsplit model or the streaming layout. */
-        internal fun isInstalledIn(dir: File): Boolean =
+        /**
+         * A bundle either path can render: voices and tokens, plus the
+         * unsplit model or the streaming layout for [voiceKeys].
+         */
+        internal fun isInstalledIn(dir: File, voiceKeys: List<String> = CATALOG_VOICE_KEYS): Boolean =
             dir.isDirectory && File(dir, VOICES_FILE).isFile && File(dir, TOKENS_FILE).isFile &&
-                (modelFile(dir, MODEL_GRAPH).isFile || hasStreamingLayout(dir))
+                (modelFile(dir, MODEL_GRAPH).isFile || hasStreamingLayout(dir, voiceKeys))
 
         /**
-         * Streaming whenever [dir] has the streaming layout, unless the debug
-         * knob [streamKnob] (`kokoro.stream`) is `false` and the unsplit model
-         * is there to fall back on.
+         * Streaming whenever [dir] has the streaming layout for [voiceKeys],
+         * unless the debug knob [streamKnob] (`kokoro.stream`) is `false` and
+         * the unsplit model is there to fall back on.
          */
-        internal fun renderPathFor(dir: File, streamKnob: String?): RenderPath =
-            if (hasStreamingLayout(dir) && !(streamKnob == "false" && modelFile(dir, MODEL_GRAPH).isFile)) {
+        internal fun renderPathFor(
+            dir: File,
+            streamKnob: String?,
+            voiceKeys: List<String> = CATALOG_VOICE_KEYS,
+        ): RenderPath =
+            if (hasStreamingLayout(dir, voiceKeys) && !(streamKnob == "false" && modelFile(dir, MODEL_GRAPH).isFile)) {
                 RenderPath.STREAMING
             } else {
                 RenderPath.WHOLE

@@ -2,6 +2,7 @@ package app.marmalade.tts.install
 
 import android.content.res.AssetManager
 import android.util.Log
+import app.marmalade.tts.data.KokoroGermanVoiceCatalog
 import app.marmalade.tts.data.PocketVoiceCatalog
 import app.marmalade.tts.engine.BuildTypeEngines
 import app.marmalade.tts.engine.kokoro.KokoroDirectEngine
@@ -1517,14 +1518,8 @@ open class EngineInstaller @Inject constructor(
      * `.ort`.
      */
     private fun verifyKokoroDirectLayout(dir: File): InstallState {
-        fun graphOk(name: String): Boolean {
-            val file = File(dir, "$name.ort").takeIf { it.isFile } ?: File(dir, "$name.onnx")
-            return file.isFile && file.length() >= MIN_MODEL_BYTES
-        }
-        val planner = graphOk("planner") ||
-            (graphOk(KokoroDirectEngine.PLANNER_REST_GRAPH) && graphOk(KokoroDirectEngine.TEXT_ENCODER_GRAPH))
-        val streaming = planner && graphOk("gen") && KokoroDirectEngine.hasAllGenStats(dir)
-        if (!streaming && !graphOk("model")) return InstallState.Corrupt
+        val streaming = kokoroStreamingLayoutOk(dir, KokoroDirectEngine.CATALOG_VOICE_KEYS)
+        if (!streaming && !kokoroGraphOk(dir, "model")) return InstallState.Corrupt
         val voices = File(dir, "voices.bin")
         if (!voices.isFile || voices.length() == 0L) return InstallState.Corrupt
         val tokens = File(dir, "tokens.txt")
@@ -1546,20 +1541,23 @@ open class EngineInstaller @Inject constructor(
     }
 
     /**
-     * Kokoro German layout (`kokoro-de-v1_0`): model.onnx + voices.bin +
-     * tokens.txt + model-format.txt at top level. Unlike the multilingual
-     * `kokoro-direct-v1_0` bundle this ships **no** lexicon-zh.txt and **no**
-     * openjtalk_dic — German is fixed and phonemizes through the app's
-     * espeak-ng, so those files must be absent, not merely optional.
+     * Kokoro German layout (`kokoro-de-v1_0`): voices.bin + tokens.txt +
+     * model-format.txt at top level, plus either the unsplit model (v25) or
+     * the streaming layout (v28, not yet published): planner-rest + textenc
+     * (or a whole planner) + gen, and genstats/thorsten.bin. That is the same
+     * either/or `KokoroGermanEngine.isInstalled` applies; a graph may ship as
+     * `.ort`. Unlike the multilingual `kokoro-direct-v1_0` bundle this ships
+     * no lexicon-zh.txt, no openjtalk_dic and no textenc-en: German is fixed
+     * and phonemizes through the app's espeak-ng, so none of them is checked.
      *
      * A single voices.bin holds the one German speaker (510 × 256 floats).
      * model-format.txt marks it as a quantized (static QDQ int8) build, which
      * [app.marmalade.tts.engine.kokoro.KokoroDirectEngine] reads to pick the
-     * CPU EP.
+     * CPU EP for the whole model.
      */
     private fun verifyKokoroDeLayout(dir: File): InstallState {
-        val model = File(dir, "model.onnx")
-        if (!model.isFile || model.length() < MIN_MODEL_BYTES) return InstallState.Corrupt
+        val streaming = kokoroStreamingLayoutOk(dir, listOf(KokoroGermanVoiceCatalog.THORSTEN_VOICE_KEY))
+        if (!streaming && !kokoroGraphOk(dir, "model")) return InstallState.Corrupt
         val voices = File(dir, "voices.bin")
         if (!voices.isFile || voices.length() == 0L) return InstallState.Corrupt
         val tokens = File(dir, "tokens.txt")
@@ -1567,6 +1565,24 @@ open class EngineInstaller @Inject constructor(
         val format = File(dir, "model-format.txt")
         if (!format.isFile || format.length() == 0L) return InstallState.Corrupt
         return InstallState.Installed
+    }
+
+    /** Whether [dir] holds Kokoro graph [name] as `.ort` or `.onnx`, at least [MIN_MODEL_BYTES]. */
+    private fun kokoroGraphOk(dir: File, name: String): Boolean {
+        val file = KokoroDirectEngine.modelFile(dir, name)
+        return file.isFile && file.length() >= MIN_MODEL_BYTES
+    }
+
+    /**
+     * Whether [dir] holds a Kokoro streaming layout: a planner (whole, or
+     * the v26 planner-rest + textenc) and gen, each [kokoroGraphOk], and a
+     * non-empty genstats/<key>.bin for every one of [voiceKeys].
+     */
+    private fun kokoroStreamingLayoutOk(dir: File, voiceKeys: List<String>): Boolean {
+        val planner = kokoroGraphOk(dir, "planner") ||
+            (kokoroGraphOk(dir, KokoroDirectEngine.PLANNER_REST_GRAPH) &&
+                kokoroGraphOk(dir, KokoroDirectEngine.TEXT_ENCODER_GRAPH))
+        return planner && kokoroGraphOk(dir, "gen") && KokoroDirectEngine.hasAllGenStats(dir, voiceKeys)
     }
 
     /**

@@ -1,6 +1,7 @@
 package app.marmalade.tts.engine.kokoro
 
 import app.marmalade.tts.data.KokoroDirectVoiceCatalog
+import app.marmalade.tts.data.KokoroGermanVoiceCatalog
 import app.marmalade.tts.engine.kokoro.KokoroDirectEngine.RenderPath
 import java.io.File
 import java.nio.file.Files
@@ -10,7 +11,11 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Issues #13 "E" and #25: which bundles KokoroDirect accepts, and which path and planner render them. */
+/**
+ * Issues #13 "E", #25 and #35: which bundles KokoroDirect (and the German
+ * engine, with its own genstats keys) accepts, and which path and planner
+ * render them.
+ */
 class KokoroBundleLayoutTest {
 
     private val dir: File = Files.createTempDirectory("kokoro-layout").toFile()
@@ -198,6 +203,75 @@ class KokoroBundleLayoutTest {
         File(dir, "textenc-en.ort").delete()
         assertEquals("no student: English uses int8 ALBERT too", all,
             KokoroDirectEngine.textEncoderFor(dir, "en-us", "Hello there."))
+    }
+
+    // -- the German engine (issue #35): one voice, genstats/thorsten.bin ------
+
+    private val germanKeys = listOf(KokoroGermanVoiceCatalog.THORSTEN_VOICE_KEY)
+
+    /** The v28 German bundle: the v26 planner without textenc-en, one stats file, no model.onnx. */
+    private fun stageGermanStreaming() {
+        stageCommon()
+        file("model-format.txt")
+        file("planner-rest.ort")
+        file("textenc.ort")
+        file("gen.ort")
+        file("genstats/thorsten.bin")
+    }
+
+    @Test
+    fun `the German v25 whole-model bundle renders whole`() {
+        stageCommon()
+        file("model.onnx")
+        file("model-format.txt")
+        assertTrue(KokoroDirectEngine.isInstalledIn(dir, germanKeys))
+        assertFalse(KokoroDirectEngine.hasStreamingLayout(dir, germanKeys))
+        assertEquals(RenderPath.WHOLE, KokoroDirectEngine.renderPathFor(dir, streamKnob = null, voiceKeys = germanKeys))
+    }
+
+    @Test
+    fun `the German streaming bundle is installed and streams with the German keys only`() {
+        stageGermanStreaming()
+        assertTrue(KokoroDirectEngine.hasStreamingLayout(dir, germanKeys))
+        assertTrue(KokoroDirectEngine.isInstalledIn(dir, germanKeys))
+        assertEquals(RenderPath.STREAMING, KokoroDirectEngine.renderPathFor(dir, streamKnob = null, voiceKeys = germanKeys))
+        assertTrue("v26 planner", KokoroDirectEngine.usesSplitPlanner(dir, plannerKnob = null))
+        // The multilingual engine needs all 53 voices' stats: not its layout.
+        assertFalse(KokoroDirectEngine.hasStreamingLayout(dir))
+        assertFalse(KokoroDirectEngine.isInstalledIn(dir))
+    }
+
+    @Test
+    fun `the German streaming bundle needs a non-empty thorsten stats file`() {
+        stageGermanStreaming()
+        File(dir, "genstats/thorsten.bin").writeBytes(ByteArray(0))
+        assertFalse("empty", KokoroDirectEngine.hasStreamingLayout(dir, germanKeys))
+        assertFalse(KokoroDirectEngine.isInstalledIn(dir, germanKeys))
+        File(dir, "genstats/thorsten.bin").delete()
+        assertFalse("missing", KokoroDirectEngine.hasStreamingLayout(dir, germanKeys))
+        assertFalse(KokoroDirectEngine.isInstalledIn(dir, germanKeys))
+    }
+
+    @Test
+    fun `German generator statistics always resolve to thorsten`() {
+        assertEquals("thorsten", KokoroDirectEngine.genStatsKeyFor("thorsten", germanKeys))
+        assertEquals("thorsten", KokoroDirectEngine.genStatsKeyFor("af_heart", germanKeys))
+        assertEquals("thorsten", KokoroDirectEngine.genStatsKeyFor("no_such_voice", germanKeys))
+        assertEquals("thorsten", KokoroDirectEngine.genStatsKeyFor("../../shared_prefs/x", germanKeys))
+    }
+
+    @Test
+    fun `German pieces go to int8 ALBERT`() {
+        stageGermanStreaming()
+        assertEquals(
+            KokoroDirectEngine.TEXT_ENCODER_GRAPH,
+            KokoroDirectEngine.textEncoderFor(dir, "de", "Guten Morgen."),
+        )
+        // No student in the German bundle: even an English override reads through textenc.
+        assertEquals(
+            KokoroDirectEngine.TEXT_ENCODER_GRAPH,
+            KokoroDirectEngine.textEncoderFor(dir, "en-us", "Hello there."),
+        )
     }
 
     @Test
