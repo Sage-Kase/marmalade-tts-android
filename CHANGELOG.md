@@ -101,6 +101,10 @@ This project follows [Semantic Versioning](https://semver.org/).
   Voices and settings that used Marius now use Alba.
 
 ### Fixed
+- **Speed warning forgets old measurements after an update**: the warning
+  for fast speeds now ignores how fast a voice ran on the previous app
+  version, or before its engine was updated, so an engine that got faster
+  is no longer flagged until it has been used for a while.
 - **Spanish no longer reads "á" as "a acentuada"**: older Spanish books
   write the one-letter words "a", "e", "o" and "u" with an accent ("fué á
   la casa ó al campo"). On-device voices now read them as the plain words

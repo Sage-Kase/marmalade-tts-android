@@ -1018,6 +1018,28 @@ class AliasViewModelTest {
         assertTrue(vm.showSpeedWarning.first())
     }
 
+    @Test
+    fun `clearing a stale measured RTF hands the warning back to the prediction`() = runTest {
+        // The probe predicts Kitten at 0.3 (no warning at 1.0), but a stale
+        // measured 0.9 says otherwise. Once an update drops the measurement,
+        // the prediction decides again.
+        val settings = FakeSettings(
+            initialId = KittenDirectVoiceCatalog.DEFAULT_VOICE_ID,
+            initialOnboarded = true,
+        )
+        settings.setEngineRtfForTest("kitten-direct-v0_8", 0.9)
+        val vm = newViewModel(
+            settings = settings,
+            deviceProbe = FakeDeviceProbe(DeviceProbe(measuredKittenRtf = 0.3, computeScore = null)),
+        )
+        vm.openEditor(alias(name = "onex", speed = 1.0f))
+        assertTrue(vm.showSpeedWarning.first())
+
+        settings.clearEngineRtf("kitten-direct-v0_8")
+
+        assertFalse(vm.showSpeedWarning.first())
+    }
+
     private fun newViewModel(
         aliasDao: FakeAliasDao? = null,
         aliases: List<VoiceAlias> = emptyList(),

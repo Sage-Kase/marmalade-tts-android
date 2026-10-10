@@ -54,9 +54,13 @@ import kotlinx.coroutines.flow.map
  * the fallback transparently until the user picks something explicit.
  */
 @Singleton
-open class SettingsRepository @Inject constructor(
+open class SettingsRepository internal constructor(
     private val dataStore: DataStore<Preferences>,
+    /** This build's versionCode; stamps the measured RTFs ([engineRtf]). */
+    private val appVersionCode: Int,
 ) {
+    @Inject constructor(dataStore: DataStore<Preferences>) : this(dataStore, BuildConfig.VERSION_CODE)
+
     /**
      * Emits the persisted default voice ID, falling back to
      * [KokoroDirectVoiceCatalog.DEFAULT_VOICE_ID] when nothing is stored.
@@ -612,8 +616,15 @@ open class SettingsRepository @Inject constructor(
      * Purely derived data — safe to drop, and it repopulates from use — so
      * it is deliberately not part of the semver-frozen settings surface.
      * One key per engine, mirroring the latency window's per-model layout.
+     *
+     * Values measured by a different app version are stale (engine code
+     * changes between releases: 1.2's streaming made Pocket several times
+     * faster), so they read as absent and the next [recordEngineRtf] wipes
+     * them. An engine's own value goes when its files change
+     * ([clearEngineRtf]).
      */
     open val engineRtf: Flow<Map<String, Double>> = dataStore.data.map { prefs ->
+        if (prefs[KEY_ENGINE_RTF_VERSION_CODE] != appVersionCode) return@map emptyMap()
         val out = mutableMapOf<String, Double>()
         for ((key, value) in prefs.asMap()) {
             val name = key.name.removePrefix(ENGINE_RTF_PREFIX)
@@ -630,8 +641,25 @@ open class SettingsRepository @Inject constructor(
      */
     open suspend fun recordEngineRtf(engineName: String, sampleRtf: Double) {
         dataStore.edit { prefs ->
+            if (prefs[KEY_ENGINE_RTF_VERSION_CODE] != appVersionCode) {
+                prefs.asMap().keys
+                    .filter { it.name.startsWith(ENGINE_RTF_PREFIX) }
+                    .forEach { prefs.remove(it) }
+                prefs[KEY_ENGINE_RTF_VERSION_CODE] = appVersionCode
+            }
             val key = doublePreferencesKey("$ENGINE_RTF_PREFIX$engineName")
             prefs[key] = RollingRtf.update(prefs[key], sampleRtf)
+        }
+    }
+
+    /**
+     * Drop [engineName]'s measured RTF: its bundle or a voice pack was just
+     * installed or updated, and the new files may run at a different speed.
+     * The warning falls back to the probe prediction until it is re-measured.
+     */
+    open suspend fun clearEngineRtf(engineName: String) {
+        dataStore.edit { prefs ->
+            prefs.remove(doublePreferencesKey("$ENGINE_RTF_PREFIX$engineName"))
         }
     }
 
@@ -788,6 +816,11 @@ open class SettingsRepository @Inject constructor(
         // Rolling per-engine measured warm RTF, one key per engine. Derived
         // data — safe to drop; repopulates from use — so not semver-frozen.
         private const val ENGINE_RTF_PREFIX = "engine_rtf_"
+
+        // The versionCode that measured the stored engine RTFs (#40); any
+        // other value marks them stale. Deliberately NOT prefixed with
+        // ENGINE_RTF_PREFIX, which [recordEngineRtf]'s sweep removes.
+        private val KEY_ENGINE_RTF_VERSION_CODE = intPreferencesKey("measured_rtf_version_code")
 
         // Reader display settings (step G). All three are absent until the
         // user changes them; the reader applies its own defaults on read.

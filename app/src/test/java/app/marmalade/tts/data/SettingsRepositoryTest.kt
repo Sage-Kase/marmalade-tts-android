@@ -1,6 +1,10 @@
 package app.marmalade.tts.data
 
+import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.doublePreferencesKey
+import androidx.datastore.preferences.core.edit
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -128,12 +132,75 @@ class SettingsRepositoryTest {
         assertEquals(22, repo.readerFontSizeSp.first())
     }
 
-    private fun newRepo(): SettingsRepository {
-        val ds = PreferenceDataStoreFactory.create(
-            scope = scope,
-            produceFile = { dataStoreFile },
-        )
-        return SettingsRepository(ds)
+    private fun newRepo(): SettingsRepository = SettingsRepository(newDataStore())
+
+    private fun newDataStore() = PreferenceDataStoreFactory.create(
+        scope = scope,
+        produceFile = { dataStoreFile },
+    )
+
+    // -- measured engine RTF (#40: dropped after an app or engine update) -----
+
+    @Test
+    fun engineRtf_measuredByThisVersionSurvivesAndAverages() = runTest {
+        val repo = SettingsRepository(newDataStore(), V1_2)
+        repo.recordEngineRtf(POCKET, 1.0)
+        repo.recordEngineRtf(POCKET, 2.0)
+
+        assertEquals(mapOf(POCKET to 1.3), repo.engineRtf.first().mapValues { round(it.value) })
+    }
+
+    @Test
+    fun engineRtf_fromAnOlderVersionCodeIsIgnoredThenCleared() = runTest {
+        val ds = newDataStore()
+        val old = SettingsRepository(ds, V1_1)
+        old.recordEngineRtf(POCKET, 22.0)
+        old.recordEngineRtf(KOKORO, 1.1)
+
+        val updated = SettingsRepository(ds, V1_2)
+        assertEquals(emptyMap<String, Double>(), updated.engineRtf.first())
+
+        // The first sample after the update starts afresh: Pocket's 22 is not
+        // folded in, and Kokoro's stale value is gone rather than revived.
+        updated.recordEngineRtf(POCKET, 0.5)
+        assertEquals(mapOf(POCKET to 0.5), updated.engineRtf.first())
+        assertEquals(setOf(POCKET), rtfKeysOnDisk(ds))
+    }
+
+    @Test
+    fun engineRtf_storedBeforeVersionStampingIsIgnored() = runTest {
+        // A 1.1.0 install stored RTFs with no version stamp at all.
+        val ds = newDataStore()
+        ds.edit { it[doublePreferencesKey("engine_rtf_$POCKET")] = 22.0 }
+
+        assertEquals(emptyMap<String, Double>(), SettingsRepository(ds, V1_2).engineRtf.first())
+    }
+
+    @Test
+    fun clearEngineRtf_dropsThatEngineOnly() = runTest {
+        val repo = SettingsRepository(newDataStore(), V1_2)
+        repo.recordEngineRtf(POCKET, 0.6)
+        repo.recordEngineRtf(KOKORO, 0.9)
+
+        repo.clearEngineRtf(POCKET)
+
+        assertEquals(mapOf(KOKORO to 0.9), repo.engineRtf.first())
+    }
+
+    private suspend fun rtfKeysOnDisk(ds: DataStore<Preferences>): Set<String> =
+        ds.data.first().asMap().keys
+            .map { it.name }
+            .filter { it.startsWith("engine_rtf_") }
+            .map { it.removePrefix("engine_rtf_") }
+            .toSet()
+
+    private fun round(v: Double) = Math.round(v * 1000) / 1000.0
+
+    private companion object {
+        const val V1_1 = 10010000
+        const val V1_2 = 10020000
+        const val POCKET = "pocket-tts-en-v2026_04"
+        const val KOKORO = "kokoro-direct-v1_0"
     }
 
     // -- latency samples + weekly quota ---------------------------------------

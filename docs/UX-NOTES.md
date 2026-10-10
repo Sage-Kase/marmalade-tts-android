@@ -106,6 +106,10 @@ Post-v1.1 work; v1.1 ships the static 1.35 threshold as-is.
   surfaces (alias editor + reader sheet); rolling measured warm RTF per
   engine, cold-start from the probe prediction, static-1.35 rule as the
   no-data fallback.
+- Addendum (#40, 2026-10-10): measured RTFs reset after an app update
+  (any versionCode change) and for one engine after its bundle or a voice
+  pack is installed or updated, so an engine sped up in a new release is
+  not warned about on the old measurements; the prediction covers the gap.
 
 ### 2026-09-21 — five UI fixes from Max's screenshot review (A–E)
 

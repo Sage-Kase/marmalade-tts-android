@@ -259,6 +259,10 @@ internal class FakeSettings(
             (engineName to app.marmalade.tts.perf.RollingRtf.update(previous, sampleRtf))
     }
 
+    override suspend fun clearEngineRtf(engineName: String) {
+        engineRtfState.value = engineRtfState.value - engineName
+    }
+
     /** Directly seed a measured RTF without going through the EMA. */
     fun setEngineRtfForTest(engineName: String, rtf: Double) {
         engineRtfState.value = engineRtfState.value + (engineName to rtf)

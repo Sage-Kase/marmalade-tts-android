@@ -45,6 +45,7 @@ class EngineInstallerTest {
     private lateinit var installer: TestInstaller
     private lateinit var fakeEngine: FakeNativeEngineHandle
     private lateinit var fetcher: FakeHttpFetcher
+    private val filesChanged = mutableListOf<String>()
 
     @Before
     fun setUp() {
@@ -55,6 +56,7 @@ class EngineInstallerTest {
             filesDir = EngineFilesDir { filesDir },
             engine = fakeEngine,
             fetcher = fetcher,
+            filesChanged = { filesChanged += it },
         )
     }
 
@@ -474,6 +476,56 @@ class EngineInstallerTest {
         assertEquals(InstallState.Installed, installer.verifyPackAgainst(pack))
     }
 
+    // -- EngineFilesChanged (#40: drop the engine's measured RTF) -----------
+
+    @Test
+    fun aSuccessfulInstallReportsTheEngineAsChanged() = runTest {
+        val descriptor = stageBundle(KITTEN_LAYOUT)
+
+        assertTrue(installer.install(descriptor) {}.isSuccess)
+
+        assertEquals(listOf(descriptor.name), filesChanged)
+    }
+
+    @Test
+    fun aSuccessfulPackInstallReportsItsEngineAsChanged() = runTest {
+        val pack = stagePack(VITS_PACK_LAYOUT)
+
+        assertTrue(installer.installPack(pack) {}.isSuccess)
+
+        assertEquals(listOf(pack.engine), filesChanged)
+    }
+
+    @Test
+    fun aFailedInstallReportsNothing() = runTest {
+        val archive = buildArchive(KITTEN_LAYOUT, archiveRootName = ARCHIVE_ROOT)
+        val descriptor = engineDescriptor(
+            name = "stoat",
+            url = "https://test/stoat.tar.bz2",
+            archiveBytes = archive,
+            shaOverride = "deadbeef".repeat(8),
+        )
+        fetcher.payloads[descriptor.archive.url] = archive
+
+        assertTrue(installer.install(descriptor) {}.isFailure)
+
+        assertTrue("old files still in place: $filesChanged", filesChanged.isEmpty())
+    }
+
+    @Test
+    fun aThrowingListenerDoesNotFailTheInstall() = runTest {
+        val throwing = TestInstaller(
+            filesDir = EngineFilesDir { filesDir },
+            engine = fakeEngine,
+            fetcher = fetcher,
+            filesChanged = { throw IOException("datastore unavailable") },
+        )
+        val descriptor = stageBundle(KITTEN_LAYOUT)
+
+        assertTrue(throwing.install(descriptor) {}.isSuccess)
+        assertEquals(InstallState.Installed, throwing.state(descriptor.name).value)
+    }
+
     @Test
     fun packShaMismatchFailsAndLeavesNothingInstalled() = runTest {
         val archive = buildArchive(VITS_PACK_LAYOUT, archiveRootName = VITS_PACK_ROOT)
@@ -863,7 +915,8 @@ internal class TestInstaller(
     filesDir: EngineFilesDir,
     engine: NativeEngineHandle,
     fetcher: HttpFetcher,
-) : EngineInstaller(filesDir, engine, fetcher) {
+    filesChanged: EngineFilesChanged = EngineFilesChanged.NONE,
+) : EngineInstaller(filesDir, engine, fetcher, filesChanged = filesChanged) {
 
     suspend fun install(
         descriptor: EngineDescriptor,

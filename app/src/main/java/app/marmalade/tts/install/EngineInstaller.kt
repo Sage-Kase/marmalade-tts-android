@@ -13,6 +13,7 @@ import java.net.URL
 import java.security.MessageDigest
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -106,6 +107,20 @@ fun interface SeedAssets {
 
     companion object {
         val NONE = SeedAssets { null }
+    }
+}
+
+/**
+ * Told after an install puts new files under an engine: its bundle, a voice
+ * pack, or a fresh copy of the APK seed. Production drops the engine's
+ * measured RTF ([app.marmalade.tts.data.SettingsRepository.clearEngineRtf]),
+ * since new files can run at a different speed.
+ */
+fun interface EngineFilesChanged {
+    suspend fun onChanged(engineName: String)
+
+    companion object {
+        val NONE = EngineFilesChanged { }
     }
 }
 
@@ -439,6 +454,7 @@ open class EngineInstaller @Inject constructor(
     private val engineHandle: NativeEngineHandle,
     private val httpFetcher: HttpFetcher,
     private val seedAssets: SeedAssets = SeedAssets.NONE,
+    private val filesChanged: EngineFilesChanged = EngineFilesChanged.NONE,
 ) {
 
     init {
@@ -618,7 +634,7 @@ open class EngineInstaller @Inject constructor(
                 archiveTmp = packArchiveTmpFor(pack),
                 onProgress = onProgress,
             ) { dir -> verifyPackLayout(pack, dir) }
-        }
+        }.also { if (it.isSuccess) notifyFilesChanged(pack.engine) }
     }
 
     /** [verifyPack] against a caller-supplied pack; see [installPackInternal]. */
@@ -738,6 +754,7 @@ open class EngineInstaller @Inject constructor(
             }
             sf.value = InstallState.Installed
             Log.i(TAG, "Seeded $engineName from APK assets")
+            notifyFilesChanged(engineName)
             Result.success(Unit)
         } catch (t: Throwable) {
             Log.w(TAG, "Seeding $engineName from assets failed", t)
@@ -821,6 +838,17 @@ open class EngineInstaller @Inject constructor(
                 archiveTmp = archiveTmpFor(descriptor.name),
                 onProgress = onProgress,
             ) { dir -> verifyLayout(descriptor, dir) }
+        }.also { if (it.isSuccess) notifyFilesChanged(descriptor.name) }
+    }
+
+    /** [EngineFilesChanged] must never turn a finished install into a failure. */
+    private suspend fun notifyFilesChanged(engineName: String) {
+        try {
+            filesChanged.onChanged(engineName)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            Log.w(TAG, "EngineFilesChanged for $engineName failed", t)
         }
     }
 
