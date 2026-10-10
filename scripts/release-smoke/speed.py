@@ -32,7 +32,8 @@ SPEEDS = [1.0, 1.25, 1.5, 2.0]
 # phone advertises). Changing one makes its baseline rows missing: refresh
 # them on purpose (README, "Baseline").
 SPEED_VOICES = {
-    "kitten-direct-v0_8": "kitten-direct-v0_8:Bella",
+    # Not Bella: the app's default voice is spoken by the primary alias (routing.py).
+    "kitten-direct-v0_8": "kitten-direct-v0_8:Leo",
     "kokoro-direct-v1_0": "kokoro-direct-v1_0:af_heart",
     "kokoro-de-v1_0": "kokoro-de-v1_0:thorsten",
     "pocket-tts-en-v2026_04": "pocket-tts-en-v2026_04:alba",

@@ -44,8 +44,9 @@ device shows: JNI, missing assets, classes R8 stripped.
    The gate checks that with the app's own `langdetect.tab` and fails the row
    if not. Most German prose reads as English or French to the detector.
 6. A row passes when audio came out (samples, a plausible length for the
-   sentence, not silence) and the app's process logged no error or exception
-   while rendering it. This stage sets no speech rate, so the phone's system
+   sentence, not silence), the voice it asked for spoke it at the rate it
+   asked for (below, "Which voice spoke"), and the app's process logged no
+   error or exception while rendering it. This stage sets no speech rate, so the phone's system
    speech rate (Settings → Text-to-speech → Speech rate) applies; the length
    check divides by it. The gate reads it and never changes it. (A client
    that calls `setSpeechRate` gets its own rate: the speed stage does.) If the app's process dies or restarts during a row, that row
@@ -56,6 +57,18 @@ device shows: JNI, missing assets, classes R8 stripped.
 8. Prints a pass/fail table per stage and exits 1 on any failure (2 on a
    setup error). Results (`table.md`, `speed-table.md`, `results.json`, the
    WAVs, `speed-lab.html`) go to `build/release-smoke/<time>/`.
+
+**Which voice spoke** (#50). The app doesn't always speak the voice a client
+asks for: a per-app mapping wins, and a request for the voice it advertises as
+its default (Kitten Bella) reads as an auto-filled echo and goes to the
+primary alias, with that alias's speed and effect. On the rc the primary is
+Pocket, so until #50 every "Kitten" row, smoke and speed, was Pocket. The TTS
+service now logs one Info line per request (`MarmaladeTtsService:
+onSynthesizeText: asked=… voice=… engine=… speed=… effectBlocks=…`), and a
+row fails unless the voice it asked for spoke it, at its rate, with no
+effect (`routing.py`). No row asks for Kitten's default voice (the smoke
+stage takes the next one, the speed stage Leo). A build from before #50 logs
+no such line and fails every row.
 
 The `bundle` column is the release the engine's files on the phone came
 from (a VITS row: its pack's), read from the app's `EngineBundle` lines. With
@@ -70,7 +83,7 @@ that renders slower than the audio plays stalls mid-sentence. The app's speed
 warning (`perf/SpeedPerfWarning.kt`) is meant to say so beforehand. This stage
 checks that it tells the truth, and that no release gets slower unnoticed.
 
-- **Rows.** One voice per engine (`SPEED_VOICES` in `speed.py`: Kitten Bella,
+- **Rows.** One voice per engine (`SPEED_VOICES` in `speed.py`: Kitten Leo,
   Kokoro Heart, Kokoro German Thorsten, Pocket Alba, plus the first voice of
   every released VITS pack) × the four speeds. Every row reads the same
   sentence pair, `speed:en` in `sentences.tsv` (Kokoro German: `speed:de`): a
@@ -92,7 +105,8 @@ checks that it tells the truth, and that no release gets slower unnoticed.
   arriving after everything before it had already played out (gaps under
   50 ms are buffer jitter and not counted). This is the system-TTS path
   (TalkBack, other apps). The in-app reader schedules its own segments
-  (`MarmaladeSynthService`) and isn't measured here.
+  (`MarmaladeSynthService`) and isn't measured here, but its engine runs in
+  the slower place (below).
 - **Verdicts.**
   - PASS: keeps up (no stall of 300 ms or more; shorter ones land at a chunk
     seam as a slightly long pause).
@@ -106,10 +120,21 @@ checks that it tells the truth, and that no release gets slower unnoticed.
   sees it: no measured RTF yet, so `EngineRecommender`'s prediction
   (`ANCHOR_PROBE_RTF` × `REFERENCE_COST`) × speed > 0.8. The gate reads those
   constants from the Kotlin, so retuning a cost retunes the gate.
+- **Which cores this measures** (#50). Android's TTS manager
+  (system_server) binds the engine for every client with
+  `BIND_SCHEDULE_LIKE_TOP_APP`, so a system-TTS engine runs on the
+  `top-app` cpuset whatever app asks and whether the screen is on or off:
+  the Pixel 6a's two X1 cores included. The gate's numbers are therefore what
+  TalkBack and other apps' users get. The in-app reader is different: with the
+  screen off its engine runs in the app's own foreground service, in the
+  `foreground` cpuset (CPUs 0–5 on the 6a, no X1), about half as fast
+  (Kokoro v26 at 1.0×: RTF ~0.43 here, ~1.0 there, with 1–2 s stalls). The
+  speed warning's costs are measured on that slower path, so the gate's
+  "warning lies" check is lenient by design: a stall on the fast path where
+  the slow-path prediction shows no warning is a real failure.
 - **Screen off, phone cool.** It runs with the screen off, as when listening
-  (it presses the sleep key if the screen is on); the app's costs are
-  screen-off numbers. Before each engine it waits until the phone's skin
-  sensor reads 33 °C or less with no thermal throttling (`--cool-skin-c`,
+  (it presses the sleep key if the screen is on). Before each engine it
+  waits until the phone's skin sensor reads 33 °C or less with no thermal throttling (`--cool-skin-c`,
   up to `--cool-timeout` 15 min, else that engine's rows fail as too warm):
   a 6a warm from the previous engine renders up to a third slower, which
   would read as a regression. Each row records the skin temperature and free
@@ -193,5 +218,8 @@ it is updated the same way (Engines → Update).
 
 - How the audio sounds. Ear tests stay manual (`docs/release/device-test-lab.html`);
   the speed lab is for listening, the gate only times.
-- The in-app reader's playback path (see Speed stage).
+- The in-app reader (`MarmaladeSynthService` segments): its engine runs on
+  slower cores with the screen off (see Speed stage), and the gate drives
+  system TTS only. Timing the reader would need the R8 build to log its chunk
+  arrivals.
 - Developer-only engines: system TTS never offers them to other apps.

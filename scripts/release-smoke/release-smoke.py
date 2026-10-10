@@ -30,6 +30,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 import bundles
+import routing
 import speed
 
 HERE = Path(__file__).resolve().parent
@@ -48,6 +49,12 @@ EXPECTED_ENGINES = ["kitten-direct-v0_8", "kokoro-direct-v1_0", "kokoro-de-v1_0"
 # Advertised but not spoken by the gate: needs a network and an API key.
 SKIPPED_ENGINES = {"cloud-api-v1": "cloud voices need a network and a key"}
 VITS_ENGINE = "vits-marmalade-v1"
+# The voice the app advertises as its default (KittenDirectVoiceCatalog). A
+# request for it is read as an auto-filled echo and spoken by the primary
+# alias instead (routing.py), so no row may ask for it.
+KITTEN_DEFAULT_VOICE = re.search(
+    r'DEFAULT_VOICE_ID = "([^"]+)"',
+    (REPO / "app/src/main/java/app/marmalade/tts/data/KittenDirectVoiceCatalog.kt").read_text()).group(1)
 # Request languages (ISO 639-2) for an engine's accented tier
 # (EngineCatalog partialLanguageCodes): no voice of its own, so the gate
 # reaches it the way a client does, with that request language on one of the
@@ -331,11 +338,13 @@ class LangDetector:
 
 def pick_rows(voices: list[tuple[str, str]], all_voices: bool, partial: dict[str, list[str]]) -> list[Row]:
     """One voice per (engine, locale) — per VITS pack, since each pack is its own model — or every
-    voice; then one row per accented-tier language, on the engine's first voice."""
+    voice; then one row per accented-tier language, on the engine's first voice. Never the app's
+    default voice (KITTEN_DEFAULT_VOICE) unless every voice is asked for: the primary alias speaks it,
+    and that row then fails the routing check."""
     rows, seen = [], set()
     for name, locale in sorted(voices):
         engine = name.split(":", 1)[0]
-        if engine in SKIPPED_ENGINES:
+        if engine in SKIPPED_ENGINES or (name == KITTEN_DEFAULT_VOICE and not all_voices):
             continue
         key = name if all_voices else (engine, locale, name.split(":", 1)[1].split("#")[0] if engine == VITS_ENGINE else "")
         if key in seen:
@@ -369,6 +378,13 @@ def app_exceptions(phone: Phone, pkg: str, since: str, pids: set[str], allow: li
         if bad and not any(a.search(text) for a in allow):
             hits.append(text)
     return hits
+
+
+def spoken_as(phone: Phone, since: str, pids: set[str]) -> list[routing.Resolved]:
+    """The app's request lines (routing.py) logged by [pids] since [since]."""
+    log = phone.adb("logcat", "-d", "-v", "epoch", "-T", since, "-s", f"{routing.TAG}:I", check=False)
+    mine = [ln for ln in log.splitlines() if (m := LOGCAT_RE.match(ln)) and m.group(2) in pids]
+    return routing.parse("\n".join(mine))
 
 
 def load_allowlist() -> list[re.Pattern]:
@@ -450,6 +466,10 @@ def smoke_stage(phone: Phone, pkg: str, rows: list[Row], sentences: dict[str, st
                     text64=base64.b64encode(text.encode()).decode(), out=tag, **extra)
         time.sleep(0.5)  # let the app's last log lines land
         judge(row, res, text, rate)
+        if res.get("status") == "ok":
+            why = routing.mismatch(row.voice, rate, spoken_as(phone, since, pids | phone.pids(pkg)))
+            if why:
+                row.reasons.append(why)
         row.exceptions = app_exceptions(phone, pkg, since, pids | phone.pids(pkg), allow)
         if row.exceptions:
             row.reasons.append(f"app logged: {row.exceptions[0][:120]}")
@@ -560,6 +580,11 @@ def speed_stage(phone: Phone, pkg: str, picks: list[tuple[str, str | None]], tex
                 r.exceptions += app_exceptions(phone, pkg, since, pids | phone.pids(pkg), allow)
                 if res.get("status") != "ok" or int(res.get("samples", 0)) == 0 or not res.get("chunks"):
                     r.reasons.append(res.get("error", "no audio"))
+                    continue
+                why = routing.mismatch(voice, r.speed, spoken_as(phone, since, pids | phone.pids(pkg)))
+                if why:
+                    if why not in r.reasons:
+                        r.reasons.append(why)
                     continue
                 first, stalls = speed.replay(speed.parse_chunks(res["chunks"]), int(res["sampleRate"]))
                 t = speed.Take(first_sound_ms=first, synth_ms=int(res["synthMs"]),
