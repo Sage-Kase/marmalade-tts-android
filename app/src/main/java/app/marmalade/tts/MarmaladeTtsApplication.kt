@@ -413,7 +413,11 @@ class MarmaladeTtsApplication : Application() {
          *  - v40: the VITS Marmalade catalog gains its first English voice
          *    pack, `en-jenny_dioco-medium` ("Jenny (Dioco)", en-GB), so the
          *    reseed adds its VoiceMeta row (25 → 26 VITS voices).
+         *  - v41: Pocket's v27 bundle adds five voices (Mary, Rita, Stephen,
+         *    Ramone, Jenny; issue #38), so the reseed adds their rows (5 → 10
+         *    Pocket voices). The developer twin doesn't get them: its own v10
+         *    archive has no WAV for them.
          */
-        const val CATALOG_VERSION: Int = 40
+        const val CATALOG_VERSION: Int = 41
     }
 }

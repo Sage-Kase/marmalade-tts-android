@@ -4,20 +4,26 @@ import app.marmalade.tts.data.db.VoiceMeta
 
 /**
  * Static catalog of the predefined voices the app offers from the
- * `pocket-tts-en-v2026_09-mixed` bundle (~98 MB compressed, ~217 MB on-disk).
+ * `pocket-tts-en-v2026_09-mixed` bundle (engines release v27, ~100 MB
+ * compressed, ~220 MB on-disk).
  *
- * Upstream pocket-tts defines 8 predefined voices; the bundle holds 6:
- * `cosette` (Expresso) and `jean` (EARS) are **CC-BY-NC-4.0 (non-commercial)**
- * and were dropped before the public release so the store build distributes
- * no non-commercial voice data. The bundle's 6 are all commercial-safe:
- * `alba` (alba-mackenna, CC-BY-4.0), `azelma`/`eponine`/`fantine` (VCTK,
- * CC-BY-4.0), and `javert`/`marius` (voice-donations, CC0). See
- * `LICENSES/pocket-tts.md` for the per-voice source/license map.
+ * Upstream pocket-tts defines 8 predefined voices; `cosette` (Expresso) and
+ * `jean` (EARS) are **CC-BY-NC-4.0 (non-commercial)** and were dropped before
+ * the public release so the store build distributes no non-commercial voice
+ * data. Of the rest the bundle keeps `alba` (alba-mackenna, CC-BY-4.0),
+ * `azelma`/`eponine`/`fantine` (VCTK, CC-BY-4.0) and `javert`
+ * (voice-donations, CC0). `marius` (voice-donations, CC0) was dropped on
+ * 2026-10-09 (issue #19) because it sounds much worse than the others; v21
+ * still carried its WAV, v27 doesn't. [retiredVoices] moves anything that
+ * pointed at it onto [DEFAULT_VOICE_ID].
  *
- * The app offers 5 of them: `marius` was dropped on 2026-10-09 (issue #19)
- * because it sounds much worse than the others. Its `voices/marius.wav`
- * stays in the bundle (no re-upload) and is never read; [retiredVoices]
- * moves anything that pointed at it onto [DEFAULT_VOICE_ID].
+ * v27 adds five voices Max picked from issue #30's candidates (issue #38),
+ * named by him: four CC0 donors to Kyutai's Unmute voice-donation project
+ * ([KYUTAI_DONOR_VOICE_KEYS]; each WAV is the donor's published clip from
+ * `kyutai/tts-voices` `voice-donations/`, unchanged) and `jenny`, a 26 s
+ * reference cut from the Jenny (Dioco) TTS dataset, whose licence requires
+ * the voice be called "Jenny". See `LICENSES/pocket-tts.md` for the
+ * per-voice source/license map.
  *
  * Pocket TTS is a different beast from the sherpa-onnx-backed engines:
  *  - It runs on Microsoft `onnxruntime-android` directly (no sherpa-onnx).
@@ -70,6 +76,14 @@ object PocketVoiceCatalog {
     val VCTK_VOICE_KEYS: Set<String> = setOf("azelma", "eponine", "fantine")
 
     /**
+     * Voice keys added in the v27 bundle whose reference is a CC0 Kyutai
+     * Unmute voice donation (issue #38): Kyutai donor `3973` → mary,
+     * `spanish-limaperu` → rita, `thepolishdane` → stephen, `floyd2026` →
+     * ramone. `javert` came from the same programme earlier.
+     */
+    val KYUTAI_DONOR_VOICE_KEYS: Set<String> = setOf("mary", "rita", "stephen", "ramone")
+
+    /**
      * The predefined voices the app offers, in the order they appear in
      * `bundle.json#predefined_voices`. Order has no functional meaning for
      * Pocket (voices are addressed by name, not index — there's no
@@ -82,8 +96,10 @@ object PocketVoiceCatalog {
      * of the bundled `voices/<name>.wav` reference samples (median F0 over
      * voiced frames; threshold at ~150 Hz). The names don't reliably map
      * to the Les Misérables canonical genders — `alba` isn't a Les Mis
-     * name at all, and the bundle's `marius` (a male character, no longer
-     * offered) has a female voice prompt. Trust the audio, not the name.
+     * name at all, and the old bundle's `marius` (a male character, no longer
+     * offered) had a female voice prompt. Trust the audio, not the name.
+     * The v27 voices (issue #38) follow javert in the bundle's order; their
+     * genders are the ones Max gave with the names.
      */
     val voices: List<VoiceMeta> = listOf(
         seed("alba", "male"),       //  ~133 Hz
@@ -91,6 +107,11 @@ object PocketVoiceCatalog {
         seed("eponine", "female"),  //  ~164 Hz
         seed("fantine", "female"),  //  ~211 Hz
         seed("javert", "male"),     //   ~96 Hz
+        seed("mary", "female"),     //  ~203 Hz, US
+        seed("rita", "female"),     //  ~200 Hz, Latin American (Spanish reference)
+        seed("stephen", "male"),    //  ~123 Hz, US
+        seed("ramone", "male"),     //  ~134 Hz, England
+        seed("jenny", "female"),    //  ~179 Hz, Irish
     ).filter { OFFER_VCTK_VOICES || it.id.substringAfter(':') !in VCTK_VOICE_KEYS }
 
     /**
@@ -105,13 +126,16 @@ object PocketVoiceCatalog {
     /**
      * The picker's credit line per voice key (#37), from
      * `LICENSES/pocket-tts.md`'s per-voice table. The CC BY voices name
-     * their source; javert's donor gave it CC0 and stays anonymous.
-     * `marius` is absent: no longer offered.
+     * their source; the CC0 donors (javert and the v27 Kyutai donors) stay
+     * anonymous. Jenny's licence asks for "Jenny (Dioco)" where practical
+     * and is bespoke, so the line has no licence name. `marius` is absent:
+     * no longer offered.
      */
     fun creditFor(voiceKey: String): VoiceCredit? = when (voiceKey) {
         "alba" -> VoiceCredit(source = "Alba Mackenna (Kyutai)", license = "CC BY 4.0")
         in VCTK_VOICE_KEYS -> VoiceCredit(source = "VCTK (University of Edinburgh)", license = "CC BY 4.0")
-        "javert" -> VoiceCredit(donor = true, license = "CC0")
+        "javert", in KYUTAI_DONOR_VOICE_KEYS -> VoiceCredit(donor = true, license = "CC0")
+        "jenny" -> VoiceCredit(source = "Jenny (Dioco)")
         else -> null
     }
 

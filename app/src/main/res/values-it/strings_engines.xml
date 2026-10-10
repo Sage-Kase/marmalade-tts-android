@@ -209,6 +209,6 @@
     <string name="engine_kokoro_de_license">Modello Apache-2.0 (fine-tune tedesco di Kokoro-82M); fonemizzato dall\'espeak-ng integrato nell\'app (GPL-3.0-or-later).</string>
 
     <string name="engine_pocket_tagline">Le voci inglesi più espressive e ricche di carattere.</string>
-    <string name="engine_pocket_desc">Le voci inglesi più espressive — 5 voci integrate. Scorre senza intoppi sulla maggior parte dei telefoni di fascia media; può risultare a scatti su hardware più datato o economico. Solo inglese. Il modello di Kyutai Labs in una build a precisione mista, per un audio pulito.</string>
-    <string name="engine_pocket_license">Pesi del modello CC-BY-4.0, codice del modello MIT + runtime MIT (onnxruntime-android); voci CC0 / CC-BY-4.0. Nessun componente GPL.</string>
+    <string name="engine_pocket_desc">Le voci inglesi più espressive — 10 voci integrate. Scorre senza intoppi sulla maggior parte dei telefoni di fascia media; può risultare a scatti su hardware più datato o economico. Solo inglese. Il modello di Kyutai Labs in una build a precisione mista, per un audio pulito.</string>
+    <string name="engine_pocket_license">Pesi del modello CC-BY-4.0, codice del modello MIT + runtime MIT (onnxruntime-android); voci CC0 / CC-BY-4.0 / Jenny (Dioco). Nessun componente GPL.</string>
 </resources>

@@ -240,11 +240,12 @@ object EngineCatalog {
     private const val KITTEN_DIRECT_INSTALLED_SIZE_BYTES: Long = 78_417_260L
     private const val KOKORO_DIRECT_INSTALLED_SIZE_BYTES: Long = 306_245_266L
     private const val KOKORO_DE_INSTALLED_SIZE_BYTES: Long = 183_180_788L
-    // v27 bundle: english_2026-09 weights, symbolic-cache graphs, the same 6
-    // commercial-safe voices as v21 (cosette/jean dropped — CC-BY-NC-4.0).
-    private const val POCKET_TTS_INSTALLED_SIZE_BYTES: Long = 217_241_717L
+    // v27 bundle: english_2026-09 weights, symbolic-cache graphs, v21's
+    // voices minus marius plus the five #38 voices (cosette/jean dropped
+    // since v21 — CC-BY-NC-4.0).
+    private const val POCKET_TTS_INSTALLED_SIZE_BYTES: Long = 219_848_025L
     // The clean-reference dev engine still pins the older 8-voice v10 archive
-    // (2026-04 weights, ~1.6 MB larger); it's developer-only, so the small
+    // (2026-04 weights, ~1 MB smaller); it's developer-only, so the small
     // estimate drift is immaterial.
     private const val POCKET_TTS_DEV_INSTALLED_SIZE_BYTES: Long = POCKET_TTS_INSTALLED_SIZE_BYTES
 
@@ -412,9 +413,10 @@ object EngineCatalog {
      * Pocket TTS English (`pocket-tts-en-v2026_09-mixed`, engines release
      * v27). Kyutai
      * Labs' Latent Space Diffusion model, run on Microsoft
-     * `onnxruntime-android` directly (no sherpa-onnx in this path). 6
-     * commercial-safe predefined voices (the upstream 8 minus `cosette`
-     * and `jean`, which are CC-BY-NC-4.0; see below).
+     * `onnxruntime-android` directly (no sherpa-onnx in this path). 10
+     * commercial-safe predefined voices: 5 of the upstream 8 (minus
+     * `cosette` and `jean`, which are CC-BY-NC-4.0, and `marius`; see
+     * below) and 5 added by issue #38.
      *
      * Selective quantization per upstream
      * [PR #147](https://github.com/kyutai-labs/pocket-tts/pull/147):
@@ -434,15 +436,18 @@ object EngineCatalog {
      * and the default voice point at, and an install of v21 shows as
      * Outdated (archive sha differs) until the user updates, which replaces
      * the directory, voice_cache included (cached embeddings depend on the
-     * weights).
+     * weights). v27 also drops `marius.wav` and adds five voices (issue #38:
+     * four CC0 Kyutai voice donations and Jenny), so their rows only become
+     * pickable once v27 is installed (the layout check asks for every
+     * offered voice's WAV).
      *
      * Licensing: the Kyutai model **code** is MIT (not Apache-2.0) and its
      * **weights** are CC-BY-4.0 (huggingface.co/kyutai/pocket-tts). Each
-     * predefined voice carries its own data license — the 6 in the bundle
-     * are CC0 (`javert`, `marius`) or CC-BY-4.0 (`alba`, `azelma`,
-     * `eponine`, `fantine`); the app offers all but `marius` (dropped for
-     * quality, issue #19); attribution for the CC-BY voices is in
-     * CREDITS.md. No
+     * predefined voice carries its own data license — the 10 in the bundle
+     * are CC0 (`javert`, `mary`, `rita`, `stephen`, `ramone`), CC-BY-4.0
+     * (`alba`, `azelma`, `eponine`, `fantine`) or the Jenny (Dioco) licence
+     * (`jenny`: commercial use allowed, the voice must be called "Jenny");
+     * attribution is in CREDITS.md. No
      * espeak dependency — Pocket phonemizes upstream of the ONNX export, so
      * this is the only catalog entry without GPL contamination.
      */
@@ -450,13 +455,13 @@ object EngineCatalog {
         name = "pocket-tts-en-v2026_04",
         displayName = "Pocket TTS (English, 2026-09)",
         descriptionRes = R.string.engine_pocket_desc,
-        downloadSizeBytes = 97_891_040L,
+        downloadSizeBytes = 99_689_260L,
         installedSizeBytes = POCKET_TTS_INSTALLED_SIZE_BYTES,
         isRecommended = false,
         archive = EngineArchive(
             url = "https://github.com/maxwhipw/marmalade-tts-android-engines/releases/download/v27/pocket-tts-en-v2026_09-mixed.tar.bz2",
-            sha256 = "e6d03fc2c57c950e290f93adf86f30aaff7e079bdf7e91fdaf6f575b09da6aef",
-            sizeBytes = 97_891_040L,
+            sha256 = "949c52b7fc3ead149640349616b6ffe3cc9cc06b5e32ba896334c1eb7dbae5eb",
+            sizeBytes = 99_689_260L,
             archiveRoot = "pocket-tts-en/",
         ),
         licenseNotice = "LICENSES/pocket-tts.md",

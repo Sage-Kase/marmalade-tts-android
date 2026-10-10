@@ -324,7 +324,25 @@ When investigating **{concern}**, start at **{files}**:
   `PocketDevVoiceCatalog.retiredVoices`. `PocketVoiceCatalog.OFFER_VCTK_VOICES`
   is the one-line switch that would retire `azelma`/`eponine`/`fantine` the
   same way. The installer's Pocket layout check requires a WAV per offered
-  voice only.
+  voice only (per engine: the clean twin checks its own list).
+- **Pocket voice sources** (#30 research, #38 shipped): v27 adds mary,
+  rita, stephen, ramone (CC0 Kyutai Unmute donors `3973`,
+  `spanish-limaperu`, `thepolishdane`, `floyd2026`; the published
+  `voice-donations/<donor>.wav`, unchanged) and jenny (Jenny (Dioco)
+  dataset, custom licence: the name must stay "Jenny"; a 26 s reference
+  from #30's `refs/jenny.wav`). Adding a voice = WAV in the bundle's
+  `voices/` + `predefined_voices` in bundle.json + `PocketVoiceCatalog.voices`
+  and `creditFor` + CATALOG_VERSION bump + LICENSES/pocket-tts.md, CREDITS,
+  NOTICE, LicenseCatalog + the voice count in `engine_pocket_desc`.
+  Re-check each Kyutai donor file is still on HF before a release (donors
+  can ask for deletion, ToU §8). The clean twin
+  (`PocketDevVoiceCatalog.BUNDLE_VOICE_KEYS`) keeps its v10 archive's five.
+  Deferred to a later release, names already chosen by Max (don't ship
+  yet): Kyutai donors Greggy = Greg, Roscoe = Roscoe, P0LFR = Jason,
+  Andrea_(Spanish) = Andrea (no "Spanish" label), LC = Bogdan,
+  Ineedthisnow = Chike, Yesid = Yesid, Jeremy_Q = Jeremy; and the
+  CC-BY-SA picks G, H, J from #30's lab (OpenSLR 83 Scottish female,
+  Irish male; OpenSLR 70 Nigerian male), CC0-only for now.
 - **Kitten streams** (issue #10, `engine/kitten/KittenDirectEngine.kt`):
   the baked bundle is `planner.onnx` + `gen.onnx` + `genstats/<voice>.bin`
   + `voices/<voice>.bin`, cut from upstream's `kitten.onnx` by

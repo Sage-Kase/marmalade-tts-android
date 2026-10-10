@@ -206,6 +206,6 @@
     <string name="engine_kokoro_de_license">Apache-2.0 मॉडल (Kokoro-82M का जर्मन फ़ाइन-ट्यून); ऐप में मौजूद espeak-ng से फ़ोनमाइज़ेशन (GPL-3.0-or-later)।</string>
 
     <string name="engine_pocket_tagline">सबसे भावपूर्ण और दमदार अंग्रेज़ी वॉइस।</string>
-    <string name="engine_pocket_desc">अंग्रेज़ी की सबसे भावपूर्ण वॉइस — 5 वॉइस पहले से मौजूद। ज़्यादातर मिड-रेंज फ़ोन पर बिना रुकावट चलता है; पुराने और सस्ते हार्डवेयर पर अटक सकता है। सिर्फ़ अंग्रेज़ी। Kyutai Labs का मॉडल, साफ़ आउटपुट के लिए मिक्स्ड-प्रिसिज़न बिल्ड में।</string>
-    <string name="engine_pocket_license">CC-BY-4.0 मॉडल वेट्स, MIT मॉडल कोड + MIT रनटाइम (onnxruntime-android); वॉइस CC0 / CC-BY-4.0। कोई GPL घटक नहीं।</string>
+    <string name="engine_pocket_desc">अंग्रेज़ी की सबसे भावपूर्ण वॉइस — 10 वॉइस पहले से मौजूद। ज़्यादातर मिड-रेंज फ़ोन पर बिना रुकावट चलता है; पुराने और सस्ते हार्डवेयर पर अटक सकता है। सिर्फ़ अंग्रेज़ी। Kyutai Labs का मॉडल, साफ़ आउटपुट के लिए मिक्स्ड-प्रिसिज़न बिल्ड में।</string>
+    <string name="engine_pocket_license">CC-BY-4.0 मॉडल वेट्स, MIT मॉडल कोड + MIT रनटाइम (onnxruntime-android); वॉइस CC0 / CC-BY-4.0 / Jenny (Dioco)। कोई GPL घटक नहीं।</string>
 </resources>

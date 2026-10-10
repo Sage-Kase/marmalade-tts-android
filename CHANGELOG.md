@@ -14,6 +14,11 @@ This project follows [Semantic Versioning](https://semver.org/).
   named person, donor or corpus now show who, and the licence, under
   their name (for example "Voice donor · CC0" or "Dioco · model by Bryce
   Beattie").
+- **Five new Pocket voices**: Mary, Rita, Stephen, Ramone and Jenny join
+  the Pocket voices in its next download. Mary, Rita, Stephen and Ramone
+  are people who gave their voices to Kyutai's voice-donation project for
+  anyone to use; Jenny is the Irish voice of the Jenny (Dioco) recordings.
+  They appear once Pocket is updated on the Engines screen.
 
 ### Changed
 - **Pocket uses Kyutai's September 2026 English model**, retrained to

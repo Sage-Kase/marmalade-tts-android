@@ -8,8 +8,9 @@ import app.marmalade.tts.data.db.VoiceMeta
  * voices from [PocketVoiceCatalog] but under a separate engine name so
  * they appear as parallel choices in the voice picker.
  *
- * No separate install — the engine reads from production Pocket's bundle
- * directory. These voices are valid iff production Pocket is installed.
+ * The engine has its own install (`engines/<ENGINE>/`, the older v10
+ * archive, see `EngineCatalog`), so it mirrors only the voices that
+ * archive holds ([BUNDLE_VOICE_KEYS]).
  */
 object PocketDevVoiceCatalog {
 
@@ -23,7 +24,16 @@ object PocketDevVoiceCatalog {
 
     fun voiceId(name: String): String = "$ENGINE:$name"
 
-    val voices: List<VoiceMeta> = PocketVoiceCatalog.voices.map { v ->
+    /**
+     * The production voices this engine's v10 archive has a WAV for. The
+     * voices added in production's v27 bundle (issue #38) aren't in it, so
+     * the twin doesn't list them, and its install check doesn't ask for them.
+     */
+    val BUNDLE_VOICE_KEYS: Set<String> = setOf("alba", "azelma", "eponine", "fantine", "javert")
+
+    val voices: List<VoiceMeta> = PocketVoiceCatalog.voices.filter {
+        it.id.substringAfterLast(':') in BUNDLE_VOICE_KEYS
+    }.map { v ->
         VoiceMeta(
             // Same lowercase voice key as production Pocket's id — the engine
             // resolves `voices/<key>.wav` from it.
