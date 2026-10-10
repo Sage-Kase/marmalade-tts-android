@@ -112,9 +112,9 @@ import kotlinx.coroutines.withContext
 //   tokens.txt                          — phoneme→ID lookup (114 entries)
 //   model-format.txt                    — `qdq…` marks the int8 model (CPU EP)
 //   lexicon-zh.txt, openjtalk_dic/      — Mandarin and Japanese frontends
-//   phonemizer/                         — legacy (espeak data + older .so);
-//                                         ignored — the APK carries both the
-//                                         lib and the shared data
+//   phonemizer/                         — legacy, v23 and older (espeak data +
+//                                         older .so); ignored — the APK carries
+//                                         both the lib and the shared data
 // Any graph may ship as a `.ort` instead; [modelFile] prefers it.
 //
 // Differences from KittenDirect (each verified against sherpa-onnx

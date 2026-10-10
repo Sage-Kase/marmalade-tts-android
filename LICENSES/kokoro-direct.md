@@ -13,7 +13,7 @@ model files.
 |---|---|---|
 | **Kokoro-82M v1.0** (`voices.bin`; up to bundle v23 `model.onnx`; from v26 `planner-rest.ort`, `textenc.ort`, `gen.ort`, `genstats/`) | Neural voice model, 53 voices / 9 languages | **Apache-2.0** (hexgrad/Kokoro-82M) |
 | **Marmalade English text encoder** (`textenc-en.ort`, bundle v26 and later) | Stands in for Kokoro's ALBERT text encoder on English text | **Apache-2.0** (Copyright (c) 2026 marmalade-tts contributors) |
-| **espeak-ng data** (`espeak-ng-data`; ≤v18 bundles also carry a now-unused `libttsespeak.so`) | Grapheme→phoneme data for English + European languages | **GPL-3.0-or-later** |
+| **espeak-ng data** (`phonemizer/espeak-ng-data`, bundles up to v23 only; ≤v18 bundles also carry a now-unused `libttsespeak.so`) | Grapheme→phoneme data for English + European languages | **GPL-3.0-or-later** |
 | **Open JTalk dictionary** (NAIST/`open_jtalk_dic`) | Japanese text-analysis dictionary | **Modified BSD** |
 | **lexicon-zh** (`lexicon-zh.txt`) | Mandarin Han→IPA lexicon | **CC-BY-SA-4.0** (pinyin data is CC-CEDICT-derived via pypinyin — see note) |
 
@@ -29,7 +29,8 @@ into the APK from the pinned `third_party/espeak-ng` submodule (tag
 commit 96f0dbfb: 1.52.0 plus determinism fix espeak-ng#2071) and `dlopen()`d at runtime by the JNI shim
 (`app/src/main/cpp/espeak_jni.c`). The full `espeak-ng-data` tree is
 generated from the same source at build time and ships in the APK; that
-is the copy the app reads, and the bundle's own copy is left unused.
+is the copy the app reads. Bundles up to v23 carry their own copy, left
+unused; from v26 the bundle carries no espeak-ng files.
 
 Because espeak-ng ships inside it, the distributed APK is a
 GPL-3.0-or-later combined work; Marmalade's own source files remain MIT.

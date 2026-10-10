@@ -309,6 +309,7 @@ class EngineInstallerTest {
     @Test
     fun verifyAcceptsTheV26KokoroPlanner() = runTest {
         // Issue #25: planner-rest + the text encoder every language uses replace the whole planner.
+        // Neither phonemizer/ (the v26 bundle has none) nor model-format.txt is required.
         val descriptor = engineDescriptor(
             name = "kokoro-direct-v1_0",
             url = "https://test/kokoro-direct.tar.bz2",

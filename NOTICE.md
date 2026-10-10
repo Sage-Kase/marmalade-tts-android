@@ -37,9 +37,9 @@ the pinned espeak-ng submodule it is built from:
 > `third_party/espeak-ng`; built by
 > `app/src/main/cpp/espeak-ng/CMakeLists.txt`)
 
-The `espeak-ng-data` directory shipped in the engine bundles (v22+) is
-built from the same pinned commit, so the library and its data cite one
-upstream commit. (Bundles up to v21 carried data derived from Debian
+The `espeak-ng-data` directory shipped in the engine bundles (v22+; the
+Kokoro bundle carries none from v26) is built from the same pinned commit,
+so the library and its data cite one upstream commit. (Bundles up to v21 carried data derived from Debian
 `1.51+dfsg` plus a legacy `libttsespeak.so` the app never loaded; both
 were removed in the v22 re-spin — see the engines repo's release notes.)
 
@@ -97,7 +97,7 @@ folder.
 | Component | Role | Where it ships | License |
 |---|---|---|---|
 | Marmalade app code | The app | APK (source) | **MIT** |
-| espeak-ng | Phonemizer (English/multi) | APK (library and full `espeak-ng-data`, both built from source); Kitten and Kokoro engine bundles also carry a copy of `espeak-ng-data` | **GPL-3.0-or-later** |
+| espeak-ng | Phonemizer (English/multi) | APK (library and full `espeak-ng-data`, both built from source); Kitten engine bundles and Kokoro bundles up to v23 also carry a copy of `espeak-ng-data` | **GPL-3.0-or-later** |
 | Unicode Character Database (via espeak-ng's ucd-tools) | Unicode character tables compiled into espeak-ng | APK (compiled in) | Unicode-DFS-2016 |
 | ONNX Runtime Mobile | Inference runtime | APK | MIT |
 | ONNX Runtime third-party notices | Libraries statically linked into ONNX Runtime (XNNPACK, protobuf, Abseil, FlatBuffers, Eigen, …) | APK (inside `libonnxruntime.so`) | Per entry, as published with ONNX Runtime 1.26.0 (MIT, BSD, Apache-2.0, **MPL-2.0** for Eigen, …) |
