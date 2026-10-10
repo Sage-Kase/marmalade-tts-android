@@ -195,55 +195,95 @@ Java_app_marmalade_tts_phonemizer_EspeakPhonemizer_nativePhonemize(
             continue;
         }
 
-        // Pull the first sentence-break punctuation from the consumed
-        // range. Kitten/Kokoro vocabs include both ASCII punctuation
+        // Re-inject the punctuation that ENDED this clause (#46).
+        // Kitten/Kokoro vocabs include both ASCII punctuation
         // (`; : , . ! ?`) and a few common UTF-8 typography glyphs
         // (em-dash U+2014, en-dash U+2013, ellipsis U+2026). All map to
         // dedicated tokens driving prosody pauses — without re-injecting
         // them, every clause runs together.
         //
+        // The clause-ending mark is the LAST punctuation in the consumed
+        // range that only whitespace or closing quotes/brackets follow.
+        // Taking the first one (as this did until #46) picked up marks
+        // espeak reads through mid-clause — "3.5", "1,5", "10:30;",
+        // "Seiten 10–20 lesen." — and lost the real terminator. A clause
+        // that ends on a word (the unterminated tail of the input, or a
+        // "a.b" espeak doesn't split) gets nothing. In a run of marks the
+        // first wins, as before: "?!" keeps the question, "..." is ".".
+        //
         // When espeak consumes the final clause it NULLs the cursor as
         // its "end of input" signal — in that case the consumed range
         // is `[consumedStart, end-of-input)`. Falling through to NULL
         // here meant we silently dropped the terminal `.` / `!` / `?`,
-        // which the model needs for a proper tail pause.
+        // which the model needs for a proper tail pause. Otherwise the
+        // cursor sits one character PAST the clause: espeak reads one
+        // character ahead to find the clause end and keeps it for the
+        // next call ("Hello, world." consumes "Hello, w", then
+        // "orld."). That lookahead belongs to the next clause, so it is
+        // dropped before the scan.
         const char *punctBytes = NULL;
         int punctLen = 0;
         int isSentenceEnd = 0;
+        int prevWasPunct = 0;
         const char *consumedEnd = (cursor == NULL) ? textEnd : (const char *)cursor;
+        if (cursor != NULL && consumedEnd > consumedStart) {
+            consumedEnd--;
+            while (consumedEnd > consumedStart &&
+                   ((unsigned char)*consumedEnd & 0xC0) == 0x80) consumedEnd--;
+        }
         for (const char *p = consumedStart; p < consumedEnd; ) {
             unsigned char b = (unsigned char)*p;
+            int charLen;
+            if ((b & 0x80) == 0)         charLen = 1;
+            else if ((b & 0xE0) == 0xC0) charLen = 2;
+            else if ((b & 0xF0) == 0xE0) charLen = 3;
+            else if ((b & 0xF8) == 0xF0) charLen = 4;
+            else                         charLen = 1;  // invalid byte: skip it alone
+            if (p + charLen > consumedEnd) break;
+            unsigned char b2 = charLen > 1 ? (unsigned char)p[1] : 0;
+            unsigned char b3 = charLen > 2 ? (unsigned char)p[2] : 0;
+            int isPunct = 0;
+
             if (b == ',' || b == '.' || b == ';' || b == ':' ||
                 b == '!' || b == '?') {
-                punctBytes = p;
-                punctLen = 1;
-                isSentenceEnd = (b == '.' || b == '!' || b == '?');
-                break;
-            }
-            // 3-byte UTF-8 in the U+2000 general-punctuation block
-            // (lead bytes 0xE2 0x80 ..). Match the specific glyphs the
-            // vocab cares about — we don't sweep the whole block to
-            // avoid catching bullets, mathematical operators, etc that
-            // would map to PAD in the encoder and lose information.
-            if (b == 0xE2 && (p + 2) < consumedEnd &&
-                (unsigned char)p[1] == 0x80) {
-                unsigned char b3 = (unsigned char)p[2];
-                if (b3 == 0x93 ||  // U+2013 en-dash
-                    b3 == 0x94 ||  // U+2014 em-dash
-                    b3 == 0xA6) {  // U+2026 ellipsis
+                if (!prevWasPunct) {
+                    punctBytes = p;
+                    punctLen = 1;
+                    isSentenceEnd = (b == '.' || b == '!' || b == '?');
+                }
+                isPunct = 1;
+            } else if (charLen == 3 && b == 0xE2 && b2 == 0x80 &&
+                       (b3 == 0x93 ||    // U+2013 en-dash
+                        b3 == 0x94 ||    // U+2014 em-dash
+                        b3 == 0xA6)) {   // U+2026 ellipsis
+                // Only the glyphs the vocab has — not the whole U+2000
+                // block, whose bullets and operators would map to PAD.
+                if (!prevWasPunct) {
                     punctBytes = p;
                     punctLen = 3;
                     isSentenceEnd = 0;  // softer pause than `.!?`
-                    break;
                 }
+                isPunct = 1;
+            } else if (b == ' ' || b == '\t' || b == '\n' || b == '\r' ||
+                       b == '"' || b == '\'' || b == ')' || b == ']' || b == '}' ||
+                       (charLen == 2 && b == 0xC2 &&
+                        (b2 == 0xA0 ||                    // U+00A0 no-break space
+                         b2 == 0xAB || b2 == 0xBB)) ||    // U+00AB « U+00BB »
+                       (charLen == 3 && b == 0xE2 && b2 == 0x80 &&
+                        (b3 == 0x98 || b3 == 0x99 ||      // U+2018 ‘ U+2019 ’
+                         b3 == 0x9C || b3 == 0x9D ||      // U+201C “ U+201D ”
+                         b3 == 0xB9 || b3 == 0xBA ||      // U+2039 ‹ U+203A ›
+                         b3 == 0xAF))) {                  // U+202F narrow no-break space
+                // May follow the terminator: `"hi." `, `(so).`, `oui ! »`.
+            } else {
+                // A word character after a mark means espeak read through
+                // it mid-clause; forget it.
+                punctBytes = NULL;
+                punctLen = 0;
+                isSentenceEnd = 0;
             }
-            // Advance one UTF-8 character. Invalid bytes are skipped one
-            // at a time — defensive, espeak's input is UTF-8 by contract.
-            if ((b & 0x80) == 0)      p += 1;
-            else if ((b & 0xE0) == 0xC0) p += 2;
-            else if ((b & 0xF0) == 0xE0) p += 3;
-            else if ((b & 0xF8) == 0xF0) p += 4;
-            else                      p += 1;
+            prevWasPunct = isPunct;
+            p += charLen;
         }
 
         // Kitten was trained with space-padding around punctuation
