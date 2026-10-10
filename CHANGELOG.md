@@ -98,6 +98,20 @@ This project follows [Semantic Versioning](https://semver.org/).
   Kitten renders about 25% faster and uses about 40% less processor
   time; Kokoro about 4% faster. The thread setting in Advanced settings
   still overrides this.
+- **Kokoro German starts speaking much sooner**: the German voice
+  (Thorsten) now streams each sentence in short slices instead of
+  rendering it whole before any sound, and reads text with a lighter copy
+  of its own text model. On a Pixel 6a with the screen off (Android 12 and
+  later, where the app reads on the phone's fastest cores), the wait
+  before the first sound fell from about 1.2 s to about 0.4 s, it loads in
+  about 0.6 s instead of 1.7 s, and it renders about as fast as before.
+  It needs up to about 130 MB less memory at its peak, and about 30% more
+  processor time per minute of speech. On Android 11 and older the app
+  reads on slower cores; measured on the same phone with that placement,
+  the first sound also comes about three times sooner, but it renders only
+  just faster than it speaks. This needs the updated Kokoro German
+  download (v28): an installed Kokoro German keeps working as before and
+  shows an update on the Engines screen.
 - Kokoro loads about 0.7 s faster: its Mandarin dictionary now loads the
   first time a text has Chinese characters, not every time.
 - **Pocket TTS starts speaking in about half a second and renders faster
