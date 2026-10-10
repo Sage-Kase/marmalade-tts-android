@@ -20,7 +20,7 @@ import app.marmalade.tts.data.db.VoiceMeta
  * v27 adds five voices Max picked from issue #30's candidates (issue #38),
  * named by him: four CC0 donors to Kyutai's Unmute voice-donation project
  * ([KYUTAI_DONOR_VOICE_KEYS]; each WAV is the donor's published clip from
- * `kyutai/tts-voices` `voice-donations/`, unchanged) and `jenny`, a 26 s
+ * `kyutai/tts-voices` `voice-donations/`, unchanged) and `jenny`, a 17 s
  * reference cut from the Jenny (Dioco) TTS dataset, whose licence requires
  * the voice be called "Jenny". See `LICENSES/pocket-tts.md` for the
  * per-voice source/license map.

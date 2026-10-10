@@ -329,14 +329,21 @@ When investigating **{concern}**, start at **{files}**:
   rita, stephen, ramone (CC0 Kyutai Unmute donors `3973`,
   `spanish-limaperu`, `thepolishdane`, `floyd2026`; the published
   `voice-donations/<donor>.wav`, unchanged) and jenny (Jenny (Dioco)
-  dataset, custom licence: the name must stay "Jenny"; a 26 s reference
-  from #30's `refs/jenny.wav`). Adding a voice = WAV in the bundle's
+  dataset, custom licence: the name must stay "Jenny"; a 17 s reference:
+  three whole recipe clips, `~/coding/scratch/pocket-v27-38/src/mkref-jenny.sh`;
+  #30's 26 s `refs/jenny.wav` OOM-killed the emulator on first use, see
+  the encoder-memory note below). Adding a voice = WAV in the bundle's
   `voices/` + `predefined_voices` in bundle.json + `PocketVoiceCatalog.voices`
   and `creditFor` + CATALOG_VERSION bump + LICENSES/pocket-tts.md, CREDITS,
   NOTICE, LicenseCatalog + the voice count in `engine_pocket_desc`.
   Re-check each Kyutai donor file is still on HF before a release (donors
   can ask for deletion, ToU §8). The clean twin
   (`PocketDevVoiceCatalog.BUNDLE_VOICE_KEYS`) keeps its v10 archive's five.
+  **Reference length costs memory on first use**: `mimi_encoder` peaks
+  roughly with the square of the WAV's length (desktop ORT, 3 threads:
+  10 s 0.9 GB, 15 s 1.7 GB, 20 s 3.0 GB, 26 s 4.4 GB; the app caps at 30 s).
+  Alba's 20 s is the longest shipped; keep new references at or under the
+  VCTK voices' ~17 s.
   Deferred to a later release, names already chosen by Max (don't ship
   yet): Kyutai donors Greggy = Greg, Roscoe = Roscoe, P0LFR = Jason,
   Andrea_(Spanish) = Andrea (no "Spanish" label), LC = Bogdan,

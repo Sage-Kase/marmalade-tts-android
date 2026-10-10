@@ -85,7 +85,7 @@ was in v21 but not offered by the app since 2026-10-09, and v27 drops it.
 | `rita` | `voice-donations/spanish-limaperu.wav` | Unmute Voice Donation | **CC0** |
 | `stephen` | `voice-donations/thepolishdane.wav` | Unmute Voice Donation | **CC0** |
 | `ramone` | `voice-donations/floyd2026.wav` | Unmute Voice Donation | **CC0** |
-| `jenny` | 26 s cut from jenny-tts-dataset recordings | Jenny (Dioco) | **Custom attribution** (below) |
+| `jenny` | 17 s cut from jenny-tts-dataset recordings | Jenny (Dioco) | **Custom attribution** (below) |
 
 The first five are Kyutai's predefined voices (`utils.py`). The other five
 were added in v27 (issue #38):
@@ -100,7 +100,7 @@ were added in v27 (issue #38):
   any purpose (commercial or non-commercial) without restriction,
   subject to our Acceptable Use Policy" (Kyutai doesn't link that policy
   anywhere we could find). `rita`'s clip is Spanish speech.
-- **`jenny`** is a 26 s reference made from clips of the
+- **`jenny`** is a 17 s reference made from three clips of the
   **jenny-tts-dataset**, recorded and released by Jenny (dioco-group) for
   TTS training (https://github.com/dioco-group/jenny-tts-dataset; taken
   from the `reach-vb/jenny_tts_dataset` mirror on Hugging Face):

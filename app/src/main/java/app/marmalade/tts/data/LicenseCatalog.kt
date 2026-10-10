@@ -464,7 +464,7 @@ object LicenseCatalog {
                     "(https://github.com/dioco-group/jenny-tts-dataset)",
             ),
             textAsset = "pocket-jenny.txt",
-            note = "A 26-second reference cut from the dataset's recordings. " +
+            note = "A 17-second reference cut from the dataset's recordings. " +
                 "The dataset's attribution term requires the voice be called " +
                 "\"Jenny\", and where practical \"Jenny (Dioco)\": the voice " +
                 "is named Jenny and credited \"Jenny (Dioco)\" in the voice " +

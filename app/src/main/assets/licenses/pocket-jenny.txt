@@ -1,6 +1,6 @@
 Jenny — Pocket TTS predefined voice (voices/jenny.wav)
 
-The voice's reference recording is a 26-second cut from the
+The voice's reference recording is a 17-second cut from the
 jenny-tts-dataset, recorded and released by Jenny (dioco-group)
 (https://github.com/dioco-group/jenny-tts-dataset). Pocket speaks in this
 voice by conditioning on the recording; no model was trained on the

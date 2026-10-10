@@ -243,7 +243,7 @@ object EngineCatalog {
     // v27 bundle: english_2026-09 weights, symbolic-cache graphs, v21's
     // voices minus marius plus the five #38 voices (cosette/jean dropped
     // since v21 — CC-BY-NC-4.0).
-    private const val POCKET_TTS_INSTALLED_SIZE_BYTES: Long = 219_848_025L
+    private const val POCKET_TTS_INSTALLED_SIZE_BYTES: Long = 219_390_613L
     // The clean-reference dev engine still pins the older 8-voice v10 archive
     // (2026-04 weights, ~1 MB smaller); it's developer-only, so the small
     // estimate drift is immaterial.
@@ -455,13 +455,13 @@ object EngineCatalog {
         name = "pocket-tts-en-v2026_04",
         displayName = "Pocket TTS (English, 2026-09)",
         descriptionRes = R.string.engine_pocket_desc,
-        downloadSizeBytes = 99_689_260L,
+        downloadSizeBytes = 99_359_339L,
         installedSizeBytes = POCKET_TTS_INSTALLED_SIZE_BYTES,
         isRecommended = false,
         archive = EngineArchive(
             url = "https://github.com/maxwhipw/marmalade-tts-android-engines/releases/download/v27/pocket-tts-en-v2026_09-mixed.tar.bz2",
-            sha256 = "949c52b7fc3ead149640349616b6ffe3cc9cc06b5e32ba896334c1eb7dbae5eb",
-            sizeBytes = 99_689_260L,
+            sha256 = "1fd125fff52edb29ff6ee93e223a026c3d8322675568d7f8ddf691cc67dec3f4",
+            sizeBytes = 99_359_339L,
             archiveRoot = "pocket-tts-en/",
         ),
         licenseNotice = "LICENSES/pocket-tts.md",
