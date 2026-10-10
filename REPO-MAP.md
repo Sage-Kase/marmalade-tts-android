@@ -378,8 +378,8 @@ When investigating **{concern}**, start at **{files}**:
   Both graphs: CPU EP (QDQ),
   intra-op spinning ON (#5 clean phone bench, Heart: first sound median /
   worst 1.81 s / 5.6 s unsplit → 0.94 s / 1.38 s streamed + spinning). A
-  bundle without the layout (v23 and older, the German engine, the debug 7M;
-  no published download has the layout yet) renders exactly as before
+  bundle without the layout (v23 and older, the German engine, the debug 7M)
+  renders exactly as before
   through `model.onnx` (the whole path: short first
   piece, chunk-grain `PrerollGate`, spinning off). `isInstalled` and the
   installer's layout check accept either; `modelFile()` prefers a `.ort` of
@@ -390,6 +390,16 @@ When investigating **{concern}**, start at **{files}**:
   piece `kokoro plan=…`, per slice `kokoro slice=i/n`, and `kokoro piece …
   rtf=`. `lexicon-zh.txt` (68k entries, 0.6–0.8 s) loads on the first text
   with a CJK run (`mandarinLexicon()`), not at load (#13 "D2").
+  The v26 download (#25) is the first to ship the layout: `planner-rest.ort`
+  + `textenc.ort` + `textenc-en.ort` + `gen.ort` ("Fixed" style, ARM; the
+  ORT converter isn't byte-deterministic, so the files are frozen in
+  `~/coding/scratch/kokoro-v26/ort/` with their sums) + #13's genstats,
+  unchanged (refitting all 53 voices under the v26 planners moved nothing
+  beyond 0.07 dB), and no `phonemizer/` (the unread espeak-ng-data;
+  `model-format.txt` stays, `isQuantizedBundle` reads it). Built by `~/coding/scratch/kokoro-v26/bundle/make_bundle.sh`.
+  On the 6a (screen off, B1 set) first sound 2.1 s → 0.8 s (Heart),
+  3.7 s → 1.5 s (Spanish); load 3.1 s → 1.0 s; peak −110 to −230 MB; RTF
+  0.89 → 0.94 and processor time +35–70% per audio minute (streaming's).
   **The v26 planner** (issue #25): `planner-rest` (the planner minus ALBERT
   + `bert_encoder`; extra input `/bert_encoder/Add_output_0`, [1,T,512]) fed
   per piece by one of two text encoders (tokens → that tensor):
@@ -753,6 +763,9 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   Pocket reached Play (#29) both builds offer the same engines, so a phone
   gets the same pill on either (the Pixel 6a: Pocket, predicted 0.58).
   `predictedRtf` feeds the speed-up warning before measured RTFs accrue.
+  Kokoro's cost (4.17) is the v26 streaming render, from #25's same-phone
+  bench scaled by that session's v23 re-measure (see the KDoc): on the 6a
+  Kokoro predicts 0.86, so the Play build still recommends Kitten there.
 - Re-bench before changing a cost or a `SpeedTier`: the probe's in-app RTF
   (screen on, fast cores) is lower than the bench service's (screen off),
   so costs are engine service RTF ÷ in-app probe RTF. Debug
