@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="whats_new_title">Marmalade 1.2 में नया क्या है</string>
+    <string-array name="whats_new_items">
+        <item>आवाज़ें अब जल्दी बोलना शुरू करती हैं। ज़्यादातर फ़ोन पर Kitten, Kokoro और Pocket अब लगभग एक सेकंड या उससे कम में शुरू हो जाते हैं। (Kokoro के लिए इंजन स्क्रीन से उसका अपडेट ज़रूरी है।)</item>
+        <item>Pocket की पाँच नई आवाज़ें: Mary, Rita, Stephen, Ramone और Jenny।</item>
+        <item>अभिव्यक्ति: हर Pocket आवाज़ कितनी जीवंत लगे, यह उसके उपनाम में चुनें, स्थिर से जीवंत तक।</item>
+        <item>जर्मन इंजन ठीक कर दिया गया है।</item>
+    </string-array>
+    <string name="whats_new_got_it">ठीक है</string>
+
+    <!-- Settings → About row that reopens it. -->
+    <string name="settings_whats_new">नया क्या है</string>
+    <string name="settings_whats_new_desc">देखें कि इस संस्करण में क्या बदला।</string>
+</resources>

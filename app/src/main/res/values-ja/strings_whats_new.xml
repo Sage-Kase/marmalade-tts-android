@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="whats_new_title">Marmalade 1.2 の新機能</string>
+    <string-array name="whats_new_items">
+        <item>音声が話し始めるまでが速くなりました。Kitten、Kokoro、Pocket は、ほとんどの端末で約 1 秒以内に話し始めます（Kokoro は「エンジン」画面からの更新が必要です）。</item>
+        <item>Pocket に新しい音声が 5 つ加わりました：Mary、Rita、Stephen、Ramone、Jenny。</item>
+        <item>表現力：Pocket の各音声をどれだけ生き生きと話させるかを、エイリアスで「落ち着いた」から「生き生き」まで選べます。</item>
+        <item>ドイツ語エンジンを修正しました。</item>
+    </string-array>
+    <string name="whats_new_got_it">OK</string>
+
+    <!-- Settings → About row that reopens it. -->
+    <string name="settings_whats_new">新機能</string>
+    <string name="settings_whats_new_desc">このバージョンの変更点を表示します。</string>
+</resources>

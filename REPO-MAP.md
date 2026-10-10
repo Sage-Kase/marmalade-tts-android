@@ -828,7 +828,7 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   → aliasName)
 - `data/SettingsRepository.kt` — DataStore Prefs (theme preset, theme
   mode, primary alias name, keep-engine-loaded, per-engine preprocessing
-  enables). `keepEngineLoaded` is **stored but unused** as of v0.1.16
+  enables, the last "What's new" notes seen — see Navigation). `keepEngineLoaded` is **stored but unused** as of v0.1.16
   — UI toggle was removed; the engines don't honour it yet.
 
 ### TTS service surface (external apps)
@@ -951,6 +951,19 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   `installFailureText`) and offers Retry + "Remove download".
 - `MainActivity.kt` — decides between `OnboardingScreen` and `AppRoot`
   based on `onboarded` flag; sets theme via `MarmaladeTtsTheme`.
+- **"What's new" pop-up** (#41, 1.2): `ui/whatsnew/WhatsNewDialog.kt`
+  (an M3 `AlertDialog`; title is a heading, notes a TalkBack list) shown by
+  `AppRoot` over the Speak route only, while `AppRootViewModel.showWhatsNew`.
+  The rule is `ui/whatsnew/WhatsNew.decide`, run once per process when
+  `AppRootViewModel` is created: stored
+  `SettingsRepository.whatsNewSeenVersion` (DataStore
+  `whats_new_seen_version`) ≥ `WhatsNew.NOTES_VERSION` → nothing; else not
+  onboarded at launch → fresh install, record the version unshown; else
+  (a 1.1.0 user has no key but is onboarded) → show, and any dismissal
+  records it. Settings → About → "What's new" opens the same dialog and
+  records nothing. **New notes for a release:** replace
+  `res/values*/strings_whats_new.xml` (8 locales; public text) and raise
+  `NOTES_VERSION` to that release's versionCode without the ABI digit.
 
 ### DI
 - `di/AppModule.kt` — single Hilt module. Provides:

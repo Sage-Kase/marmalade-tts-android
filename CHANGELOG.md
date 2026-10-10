@@ -6,6 +6,10 @@ This project follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **"What's new" after an update**: the first time Marmalade opens after
+  an update, a short pop-up lists what changed. It shows once per update
+  and never on a fresh install; Settings → About → What's new opens it
+  again any time.
 - **Expressiveness for Pocket voices**: an alias that uses a Pocket voice
   now has an Expressiveness slider, from Steady to Lively. Steady suits a
   screen reader; Lively suits an audiobook. Each alias keeps its own

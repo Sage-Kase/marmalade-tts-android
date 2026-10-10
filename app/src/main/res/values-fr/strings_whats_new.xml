@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="whats_new_title">Nouveautés de Marmalade 1.2</string>
+    <string-array name="whats_new_items">
+        <item>Les voix commencent à parler plus tôt. Kitten, Kokoro et Pocket démarrent désormais en une seconde environ, ou moins, sur la plupart des téléphones. (Kokoro a besoin de sa mise à jour, depuis l\'écran Moteurs.)</item>
+        <item>Cinq nouvelles voix Pocket&#160;: Mary, Rita, Stephen, Ramone et Jenny.</item>
+        <item>Expressivité&#160;: choisissez dans son alias à quel point chaque voix Pocket est vivante, de Posée à Vivante.</item>
+        <item>Le moteur allemand a été corrigé.</item>
+    </string-array>
+    <string name="whats_new_got_it">Compris</string>
+
+    <!-- Settings → About row that reopens it. -->
+    <string name="settings_whats_new">Nouveautés</string>
+    <string name="settings_whats_new_desc">Ce qui a changé dans cette version.</string>
+</resources>

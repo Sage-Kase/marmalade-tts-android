@@ -290,6 +290,25 @@ open class SettingsRepository @Inject constructor(
     }
 
     /**
+     * The notes version (a versionCode, see
+     * [app.marmalade.tts.ui.whatsnew.WhatsNew.NOTES_VERSION]) of the last
+     * "What's new" pop-up the user dismissed, or that a fresh install
+     * skipped. `null` on installs from before 1.2, which never stored it;
+     * [app.marmalade.tts.ui.whatsnew.WhatsNew.decide] tells those apart from
+     * fresh installs by the onboarded flag.
+     */
+    open val whatsNewSeenVersion: Flow<Int?> = dataStore.data.map { prefs ->
+        prefs[KEY_WHATS_NEW_SEEN_VERSION]
+    }
+
+    /** Persist [version] as the last "What's new" notes the user has seen. */
+    open suspend fun setWhatsNewSeenVersion(version: Int) {
+        dataStore.edit { prefs ->
+            prefs[KEY_WHATS_NEW_SEEN_VERSION] = version
+        }
+    }
+
+    /**
      * The set of enabled text-preprocessing rule names for [engineName].
      *
      * Stored as a comma-separated string under
@@ -715,6 +734,11 @@ open class SettingsRepository @Inject constructor(
         // multi-lang) automatically re-seeds existing installs whose DB
         // still has the pre-expansion rows.
         private val KEY_CATALOG_VERSION = intPreferencesKey("catalog_version")
+
+        // Last "What's new" notes version seen (#41, 1.2). Absent on every
+        // install from before 1.2. Stable key: renaming it would show the
+        // current notes to everyone again.
+        private val KEY_WHATS_NEW_SEEN_VERSION = intPreferencesKey("whats_new_seen_version")
 
         // Manual ONNX-Runtime intra-op thread count. Absent / ≤0 ⇒ auto-
         // detect per CPU cluster. Cross-device: hardcoded 6 fits Tensor
