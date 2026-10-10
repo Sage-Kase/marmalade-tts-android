@@ -128,6 +128,16 @@ data class VoiceAlias(
      * Added in db v8→v9.
      */
     val fallbackAliasId: String? = null,
+    /**
+     * How lively vs steady a sampling engine sounds: Pocket's sampling
+     * temperature, 0.2–1.0 ([app.marmalade.tts.data.Expressiveness]). Null
+     * means "engine default". Only kept for engines that sample
+     * ([app.marmalade.tts.data.Expressiveness.appliesTo]); the editor
+     * saves null for every other engine.
+     *
+     * Added in db v11→v12.
+     */
+    val expressiveness: Float? = null,
 ) {
     companion object {
         /** A fresh opaque id. Only creation calls this; renames never do. */
