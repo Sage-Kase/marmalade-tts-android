@@ -12,7 +12,8 @@ import app.marmalade.tts.ui.SystemSettings
  * Debug-only probe for the Settings links (#53). Logs, under tag
  * SettingsLinkProbe, whether each target of every link resolves on this
  * phone, then opens `--es link <TTS|BATTERY>` the way the app does and
- * finishes (so no bounce fallback runs from here):
+ * finishes (so no bounce fallback runs from here). `--ei from <n>` starts at
+ * the link's n-th target, to see a fallback page:
  * `adb shell am start -n app.marmalade.tts.debug/app.marmalade.tts.devbench.SettingsLinkProbeActivity --es link TTS`
  */
 class SettingsLinkProbeActivity : Activity() {
@@ -28,7 +29,7 @@ class SettingsLinkProbeActivity : Activity() {
             Log.i(TAG, "$link resolves to ${SystemSettings.resolve(this, link)?.page}")
         }
         intent.getStringExtra("link")?.let { name ->
-            val landed = SystemSettings.open(this, SettingsLink.valueOf(name))
+            val landed = SystemSettings.open(this, SettingsLink.valueOf(name), from = intent.getIntExtra("from", 0))
             Log.i(TAG, "$name opened ${landed?.page} via $landed")
         }
         finish()
