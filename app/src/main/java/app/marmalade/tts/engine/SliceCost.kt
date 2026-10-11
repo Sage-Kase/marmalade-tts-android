@@ -39,18 +39,26 @@ class SliceCost(private val capacity: Int = 8) {
     }
 
     /**
-     * [ms], scaled by how far the slices seen ran over the fit at worst (1 to
+     * [ms], scaled by how far the fit has been running behind (1 to
      * [MAX_OVERRUN]): what chunk mode's hold charges a slice still to render
-     * (#54). In-app on the 6a at 2× Kokoro's slices slowed from 1.27 to 1.42 s
-     * within one piece; the fit lagged by more than the gate's margin, and the
-     * piece, let go early, stalled 176 ms inside.
+     * (#54). The scale is the second-worst actual ÷ fit ratio among the
+     * slices seen of a similar size (half to twice [frames]): a slowdown
+     * shows in several of them and counts, while one outlier (a GC pause,
+     * the cold first slice of a request, a short last slice) doesn't. In-app
+     * on the 6a at 2× Kokoro's 88-frame slices slowed from 1.14 to 1.42 s
+     * over two pieces: the plain fit let a piece go 223 ms too early (it
+     * stalled 176 ms inside); this charges 1.06× and holds it 395 ms.
      */
     @Synchronized
     fun cautiousMs(frames: Int): Double {
         val base = ms(frames)
         if (base <= 0.0) return base
-        val worst = samples.maxOf { (n, took) -> took / ms(n).coerceAtLeast(1e-9) }
-        return base * worst.coerceIn(1.0, MAX_OVERRUN)
+        val ratios = samples
+            .filter { (n, _) -> n * 2 >= frames && n <= frames * 2 }
+            .map { (n, took) -> took / ms(n).coerceAtLeast(1e-9) }
+            .sortedDescending()
+        val scale = ratios.getOrNull(1) ?: return base
+        return base * scale.coerceIn(1.0, MAX_OVERRUN)
     }
 
     /**
@@ -74,6 +82,6 @@ class SliceCost(private val capacity: Int = 8) {
         const val MIN_SPREAD = 8
 
         /** [cautiousMs] charges at most this many times the fit. */
-        const val MAX_OVERRUN = 1.5
+        const val MAX_OVERRUN = 1.25
     }
 }

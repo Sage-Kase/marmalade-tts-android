@@ -582,7 +582,9 @@ When investigating **{concern}**, start at **{files}**:
   a `PieceGate` holds each piece's slices for `holdMs`: until every slice
   still to render arrives before playback reaches it (estimates from the
   piece's slice grid and a `SliceCost` fit, Kokoro's and Kitten's scaled by
-  its worst recent overrun, `cautiousMs`, each × 1.1, in audio ms turned
+  how far it has been running behind, `cautiousMs`: the second-worst
+  actual ÷ fit ratio of similar-size slices, at most 1.25, so a slowdown
+  counts and one outlier doesn't; each × 1.1, in audio ms turned
   into played time at the current rate, against this request's own audio
   still ahead, `PlaybackHorizon.requestRemainingMs`: an earlier request's
   audio may have been flushed by a Stop the engine never hears of, e.g. a

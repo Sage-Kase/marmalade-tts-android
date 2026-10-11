@@ -1,6 +1,8 @@
 package app.marmalade.tts.engine.pocket
 
 import app.marmalade.tts.engine.SliceCost
+import app.marmalade.tts.engine.SliceEstimate
+import app.marmalade.tts.engine.holdMs
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -141,23 +143,52 @@ class PocketStreamPlanTest {
         assertEquals(76.5, cost.fixedMs(), 1e-9)
     }
 
+    // Kokoro's last 8 slices before a 2x hold released 223 ms too early, in-app on the 6a (#54).
+    private val slowing = listOf(24 to 333.0, 48 to 639.0, 88 to 1143.0, 88 to 1149.0, 92 to 1203.0, 24 to 375.0, 48 to 708.0, 88 to 1272.0)
+
     @Test
-    fun `the cautious estimate charges the worst overrun of the fit`() {
+    fun `the cautious estimate follows a sustained slowdown`() {
         val cost = SliceCost()
-        // Kokoro's 88-frame slices slowing within a piece, in-app at 2x on the 6a.
-        cost.add(24, 375.0)
-        cost.add(48, 708.0)
-        cost.add(88, 1143.0)
-        cost.add(88, 1272.0)
-        val fit = cost.ms(88)
-        val worst = listOf(24 to 375.0, 48 to 708.0, 88 to 1143.0, 88 to 1272.0).maxOf { (n, ms) -> ms / cost.ms(n) }
-        assertTrue(worst > 1.0)
-        assertEquals(fit * worst, cost.cautiousMs(88), 1e-9)
-        // Steady slices: no more than the fit.
+        slowing.forEach { (n, ms) -> cost.add(n, ms) }
+        // The fit says ~1180 ms for 88 frames; the second-worst similar slice ran 1.06x over it.
+        assertEquals(1180.0, cost.ms(88), 1.0)
+        assertEquals(1253.0, cost.cautiousMs(88), 1.0)
+        // Enough to hold that piece: the slice in flight 744 ms along, 3.5 s of audio banked,
+        // four 2 s slices and a 1.6 s one still to come, at 2x. It needed 223 ms.
+        fun hold(e: Double) = holdMs(
+            0.0, 3_500.0,
+            listOf(SliceEstimate(e - 744 / 1.1, 2_000.0)) + List(3) { SliceEstimate(e, 2_000.0) } + SliceEstimate(e, 1_609.0),
+            rate = 2f,
+        )
+        assertEquals(0.0, hold(cost.ms(88)), 1e-9)
+        assertTrue(hold(cost.cautiousMs(88)) >= 223.0)
+    }
+
+    @Test
+    fun `one outlier doesn't make the cautious estimate any longer`() {
+        val cost = SliceCost()
+        // Steady slices on 30 ms + 13 ms/frame, then one GC pause.
+        listOf(24, 48, 88, 88, 88, 88, 88).forEach { cost.add(it, 30.0 + 13.0 * it) }
+        cost.add(88, 2_500.0)
         val steady = SliceCost()
-        steady.add(20, 300.0)
-        steady.add(40, 500.0)
-        assertEquals(steady.ms(30), steady.cautiousMs(30), 1e-9)
+        listOf(24, 48, 88, 88, 88, 88, 88).forEach { steady.add(it, 30.0 + 13.0 * it) }
+        // The outlier moves the fit a little; it doesn't scale it.
+        assertEquals(cost.ms(88), cost.cautiousMs(88), 1e-9)
+        assertEquals(steady.ms(88), steady.cautiousMs(88), 1e-9)
+        // Cold first slices (small, slow) tilt the fit, but their own 1.11x overrun never
+        // scales a big slice: the 88-frame slices' own ratio brings it back to their real cost.
+        val cold = SliceCost()
+        cold.add(24, 900.0)
+        listOf(48, 88, 88, 88).forEach { cold.add(it, 30.0 + 13.0 * it) }
+        cold.add(24, 900.0)
+        assertEquals(30.0 + 13.0 * 88, cold.cautiousMs(88), 1.0)
+    }
+
+    @Test
+    fun `the cautious estimate is capped`() {
+        val cost = SliceCost()
+        listOf(20 to 300.0, 40 to 500.0, 40 to 1_500.0, 40 to 1_600.0).forEach { (n, ms) -> cost.add(n, ms) }
+        assertEquals(cost.ms(40) * 1.25, cost.cautiousMs(40), 1e-9)
     }
 
     @Test
