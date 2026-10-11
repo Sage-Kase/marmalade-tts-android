@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
+import app.marmalade.tts.lang.UtteranceLanguage
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -193,6 +194,18 @@ class SettingsRepositoryTest {
         // The engine's default language (null) is a language of its own.
         repo.recordEngineRtf(KOKORO, 0.3, null)
         assertEquals(mapOf(KOKORO to 0.3), repo.engineRtf.first())
+    }
+
+    @Test
+    fun engineRtf_headingsWithNoLanguageDoNotRestartIt() = runTest {
+        // Short lines and headings resolve to no language (null), the
+        // paragraphs around them to the voice's own: the same language.
+        val repo = SettingsRepository(newDataStore(), V1_2)
+        for ((rtf, detected) in listOf(0.4 to "en-us", 0.5 to null, 0.4 to "en-us", 0.5 to null)) {
+            repo.recordEngineRtf(KOKORO, rtf, UtteranceLanguage.renderLanguage(KOKORO, "af_heart", detected))
+        }
+        // 0.4 → 0.43 → 0.421 → 0.4447: one running average, never restarted.
+        assertEquals(0.445, repo.engineRtf.first().getValue(KOKORO), 0.001)
     }
 
     @Test

@@ -144,4 +144,19 @@ class UtteranceLanguageTest {
             ),
         )
     }
+
+    // -- renderLanguage: what a measured render speed is kept per (#54) -------
+
+    @Test
+    fun `no language is the voice's own`() {
+        assertEquals("en-us", UtteranceLanguage.renderLanguage(KokoroDirectVoiceCatalog.ENGINE, "af_heart", null))
+        assertEquals("en-gb", UtteranceLanguage.renderLanguage(KokoroDirectVoiceCatalog.ENGINE, "bf_alice", null))
+        assertEquals("en-us", UtteranceLanguage.renderLanguage(KittenDirectVoiceCatalog.ENGINE, "Leo", null))
+        assertNull(UtteranceLanguage.renderLanguage(PocketVoiceCatalog.ENGINE, "alba", null))
+    }
+
+    @Test
+    fun `a resolved language stands`() {
+        assertEquals("es", UtteranceLanguage.renderLanguage(KokoroDirectVoiceCatalog.ENGINE, "af_heart", "es"))
+    }
 }
