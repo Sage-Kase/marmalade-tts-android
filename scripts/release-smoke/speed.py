@@ -24,7 +24,8 @@ A row fails when the app would mislead the user or a release got slower:
     stall, longest wait).
 A row that waits or stalls where the app DOES warn is reported (WARNED), not
 failed: some engines can't keep up at 2x on a Pixel 6a, and the app says so.
-Each metric is judged on its best take.
+Each metric is judged on its best take, except a stall inside a piece in
+chunk mode: any one take with one fails the row.
 """
 from __future__ import annotations
 
@@ -305,12 +306,15 @@ def judge(row: SpeedRow, model: WarningModel, length_at_1x_ms: float | None, bas
         row.notes.append("piece boundaries unknown (no pieces line: a build from before #54?), "
                          "so every gap counts as a stall")
     # Chunk mode holds a piece back until it can't run dry, so a stall inside
-    # one is a bug whatever the warning says. Every take stalled (best take >
-    # 0), at least one of them in chunk mode.
+    # one is a bug whatever the warning says: each such take is judged on its
+    # own (the best take could hide a stuttering one).
     chunked = [t for t in row.takes if t.chunked]
-    if chunked and known and stall >= STALL_MIN_MS:
-        how = "in chunk mode" if any(t.mode == "chunk" for t in chunked) else "with whole pieces"
-        row.reasons.append(f"stutters {stall:.0f} ms inside a sentence or clause {how}")
+    stutters = [t for t in chunked if t.longest_stall_ms >= STALL_MIN_MS]
+    if known and stutters:
+        worst = max(stutters, key=lambda t: t.longest_stall_ms)
+        how = "in chunk mode" if worst.mode == "chunk" else "with whole pieces"
+        row.reasons.append(f"stutters {worst.longest_stall_ms:.0f} ms inside a sentence or clause {how} "
+                           f"({len(stutters)} of {len(row.takes)} takes)")
     keeps_up = max(stall, wait) < KEEPUP_MAX_STALL_MS
     # In chunk mode a wait before a sentence is the design (#54: "a longer
     # wait before a sentence is acceptable; a stutter is not"), not the render

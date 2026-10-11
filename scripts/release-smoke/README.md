@@ -126,7 +126,8 @@ whole sentences anyway and logs no such line.
   (TalkBack, other apps). The in-app reader schedules its own segments
   (`MarmaladeSynthService`) and isn't measured here, but its engine runs in
   the slower place (below).
-- **Verdicts.** Each metric is judged on the best take.
+- **Verdicts.** Each metric is judged on the best take, except a stall
+  inside a piece in chunk mode: any one take with one fails the row.
   - PASS: keeps up (no wait or stall of 300 ms or more; shorter ones land at
     a chunk seam as a slightly long pause).
   - WARNED: waits or stalls 300 ms or more, and the app shows its speed

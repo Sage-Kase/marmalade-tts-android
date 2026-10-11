@@ -163,7 +163,7 @@ class ChunkModeTest(unittest.TestCase):
     def test_a_stall_inside_a_piece_in_chunk_mode_fails(self):
         r = row(takes=[chunk(stall_ms=180)], base={**NEW_BASE, "longest_stall_ms": 180})
         self.assertEqual(r.result, "FAIL")
-        self.assertEqual(r.reasons, ["stutters 180 ms inside a sentence or clause in chunk mode"])
+        self.assertEqual(r.reasons, ["stutters 180 ms inside a sentence or clause in chunk mode (1 of 1 takes)"])
 
     def test_even_where_the_app_warns(self):
         r = row(engine="slow", takes=[chunk(stall_ms=900)], base={**NEW_BASE, "longest_stall_ms": 900})
@@ -173,15 +173,22 @@ class ChunkModeTest(unittest.TestCase):
     def test_whole_pieces_count_as_chunk_mode(self):
         t = take(stall_ms=120, mode="stream", path="whole", pieces=[0, 2000])
         r = row(takes=[t], base={**NEW_BASE, "longest_stall_ms": 120})
-        self.assertEqual(r.reasons, ["stutters 120 ms inside a sentence or clause with whole pieces"])
+        self.assertEqual(r.reasons, ["stutters 120 ms inside a sentence or clause with whole pieces (1 of 1 takes)"])
         self.assertEqual(r.mode_label, "whole")
 
     def test_chunk_mode_waiting_between_pieces_passes(self):
         r = row(takes=[chunk(wait_ms=250)], base={**NEW_BASE, "longest_wait_ms": 250})
         self.assertEqual(r.result, "PASS")
 
-    def test_judged_on_the_best_take(self):
+    def test_one_stuttering_take_fails_even_when_another_is_clean(self):
+        # The best take is clean; the other one stuttered inside a piece.
         r = row(takes=[chunk(stall_ms=180), chunk()], base=NEW_BASE)
+        self.assertEqual(r.result, "FAIL")
+        self.assertEqual(r.reasons, ["stutters 180 ms inside a sentence or clause in chunk mode (1 of 2 takes)"])
+
+    def test_a_streamed_take_s_stall_is_not_judged_by_the_chunk_rule(self):
+        # The app streamed one take and chunked the other: only the chunk-mode take counts.
+        r = row(takes=[stream(stall_ms=180), chunk()], base=NEW_BASE)
         self.assertEqual(r.result, "PASS")
 
     def test_a_short_stall_while_streaming_passes(self):
