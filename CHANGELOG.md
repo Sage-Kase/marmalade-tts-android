@@ -33,6 +33,12 @@ This project follows [Semantic Versioning](https://semver.org/).
   before. On a Pixel 6a, Kokoro at 2× through system text-to-speech now
   pauses once for about half a second before a long sentence, where it used
   to stop several times inside it.
+- **The speed warning says what you'll hear**: it now reads "Your phone may
+  have a hard time generating speech at this speed, which will show as
+  pauses between sentences." It shows at exactly the speeds where Marmalade
+  switches to playing whole sentences, and the speed it measured for an
+  engine starts over when you read in another language instead of mixing
+  the two.
 - **Reading in the app keeps up with the screen off**: the reader, the
   Speak screen and shared text now run on the phone's fastest cores while
   they speak, as Marmalade already did for other apps (Android 12 and
@@ -41,8 +47,8 @@ This project follows [Semantic Versioning](https://semver.org/).
   read uses less battery per hour of listening, not more.
 - **Speed estimates match**: on Android 12 and later, setup and the speed
   warning now expect every engine to render at that faster rate. On phones like the Pixel 6a, the
-  speed warning no longer shows for Kokoro at normal speed (it starts at
-  about 1.75×), and setup recommends Pocket on somewhat slower phones than
+  speed warning no longer shows for Kokoro at normal speed (it starts just
+  above 1.25×), and setup recommends Pocket on somewhat slower phones than
   before.
 - **Pocket voices sound steadier by default**: Pocket now speaks at
   Kyutai's recommended setting, near the Steady end of the slider, with

@@ -561,11 +561,15 @@ When investigating **{concern}**, start at **{files}**:
   planner keeps more fp32 than base Kokoro's): `FOREGROUND_COST` 4.62.
 - **Chunk mode: whole pieces when the engine can't keep up** (#54,
   `engine/ChunkMode.kt`). Per request each streaming engine (Kokoro's
-  streaming path, Kitten, Pocket) picks a `RenderMode`: stream (slices as
-  they render, as before) while its RTF × playback rate is ≤ 0.6, else chunk
-  mode. The RTF is the engine's own rolling measurement in this process,
-  else `perf/RenderPace` (the app's measured RTF, else `EngineRecommender`'s
-  prediction: the speed warning's sources), else none (stream). In chunk mode
+  streaming path, Kitten, Pocket) picks a `RenderMode`: chunk mode exactly
+  where the speed-up warning shows (`SpeedPerfWarning.behind`: RTF × playback
+  rate > 0.6, else the static speed > 1.35 when nothing is known), else
+  stream (slices as they render, as before). The RTF is the warning's:
+  `perf/RenderPace.of` (the app's measured RTF, else `EngineRecommender`'s
+  prediction); `ChunkModeTest` pins that the two agree. The engines kept
+  their own in-process RTF in round 1; it flipped modes between requests
+  (the gate's warm-up read Kokoro at 0.61) and the UI couldn't see it, so it
+  went. In chunk mode
   a `PieceGate` holds each piece's slices for `holdMs`: until every slice
   still to render arrives before playback reaches it (estimates from the
   piece's slice grid and a `SliceCost` fit, each × 1.1, against the
@@ -578,7 +582,9 @@ When investigating **{concern}**, start at **{files}**:
   slice, 4 s slices) made Kokoro at 2× on the 6a wait 2.3 s before the long
   gate sentence, where streaming had stuttered ~1.1 s in all; the shipped
   rule waits ~0.5 s once. Pocket stays slice-granular (its deadline-cut
-  slices are small). Kokoro's whole path
+  slices are small) and charges each decode `DECODE_SAFETY` (3×) in its hold
+  (`PocketStreamPlan.chunkRest`), as its cut rule does: a decode parked on a
+  little core after release would stall inside the piece. Kokoro's whole path
   (no streaming layout, e.g. German v25) sends whole pieces anyway and logs
   `path=whole`. Logs: Info `RenderMode: <engine> mode=chunk rtf=0.43
   (predicted) speed=2.00 played=0.86 path=sliced` per request (R8 keeps it;
@@ -943,18 +949,23 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   `tts-training-research/engine-speed-lab.html`); borrowed from Marmalade
   STT's `SpeedBudget`. `recommend(probe, offered)`: the first of
   `candidates` (Pocket where the build offers it, else Kokoro; then Kitten)
-  predicted at RTF ≤ 0.8 (= `SpeedPerfWarning`'s headroom) takes the one
+  predicted at RTF ≤ 0.6 (= `SpeedPerfWarning`'s line, so a recommended
+  engine never warns or plays whole pieces at 1.0×; 0.8 before #54) takes the one
   Recommended pill; others are FINE up to 0.9, then MAY_BE_SLOW; Kitten is
   never warned. Flavor-aware only through `EngineCatalog.visibleTo`; since
   Pocket reached Play (#29) both builds offer the same engines, so a phone
-  gets the same pill on either (the Pixel 6a: Pocket, predicted 0.49).
+  gets the same pill on either (the Pixel 6a: Pocket, predicted 0.35).
   Pocket's cost (2.39) is the v27 bundle's render, from #38's ABBA against
   v21 scaled by that session's v21 re-measure (see the KDoc).
   `predictedRtf` feeds the speed-up warning before measured RTFs accrue.
-- `perf/SpeedPerfWarning.kt` — the speed-up warning: measured RTF ×
-  effective speed > 0.8, else the probe prediction, else the static 1.35.
-  The measured RTF is an EMA per engine (`SettingsRepository.engineRtf`,
-  fed by `SegmentRenderer` via `SynthStatsPort.recordRtf`). It is dropped
+- `perf/SpeedPerfWarning.kt` — the speed-up warning, and chunk mode's
+  decision (#54, `behind`): measured RTF × effective speed > 0.6, else the
+  probe prediction, else the static 1.35 (0.8 before #54, where streaming
+  already stuttered). The measured RTF is an EMA per engine
+  (`SettingsRepository.engineRtf`, fed by `SegmentRenderer` via
+  `SynthStatsPort.recordRtf`, warm segments only); it restarts when the
+  phonemizer language changes (`engine_rtf_language_<engine>`), so a
+  blend of two languages can't flip the warning between reads. It is dropped
   when stale (#40): every value when the app's versionCode differs from
   the one stamped with them (`measured_rtf_version_code`; read as absent,
   wiped by the next `recordEngineRtf`), and one engine's when an install
