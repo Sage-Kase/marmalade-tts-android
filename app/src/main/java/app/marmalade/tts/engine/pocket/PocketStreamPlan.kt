@@ -210,10 +210,14 @@ object PocketStreamPlan {
      *
      * The frames left are cut into slices of [sliceFrames]. A slice is
      * submitted once the AR loop (at [arMsPerFrame]) has generated its last
-     * frame and is decoded in [decodeMs]: beside the AR loop when [overlap],
-     * else blocking it. Each estimate's render time is the gap between its
-     * arrival and the previous one's (the first counts from now), its played
-     * length `frames × [playedFrameMs]`.
+     * frame and is decoded in [decodeMs] × [decodeSafety]: beside the AR loop
+     * when [overlap], else blocking it. The safety is the streaming cut
+     * rule's ([PocketSliceClock.DECODE_SAFETY]): a decode parked on a little
+     * core after the piece was let go would stall inside it, which chunk
+     * mode must not. The gate's own margin ([app.marmalade.tts.engine.PieceGate.RENDER_MARGIN])
+     * then covers the AR loop's jitter. Each estimate's render time is the
+     * gap between its arrival and the previous one's (the first counts from
+     * now), its played length `frames × [playedFrameMs]`.
      */
     fun chunkRest(
         estFrames: Int,
@@ -225,6 +229,7 @@ object PocketStreamPlan {
         decodeMs: (Int) -> Double,
         overlap: Boolean,
         playedFrameMs: Double,
+        decodeSafety: Double = PocketSliceClock.DECODE_SAFETY,
     ): List<SliceEstimate> {
         val queued = (generatedFrames - decodedFrames).coerceAtLeast(0)
         val toGenerate = if (finished) 0 else maxOf(estFrames - generatedFrames, PocketSliceClock.MIN_SLICE_FRAMES)
@@ -238,7 +243,7 @@ object PocketStreamPlan {
             val n = minOf(size, queued + toGenerate - cut)
             // Frames of this slice the AR loop still has to generate.
             ar += (cut + n - maxOf(cut, queued)).coerceAtLeast(0) * arMsPerFrame
-            val arrival = (if (overlap) maxOf(ar, decoderFree) else ar) + decodeMs(n)
+            val arrival = (if (overlap) maxOf(ar, decoderFree) else ar) + decodeSafety * decodeMs(n)
             if (overlap) decoderFree = arrival else ar = arrival
             out += SliceEstimate(arrival - lastArrival, n * playedFrameMs)
             lastArrival = arrival

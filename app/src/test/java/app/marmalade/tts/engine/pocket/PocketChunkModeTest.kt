@@ -33,7 +33,7 @@ class PocketChunkModeTest {
         // 4 frames generated but not decoded, 10 still to generate, cut 4 at a time.
         val rest = PocketStreamPlan.chunkRest(
             estFrames = 20, generatedFrames = 10, decodedFrames = 6, finished = false, sliceFrames = 4,
-            arMsPerFrame = 50.0, decodeMs = decode6a, overlap = true, playedFrameMs = 80.0,
+            arMsPerFrame = 50.0, decodeMs = decode6a, overlap = true, playedFrameMs = 80.0, decodeSafety = 1.0,
         )
         // Arrivals 156 (queued frames, decoder free now), 356, 556 (AR-bound), 664 (decoder-bound).
         assertSlices(
@@ -46,17 +46,28 @@ class PocketChunkModeTest {
     fun `an inline decoder blocks the AR loop`() {
         val rest = PocketStreamPlan.chunkRest(
             estFrames = 20, generatedFrames = 10, decodedFrames = 6, finished = false, sliceFrames = 4,
-            arMsPerFrame = 50.0, decodeMs = decode6a, overlap = false, playedFrameMs = 80.0,
+            arMsPerFrame = 50.0, decodeMs = decode6a, overlap = false, playedFrameMs = 80.0, decodeSafety = 1.0,
         )
         // Arrivals 156, 512, 868, 1076: AR and decode add up.
         assertEquals(listOf(156.0, 356.0, 356.0, 208.0), rest.map { it.renderMs })
     }
 
     @Test
+    fun `each decode is charged the streaming cut rule's safety`() {
+        // The same chunk as above with the default 3x: the decoder is now the
+        // bottleneck, 3 × (60 + 24 × 4) = 468 ms per 4-frame slice.
+        val rest = PocketStreamPlan.chunkRest(
+            estFrames = 20, generatedFrames = 10, decodedFrames = 6, finished = false, sliceFrames = 4,
+            arMsPerFrame = 50.0, decodeMs = decode6a, overlap = true, playedFrameMs = 80.0,
+        )
+        assertEquals(listOf(468.0, 468.0, 468.0, 324.0), rest.map { it.renderMs })
+    }
+
+    @Test
     fun `a finished chunk has only its queued frames left, an overtaken guess one more slice`() {
         val done = PocketStreamPlan.chunkRest(
             estFrames = 40, generatedFrames = 10, decodedFrames = 6, finished = true, sliceFrames = 4,
-            arMsPerFrame = 50.0, decodeMs = decode6a, overlap = true, playedFrameMs = 80.0,
+            arMsPerFrame = 50.0, decodeMs = decode6a, overlap = true, playedFrameMs = 80.0, decodeSafety = 1.0,
         )
         assertSlices(listOf(SliceEstimate(156.0, 320.0)), done)
         val overtaken = PocketStreamPlan.chunkRest(

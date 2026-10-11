@@ -919,6 +919,7 @@ open class PocketEngine @Inject constructor(
                                 decodeMs = decodeMs,
                                 overlap = overlap,
                                 playedFrameMs = playedFrameMs,
+                                decodeSafety = decodeSafety,
                             )
                         }
                     }
