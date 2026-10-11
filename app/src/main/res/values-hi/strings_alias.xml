@@ -41,7 +41,7 @@
     <string name="alias_voice_error">इस उपनाम के लिए कोई वॉइस चुनें</string>
     <string name="alias_speed">स्पीड</string>
     <string name="alias_speed_label">स्पीड: %1$s</string>
-    <string name="alias_speed_perf_warning">तेज़ गति पर कुछ आवाज़ें इतनी तेज़ी से ऑडियो नहीं बना पातीं कि कुछ डिवाइस साथ चल सकें। ज़्यादा मान पर पहली ध्वनि आने में देरी और वाक्यों के बीच रुकावट की उम्मीद रखें।</string>
+    <string name="alias_speed_perf_warning">इस गति पर आपके फ़ोन को आवाज़ बनाने में मुश्किल हो सकती है, जो वाक्यों के बीच ठहराव के रूप में सुनाई देगी।</string>
     <!-- Expressiveness (Pocket only). Steady and Lively are the slider's two ends. -->
     <string name="alias_expressiveness_label">अभिव्यक्ति: %1$s</string>
     <string name="alias_expressiveness_value">%1$.1f</string>
