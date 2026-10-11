@@ -544,7 +544,7 @@ open class KittenDirectEngine @Inject constructor(
                         // the Narrator may resume there, never mid-piece.
                         val audio = SynthAudio(pcm = out, sampleRate = sampleRate, resumePoint = first, extraRenderMs = extraMs)
                         gate.offer(audio, out.size * 1000.0 / sampleRate, aheadMs = { horizon.requestRemainingMs().toDouble() }) {
-                            rest.map { SliceEstimate(sliceCost.ms(it.render.count()), it.keep.count() * FRAME_MS) }
+                            rest.map { SliceEstimate(sliceCost.cautiousMs(it.render.count()), it.keep.count() * FRAME_MS) }
                         }
                     }
                     gate.endPiece()

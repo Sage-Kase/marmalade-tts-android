@@ -39,6 +39,21 @@ class SliceCost(private val capacity: Int = 8) {
     }
 
     /**
+     * [ms], scaled by how far the slices seen ran over the fit at worst (1 to
+     * [MAX_OVERRUN]): what chunk mode's hold charges a slice still to render
+     * (#54). In-app on the 6a at 2× Kokoro's slices slowed from 1.27 to 1.42 s
+     * within one piece; the fit lagged by more than the gate's margin, and the
+     * piece, let go early, stalled 176 ms inside.
+     */
+    @Synchronized
+    fun cautiousMs(frames: Int): Double {
+        val base = ms(frames)
+        if (base <= 0.0) return base
+        val worst = samples.maxOf { (n, took) -> took / ms(n).coerceAtLeast(1e-9) }
+        return base * worst.coerceIn(1.0, MAX_OVERRUN)
+    }
+
+    /**
      * The fixed cost of one run (ms): the fit's intercept, or 0 until the
      * sizes seen span [MIN_SPREAD] frames (no line yet to read it from).
      */
@@ -57,5 +72,8 @@ class SliceCost(private val capacity: Int = 8) {
     private companion object {
         /** The fit needs slice sizes at least this far apart. */
         const val MIN_SPREAD = 8
+
+        /** [cautiousMs] charges at most this many times the fit. */
+        const val MAX_OVERRUN = 1.5
     }
 }

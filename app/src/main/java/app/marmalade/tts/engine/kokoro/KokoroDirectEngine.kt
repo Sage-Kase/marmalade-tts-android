@@ -1110,7 +1110,7 @@ open class KokoroDirectEngine @Inject constructor(
                             // This request's audio still ahead, and what the bank holds.
                             aheadMs = { horizon.requestRemainingMs() + (if (held.isEmpty()) 0.0 else heldPlayedMs) },
                         ) {
-                            rest.map { SliceEstimate(sliceCost.ms(it.render.count()), it.keep.count() * FRAME_MS) }
+                            rest.map { SliceEstimate(sliceCost.cautiousMs(it.render.count()), it.keep.count() * FRAME_MS) }
                         }
                     }
                     gate.endPiece()

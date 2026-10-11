@@ -142,6 +142,25 @@ class PocketStreamPlanTest {
     }
 
     @Test
+    fun `the cautious estimate charges the worst overrun of the fit`() {
+        val cost = SliceCost()
+        // Kokoro's 88-frame slices slowing within a piece, in-app at 2x on the 6a.
+        cost.add(24, 375.0)
+        cost.add(48, 708.0)
+        cost.add(88, 1143.0)
+        cost.add(88, 1272.0)
+        val fit = cost.ms(88)
+        val worst = listOf(24 to 375.0, 48 to 708.0, 88 to 1143.0, 88 to 1272.0).maxOf { (n, ms) -> ms / cost.ms(n) }
+        assertTrue(worst > 1.0)
+        assertEquals(fit * worst, cost.cautiousMs(88), 1e-9)
+        // Steady slices: no more than the fit.
+        val steady = SliceCost()
+        steady.add(20, 300.0)
+        steady.add(40, 500.0)
+        assertEquals(steady.ms(30), steady.cautiousMs(30), 1e-9)
+    }
+
+    @Test
     fun `decode cost does not fit a line through slices of nearly the same size`() {
         // The 6a's first two slices of a paragraph: the line through them predicted ~0 ms for 25 frames.
         val cost = SliceCost()
