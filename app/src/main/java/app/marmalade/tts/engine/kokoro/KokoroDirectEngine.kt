@@ -28,7 +28,6 @@ import app.marmalade.tts.engine.kitten.PAD_TOKEN
 import app.marmalade.tts.engine.kitten.encodePhonemes
 import app.marmalade.tts.lang.LangDetector
 import app.marmalade.tts.perf.CpuClusterDetector
-import app.marmalade.tts.perf.RollingRtf
 import app.marmalade.tts.phonemizer.CutletJaG2P
 import app.marmalade.tts.phonemizer.EnPhonemeFixups
 import app.marmalade.tts.phonemizer.EspeakPhonemizer
@@ -526,13 +525,6 @@ open class KokoroDirectEngine @Inject constructor(
      */
     @Volatile private var measuredStreamRtf = Double.NaN
 
-    /**
-     * A rolling average of the same pieces' RTF (both paths), for the
-     * request's [RenderMode] (#54): one slow piece shouldn't flip the next
-     * request into chunk mode. NaN until the first.
-     */
-    @Volatile private var modeRtf = Double.NaN
-
     /** The generator's cost per streamed slice, for chunk mode's hold ([PieceGate], #54). */
     private val sliceCost = SliceCost()
 
@@ -849,7 +841,7 @@ open class KokoroDirectEngine @Inject constructor(
         }
         if (chunks.isEmpty()) return@channelFlow
         // Every piece goes out whole on this path: chunk mode in all but name (#54).
-        RenderMode.forRequest(engineName, settings, ctx.filesDir, modeRtf, playbackRate).log(engineName, path = "whole")
+        RenderMode.forRequest(engineName, settings, ctx.filesDir, playbackRate).log(engineName, path = "whole")
         val planMs = (System.nanoTime() - planStartNs) / 1_000_000
         Log.d(
             PERF_TAG,
@@ -911,7 +903,6 @@ open class KokoroDirectEngine @Inject constructor(
                     if (piece.ids.size >= MEASURE_MIN_TOKENS && audioMs > 0) {
                         measuredMsPerToken = inferMs.toDouble() / piece.ids.size
                         measuredRtf = rtf
-                        modeRtf = RollingRtf.update(modeRtf.takeUnless { it.isNaN() }, rtf)
                     }
                     val pieceTag = if (pieces.size > 1) " piece=$pi/${pieces.size}" else ""
                     Log.d(PERF_TAG, "kokoro chunk=$idx/${idx + 1 + queue.size}$pieceTag infer=${inferMs}ms audio=${audioMs}ms rtf=${"%.2f".format(rtf)} tokens=${piece.ids.size} row=${piece.styleRow} textLen=${piece.text.length}")
@@ -1052,7 +1043,7 @@ open class KokoroDirectEngine @Inject constructor(
         if (chunks.isEmpty()) return
         val audioMs = (chunks.sumOf { it.tokens } * AUDIO_MS_PER_TOKEN / speed.coerceAtLeast(0.1f)).toLong()
         val bankMs = PrerollGate.streamBankMs(playbackRate, rtf, audioMs)
-        val mode = RenderMode.forRequest(engineName, settings, ctx.filesDir, modeRtf, playbackRate)
+        val mode = RenderMode.forRequest(engineName, settings, ctx.filesDir, playbackRate)
         mode.log(engineName)
         val rate = playbackRate.coerceAtLeast(0.1f)
         val maxSlice = if (mode.chunk) KittenStreamSlicing.CHUNK_MODE_MAX_SLICE_FRAMES else KittenStreamSlicing.MAX_SLICE_FRAMES
@@ -1184,7 +1175,6 @@ open class KokoroDirectEngine @Inject constructor(
         // Tiny pieces are mostly fixed per-call cost: they'd overstate the RTF.
         if (measure && audioMs > 0) {
             measuredStreamRtf = rtf
-            modeRtf = RollingRtf.update(modeRtf.takeUnless { it.isNaN() }, rtf)
         }
         Log.d(
             PERF_TAG,

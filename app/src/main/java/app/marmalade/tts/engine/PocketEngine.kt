@@ -33,7 +33,6 @@ import app.marmalade.tts.engine.pocket.StateFrame
 import app.marmalade.tts.engine.pocket.PocketTimes
 import app.marmalade.tts.engine.pocket.PocketVoiceFallback
 import app.marmalade.tts.engine.pocket.PocketVoiceFiles
-import app.marmalade.tts.perf.RollingRtf
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.nio.ByteBuffer
@@ -220,12 +219,9 @@ open class PocketEngine @Inject constructor(
 
     /**
      * Chunk mode (#54, [RenderMode]): how much sent audio is still ahead of
-     * the listener, and a rolling RTF of this process's chunks (NaN until
-     * the first), from the AR loop's and the decoder's own time, so a render
-     * paused by the Narrator's read-ahead doesn't count as slow.
+     * the listener.
      */
     private val horizon = PlaybackHorizon()
-    @Volatile private var modeRtf = Double.NaN
 
     /** Audio per text token (EWMA), to estimate a request's length for the hold. */
     @Volatile private var streamMsPerToken = DEFAULT_MS_PER_TOKEN
@@ -699,7 +695,7 @@ open class PocketEngine @Inject constructor(
         for ((i, c) in miniChunks.withIndex()) {
             Log.d(TAG, "  chunk[$i] (${c.length} chars): \"${c.take(80)}${if (c.length > 80) "…" else ""}\"")
         }
-        val mode = RenderMode.forRequest(engineName, settingsRepository, ctx.filesDir, modeRtf, playbackRate)
+        val mode = RenderMode.forRequest(engineName, settingsRepository, ctx.filesDir, playbackRate)
         mode.log(engineName)
 
         // Everything that touches an ORT session runs under synthLock, and the
@@ -737,8 +733,6 @@ open class PocketEngine @Inject constructor(
         val chunkStartNs: Long,
         /** Frames in the whole chunk (set on its last job). */
         val chunkFrames: Int,
-        /** The AR loop's own ms on the chunk, without waits to submit (set on its last job). */
-        val arOwnMs: Double = 0.0,
     )
 
     /**
@@ -832,7 +826,6 @@ open class PocketEngine @Inject constructor(
         val generated = IntArray(miniChunks.size)
         val finished = BooleanArray(miniChunks.size)
         var decodedInChunk = 0
-        var decodeMsInChunk = 0.0
         var firstSent = false
         suspend fun send(audio: List<SynthAudio>) {
             for (a in audio) {
@@ -866,10 +859,8 @@ open class PocketEngine @Inject constructor(
             if (audio != null) decodeCost.add(job.frames, ms)
             if (job.slice == 0) {
                 decodedInChunk = 0
-                decodeMsInChunk = 0.0
             }
             decodedInChunk += job.frames
-            decodeMsInChunk += ms
             if (audio != null && bank.releaseAtMs == null) {
                 // First slice of the request: hold the first sound if the
                 // render can't keep up with playback (never at 1x on the 6a).
@@ -905,13 +896,7 @@ open class PocketEngine @Inject constructor(
                 val audioMs = job.chunkFrames * frameMs
                 val rtf = (System.nanoTime() - job.chunkStartNs) / 1e6 / audioMs
                 streamMsPerToken = 0.5 * streamMsPerToken + 0.5 * (audioMs / chunkTokens[job.chunk].coerceAtLeast(1))
-                // The render's own pace (not waits on the Narrator): the decoder
-                // beside the AR loop, or after each slice when inline.
-                val ownMs = if (overlap) maxOf(job.arOwnMs, decodeMsInChunk) else job.arOwnMs + decodeMsInChunk
-                val ownRtf = ownMs / audioMs
-                // Short chunks are mostly fixed cost: they'd overstate the RTF.
-                if (audioMs >= MODE_MEASURE_MIN_AUDIO_MS) modeRtf = RollingRtf.update(modeRtf.takeUnless { it.isNaN() }, ownRtf)
-                Log.d(PERF_TAG, "pocket chunk=${job.chunk} rtf=${"%.2f".format(rtf)} audio=${audioMs.toLong()}ms own=${"%.2f".format(ownRtf)}")
+                Log.d(PERF_TAG, "pocket chunk=${job.chunk} rtf=${"%.2f".format(rtf)} audio=${audioMs.toLong()}ms")
             }
             bankLock.withLock {
                 val sendMs = System.nanoTime() / 1_000_000
@@ -969,7 +954,6 @@ open class PocketEngine @Inject constructor(
                 val chunkStartNs = System.nanoTime()
                 var slice = 0
                 var chunkFrames = 0
-                var submitNs = 0L
                 val pending = ArrayList<FloatArray>(decodeBatch)
                 suspend fun cut(last: Boolean) {
                     val n = pending.size
@@ -978,11 +962,8 @@ open class PocketEngine @Inject constructor(
                     pending.clear()
                     val t0 = System.nanoTime()
                     val index = if (n > 0) clock.submitted(n, t0 / 1e6).first else -1
-                    // A later chunk starts from the cached voice prompt: chunk 0's isn't its pace.
-                    val arOwnMs = if (last) (t0 - chunkStartNs - submitNs) / 1e6 - (if (idx == 0) chunk0PromptMs else 0L) else 0.0
                     if (last) finished[idx] = true
-                    submit(DecodeJob(idx, slice++, index, flat, n, last, chunkStartNs, if (last) chunkFrames else 0, arOwnMs))
-                    submitNs += System.nanoTime() - t0
+                    submit(DecodeJob(idx, slice++, index, flat, n, last, chunkStartNs, if (last) chunkFrames else 0))
                 }
                 val onPrompt = { ms: Long -> if (idx == 0) chunk0PromptMs = ms }
                 generateChunkLatents(bundle, voiceEmb, miniChunk, idx, onPrompt) { latent ->
@@ -2213,9 +2194,6 @@ open class PocketEngine @Inject constructor(
 
         /** Starting guess for the AR loop's ms per frame (#15 "E"; ~35 on a Pixel 6a). */
         private const val DEFAULT_AR_MS_PER_FRAME = 60.0
-
-        /** Chunks with less audio than this don't update the RTF chunk mode decides on (#54). */
-        private const val MODE_MEASURE_MIN_AUDIO_MS = 1_000.0
 
         /** Raw eos_logit threshold from the export wrapper. */
         private const val EOS_THRESHOLD = -4.0f

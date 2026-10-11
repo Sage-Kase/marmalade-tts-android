@@ -19,7 +19,7 @@ class SpeedPerfWarningTest {
 
     @Test
     fun `measured RTF is preferred over predicted`() {
-        // Measured says "too slow" (0.9 × 1.0 > 0.8); predicted would say
+        // Measured says "too slow" (0.9 × 1.0 > 0.6); predicted would say
         // "fine" (0.1). Measured wins → warn.
         assertTrue(
             SpeedPerfWarning.shouldWarn(
@@ -57,16 +57,22 @@ class SpeedPerfWarningTest {
     }
 
     @Test
-    fun `RTF path multiplies by effective speed against the 0_8 threshold`() {
-        // 0.5 RTF: fine at 1.5× (0.75), warned at 1.7× (0.85).
-        assertFalse(SpeedPerfWarning.shouldWarn(null, 0.5, 1.5f))
-        assertTrue(SpeedPerfWarning.shouldWarn(null, 0.5, 1.7f))
+    fun `RTF path multiplies by effective speed against the 0_6 threshold`() {
+        // Kokoro on the Pixel 6a (0.43): fine at 1.25× (0.54), warned at 1.5× (0.65).
+        assertFalse(SpeedPerfWarning.shouldWarn(null, 0.43, 1.25f))
+        assertTrue(SpeedPerfWarning.shouldWarn(null, 0.43, 1.5f))
     }
 
     @Test
     fun `exactly at the threshold does not warn`() {
-        // 0.8 × 1.0 == 0.8, and the check is strictly greater-than.
-        assertFalse(SpeedPerfWarning.shouldWarn(null, 0.8, 1.0f))
+        // 0.6 × 1.0 == 0.6, and the check is strictly greater-than.
+        assertFalse(SpeedPerfWarning.shouldWarn(null, 0.6, 1.0f))
+    }
+
+    @Test
+    fun `a measured zero is no signal, not an infinitely fast engine`() {
+        assertTrue(SpeedPerfWarning.shouldWarn(0.0, 0.9, 1.0f))
+        assertTrue(SpeedPerfWarning.shouldWarn(0.0, null, 1.4f))
     }
 
     @Test

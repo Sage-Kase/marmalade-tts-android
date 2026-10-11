@@ -22,7 +22,6 @@ import app.marmalade.tts.engine.TtsEngine
 import app.marmalade.tts.engine.abortableInference
 import app.marmalade.tts.lang.LangDetector
 import app.marmalade.tts.perf.CpuClusterDetector
-import app.marmalade.tts.perf.RollingRtf
 import app.marmalade.tts.phonemizer.EnPhonemeFixups
 import app.marmalade.tts.phonemizer.EspeakPhonemizer
 import app.marmalade.tts.phonemizer.SharedEspeakData
@@ -102,9 +101,6 @@ private const val PERF_TAG = "StreamPerf"
 
 /** One generator frame's audio (25 ms at 24 kHz). */
 private const val FRAME_MS = KittenTrim.FRAME_SAMPLES * 1000.0 / KittenDirectVoiceCatalog.SAMPLE_RATE
-
-/** Pieces shorter than this don't update the RTF chunk mode decides on (#54). */
-private const val MODE_MEASURE_MIN_AUDIO_MS = 1_000L
 
 /** KittenML model's style-vector dimension; fixed by the trained model. */
 private const val STYLE_DIM = 256
@@ -253,11 +249,9 @@ open class KittenDirectEngine @Inject constructor(
 
     /**
      * Chunk mode (#54, [RenderMode]): how much emitted audio is still ahead
-     * of the listener, a rolling RTF of this process's pieces (NaN until the
-     * first) and the generator's cost per slice.
+     * of the listener and the generator's cost per slice.
      */
     private val horizon = PlaybackHorizon()
-    @Volatile private var modeRtf = Double.NaN
     private val sliceCost = SliceCost()
 
     override fun isInstalled(): Boolean {
@@ -496,7 +490,7 @@ open class KittenDirectEngine @Inject constructor(
         val chunks = TextChunker.clauseChunks(text)
         if (chunks.isEmpty()) return@channelFlow
 
-        val mode = RenderMode.forRequest(engineName, settings, ctx.filesDir, modeRtf, playbackRate)
+        val mode = RenderMode.forRequest(engineName, settings, ctx.filesDir, playbackRate)
         mode.log(engineName)
         val rate = mode.playbackRate
         val maxSlice = if (mode.chunk) KittenStreamSlicing.CHUNK_MODE_MAX_SLICE_FRAMES else KittenStreamSlicing.MAX_SLICE_FRAMES
@@ -644,8 +638,6 @@ open class KittenDirectEngine @Inject constructor(
         }
         val audioMs = plan.speech.count() * KittenTrim.FRAME_SAMPLES * 1000L / sampleRate
         val rtf = if (audioMs > 0) (planMs + genMs).toDouble() / audioMs else Double.NaN
-        // Short clauses are mostly fixed cost: they'd overstate the RTF.
-        if (!warmup && audioMs >= MODE_MEASURE_MIN_AUDIO_MS) modeRtf = RollingRtf.update(modeRtf.takeUnless { it.isNaN() }, rtf)
         Log.d(PERF_TAG, "kitten piece textLen=${text.length} plan=${planMs}ms gen=${genMs}ms slices=${slices.size} audio=${audioMs}ms rtf=${"%.2f".format(rtf)}")
     }
 

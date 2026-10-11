@@ -143,8 +143,11 @@ whole sentences anyway and logs no such line.
     such a row passes with a note, and only the baseline bounds its waits.
   The warning is computed the way a fresh install on the reference phone
   sees it: no measured RTF yet, so `EngineRecommender`'s prediction
-  (`ANCHOR_PROBE_RTF` × `REFERENCE_COST`) × speed > 0.8. The gate reads those
-  constants from the Kotlin, so retuning a cost retunes the gate.
+  (`ANCHOR_PROBE_RTF` × `REFERENCE_COST`) × speed > 0.6
+  (`EFFECTIVE_RTF_THRESHOLD`). Since #54 the same decision puts the engine in
+  chunk mode, so on the reference phone "warns" and `mode=chunk` agree. The
+  gate reads those constants from the Kotlin, so retuning a cost retunes the
+  gate.
 - **Which cores this measures** (#50). Android's TTS manager
   (system_server) binds the engine for every client with
   `BIND_SCHEDULE_LIKE_TOP_APP`, so a system-TTS engine runs on the

@@ -1,5 +1,7 @@
 package app.marmalade.tts.engine
 
+import app.marmalade.tts.perf.RenderPace
+import app.marmalade.tts.perf.SpeedPerfWarning
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
@@ -24,22 +26,38 @@ class ChunkModeTest {
         assertTrue(RenderMode.decide(0.43, "predicted", 1.5f).chunk) // 0.65: stalled 60–120 ms
         assertTrue(RenderMode.decide(0.43, "predicted", 2.0f).chunk)
         // Kitten (~0.13) streams at any speed the app offers.
-        assertFalse(RenderMode.decide(0.13, "engine", 3.0f).chunk)
+        assertFalse(RenderMode.decide(0.13, "measured", 3.0f).chunk)
     }
 
     @Test
-    fun `nothing known streams, as before chunk mode`() {
+    fun `nothing known follows the static speed rule, as the warning does`() {
         val mode = RenderMode.decide(null, "predicted", 2.0f)
-        assertFalse(mode.chunk)
+        assertTrue(mode.chunk)
         assertEquals("none", mode.source)
         assertNull(mode.rtf)
+        assertFalse(RenderMode.decide(null, "predicted", 1.3f).chunk)
+    }
+
+    @Test
+    fun `chunk mode is chosen exactly where the speed warning shows`() {
+        val rtfs = listOf(null, 0.0, 0.1, 0.13, 0.3, 0.35, 0.43, 0.48, 0.5, 0.6, 0.8, 0.9, 1.2)
+        var speed = 0.5f
+        while (speed <= 3.0f) {
+            for (measured in rtfs) for (predicted in rtfs) {
+                val warns = SpeedPerfWarning.shouldWarn(measured, predicted, speed)
+                val estimate = RenderPace.of(measured, predicted)
+                val mode = RenderMode.decide(estimate?.rtf, estimate?.source ?: "none", speed)
+                assertEquals("measured=$measured predicted=$predicted speed=$speed", warns, mode.chunk)
+            }
+            speed += 0.05f
+        }
     }
 
     @Test
     fun `the debug knob forces either mode`() {
-        assertTrue(RenderMode.decide(0.1, "engine", 1.0f, force = RenderMode.forced("on")).chunk)
-        assertFalse(RenderMode.decide(0.9, "engine", 2.0f, force = RenderMode.forced("off")).chunk)
-        assertEquals("forced", RenderMode.decide(0.9, "engine", 2.0f, force = true).source)
+        assertTrue(RenderMode.decide(0.1, "measured", 1.0f, force = RenderMode.forced("on")).chunk)
+        assertFalse(RenderMode.decide(0.9, "measured", 2.0f, force = RenderMode.forced("off")).chunk)
+        assertEquals("forced", RenderMode.decide(0.9, "measured", 2.0f, force = true).source)
         assertNull(RenderMode.forced(null))
         assertNull(RenderMode.forced("maybe"))
     }

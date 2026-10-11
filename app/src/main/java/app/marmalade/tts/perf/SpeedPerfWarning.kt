@@ -6,54 +6,57 @@ import app.marmalade.tts.data.db.VoiceAlias
 // The speed-up performance warning — RTF-aware, not a static threshold.
 //
 // The slider itself is uncapped (0.5–2.0). The job here is only to decide
-// WHEN to tell the user that the engine they've picked probably can't render
-// fast enough on this device to keep up with the rate they're asking for.
-//
-// An engine keeps up at effective speed S roughly while `RTF × S < 1`; we
-// warn at 0.8 to leave headroom for thermal throttling and background load.
+// WHEN the engine the user picked won't render fast enough on this device to
+// keep streaming at the rate they ask for. That one decision ([behind]) drives
+// both the warning and the engines' chunk mode (#54,
+// app.marmalade.tts.engine.RenderMode): from there the app plays whole
+// sentences, so the warning tells the user to expect pauses between them.
 // The RTF used is, in order of preference:
 //   1. a rolling MEASURED warm RTF for the engine on this device
-//      (SettingsRepository.engineRtf, fed by the synth service);
+//      (SettingsRepository.engineRtf, fed by in-app reads);
 //   2. EngineRecommender's PROBE-derived prediction for the engine;
 //   3. neither → the old static rule (effective speed past
 //      VoiceAlias.SPEED_PERF_WARNING_THRESHOLD), so a device we know nothing
 //      about still gets the pre-RTF behaviour.
+// The engines read the same two through RenderPace.
 //
 // Design record: docs/UX-NOTES.md, addendum 4 (decided at the lab).
 // -----------------------------------------------------------------------------
 
-/** Pure trigger logic for the speed-up performance warning. */
+/** Pure trigger logic for the speed-up performance warning and chunk mode. */
 object SpeedPerfWarning {
 
     /**
-     * Warn once the effective-speed-adjusted RTF crosses this. 0.8 rather
-     * than 1.0: the ~0.2 headroom absorbs thermal throttling and background
-     * load, and the failure it guards (playback outrunning synthesis) is a
-     * gradual one — better to warn a little early than a beat too late.
+     * Behind from this played RTF (RTF × effective speed) up. Below it a
+     * streamed render keeps up with room to spare: on the Pixel 6a Kokoro
+     * v26 (RTF ~0.43) streamed without a stall at 1.25× (0.54) and stalled
+     * 60–120 ms at 1.5× (0.65) through the release gate (#51, #54). It was
+     * 0.8 before #54, warning where streaming already stuttered.
      */
-    const val EFFECTIVE_RTF_THRESHOLD: Double = 0.8
+    const val EFFECTIVE_RTF_THRESHOLD: Double = 0.6
+
+    /**
+     * Whether an engine rendering at [rtf] (render time ÷ audio time at
+     * 1.0×; null when nothing is known) falls behind streaming at
+     * [effectiveSpeed]: the warning shows and the engine plays whole pieces.
+     */
+    fun behind(rtf: Double?, effectiveSpeed: Float): Boolean =
+        if (rtf != null && rtf > 0.0) {
+            rtf * effectiveSpeed > EFFECTIVE_RTF_THRESHOLD
+        } else {
+            effectiveSpeed > VoiceAlias.SPEED_PERF_WARNING_THRESHOLD
+        }
 
     /**
      * Whether to show the warning for an engine asked to run at
      * [effectiveSpeed] (slider value in the alias editor; chip × alias speed
-     * in the reader).
-     *
-     * [measuredRtf] wins over [predictedRtf]; when both are null we fall back
-     * to the static speed threshold so a device with no probe and no
-     * measurements still behaves as it did before this landed.
+     * in the reader). [measuredRtf] wins over [predictedRtf].
      */
     fun shouldWarn(
         measuredRtf: Double?,
         predictedRtf: Double?,
         effectiveSpeed: Float,
-    ): Boolean {
-        val rtf = measuredRtf ?: predictedRtf
-        return if (rtf != null) {
-            rtf * effectiveSpeed > EFFECTIVE_RTF_THRESHOLD
-        } else {
-            effectiveSpeed > VoiceAlias.SPEED_PERF_WARNING_THRESHOLD
-        }
-    }
+    ): Boolean = behind(RenderPace.of(measuredRtf, predictedRtf)?.rtf, effectiveSpeed)
 }
 
 /** Rolling-average math for the per-engine measured RTF store. */

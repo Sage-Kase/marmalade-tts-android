@@ -5,10 +5,10 @@ import app.marmalade.tts.service.TopAppHold
 import kotlinx.coroutines.flow.first
 
 /**
- * What an engine knows about its own render speed before it has measured
- * anything in this process (#54, [app.marmalade.tts.engine.RenderMode]): the
- * same RTF the speed-up warning reads ([SpeedPerfWarning]), so the app plays
- * whole pieces roughly where it warns.
+ * The render speed an engine decides chunk mode on (#54,
+ * [app.marmalade.tts.engine.RenderMode]): the same RTF the speed-up warning
+ * reads ([SpeedPerfWarning.shouldWarn], through [of]), so the app plays whole
+ * pieces exactly where it warns.
  *
  *  1. the app's measured warm RTF for the engine ([SettingsRepository.engineRtf],
  *     fed by in-app reads), else
@@ -26,8 +26,13 @@ object RenderPace {
     /** Tier-1 CPU score, read once per process (a few sysfs files). */
     private val computeScore: Double? by lazy { computeScoreOf(CpuClusterDetector.readClusters()) }
 
+    /** The measured RTF when there is one, else the prediction: the one rule for both readers. */
+    fun of(measuredRtf: Double?, predictedRtf: Double?): Estimate? =
+        measuredRtf?.takeIf { it > 0.0 }?.let { Estimate(it, "measured") }
+            ?: predictedRtf?.takeIf { it > 0.0 }?.let { Estimate(it, "predicted") }
+
     suspend fun estimate(settings: SettingsRepository, engineName: String): Estimate? {
-        settings.engineRtf.first()[engineName]?.takeIf { it > 0.0 }?.let { return Estimate(it, "measured") }
+        settings.engineRtf.first()[engineName]?.takeIf { it > 0.0 }?.let { return of(it, null) }
         val stored = settings.kittenRtfMeasurement.first()
             ?.takeIf { it.measuredAtMillis >= DeviceCapability.MEASURED_SINCE_MILLIS }
         val probe = DeviceProbe(
@@ -35,6 +40,6 @@ object RenderPace {
             computeScore = computeScore,
             readerOnFastCores = TopAppHold.supported,
         )
-        return EngineRecommender.predictedRtf(engineName, probe)?.let { Estimate(it, "predicted") }
+        return of(null, EngineRecommender.predictedRtf(engineName, probe))
     }
 }

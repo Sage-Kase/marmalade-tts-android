@@ -243,7 +243,7 @@ class AppConstantsTest(unittest.TestCase):
 
     def test_reads_the_warning_model(self):
         m = speed.read_warning_model(REPO)
-        self.assertEqual(m.threshold, 0.8)
+        self.assertEqual(m.threshold, 0.6)
         self.assertTrue(0.1 < m.anchor_probe_rtf < 1)
         for engine in speed.SPEED_VOICES:
             self.assertIn(engine, m.costs)

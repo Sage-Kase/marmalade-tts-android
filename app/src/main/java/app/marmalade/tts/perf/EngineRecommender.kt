@@ -180,9 +180,11 @@ object EngineRecommender {
 
     /**
      * Up to this predicted RTF an engine keeps up comfortably and may take
-     * the pill: normal speed with the same 20% headroom the speed-up warning
-     * keeps ([SpeedPerfWarning.EFFECTIVE_RTF_THRESHOLD]), so a recommended
-     * engine never warns at 1.0×.
+     * the pill: normal speed below the speed-up warning's line
+     * ([SpeedPerfWarning.EFFECTIVE_RTF_THRESHOLD]), so a recommended engine
+     * never warns, or plays whole pieces, at 1.0×. 0.8 until #54 lowered
+     * the warning to 0.6: Pocket's pill now needs a probe Kitten RTF up to
+     * 0.35 (was 0.47; the 6a's is 0.21).
      */
     const val RECOMMENDED_MAX_RTF: Double = SpeedPerfWarning.EFFECTIVE_RTF_THRESHOLD
 

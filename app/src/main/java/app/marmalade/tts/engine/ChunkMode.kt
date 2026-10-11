@@ -3,6 +3,7 @@ package app.marmalade.tts.engine
 import android.util.Log
 import app.marmalade.tts.data.SettingsRepository
 import app.marmalade.tts.perf.RenderPace
+import app.marmalade.tts.perf.SpeedPerfWarning
 import java.io.File
 import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
@@ -23,9 +24,9 @@ import kotlinx.coroutines.sync.withLock
 // to chunking". So, per request:
 //
 //  - [RenderMode.decide]: stream (today's behaviour) while the render keeps
-//    up comfortably, else chunk mode. The RTF is the engine's own recent
-//    measurement in this process, else the app's measured or predicted one
-//    ([app.marmalade.tts.perf.RenderPace]), times the playback rate.
+//    up comfortably, else chunk mode: exactly where the speed-up warning
+//    shows ([app.marmalade.tts.perf.SpeedPerfWarning.behind], fed the same
+//    measured-else-predicted RTF through [app.marmalade.tts.perf.RenderPace]).
 //  - In chunk mode a [PieceGate] holds each piece's slices until the rest of
 //    that piece can't run dry ([holdMs]), or the piece is fully rendered.
 //    Any wait then falls BEFORE a sentence or clause, never inside one.
@@ -41,7 +42,7 @@ data class RenderMode(
     val chunk: Boolean,
     /** Render ms per audio ms at 1.0× the decision used, or null when nothing was known. */
     val rtf: Double?,
-    /** Where [rtf] came from: `engine` (this process), `measured`, `predicted`, `none` or `forced`. */
+    /** Where [rtf] came from: `measured`, `predicted`, `none` or `forced`. */
     val source: String,
     val playbackRate: Float,
 ) {
@@ -66,41 +67,30 @@ data class RenderMode(
 
     companion object {
         /**
-         * Chunk mode from this played RTF (render ms per PLAYED ms) up. Below
-         * it the streamed render keeps up with room to spare: on the Pixel 6a
-         * Kokoro v26 (RTF ~0.43) streamed without a stall at 1.25× (0.54)
-         * and stalled 60–120 ms at 1.5× (0.65) through the release gate
-         * (#51). Chunk mode costs little where streaming would have kept up:
-         * [keepsUp] then releases a piece after its first slice or two.
-         */
-        const val CHUNK_FROM_PLAYED_RTF = 0.6
-
-        /**
          * The mode for a request played at [playbackRate], from [rtf] (render
-         * ms per audio ms at 1.0×, or null when nothing is known: stream, as
-         * before #54). [force] (a debug knob) overrides the decision.
+         * ms per audio ms at 1.0×, null when nothing is known): chunk mode
+         * exactly where the speed warning shows ([SpeedPerfWarning.behind]).
+         * [force] (a debug knob) overrides the decision.
          */
         fun decide(rtf: Double?, source: String, playbackRate: Float, force: Boolean? = null): RenderMode {
             val rate = if (playbackRate > 0f) playbackRate else 1f
             if (force != null) return RenderMode(force, rtf, "forced", rate)
-            val chunk = rtf != null && rtf > 0.0 && rtf * rate > CHUNK_FROM_PLAYED_RTF
-            return RenderMode(chunk, rtf, if (rtf == null) "none" else source, rate)
+            return RenderMode(SpeedPerfWarning.behind(rtf, rate), rtf, if (rtf == null) "none" else source, rate)
         }
 
         /**
-         * The mode for one request of [engineName]: from [ownRtf], the
-         * engine's own measurement in this process (NaN: none yet), else
-         * [RenderPace]'s. Debug builds read the `chunkMode` knob.
+         * The mode for one request of [engineName], from the RTF the speed
+         * warning reads ([RenderPace]: the app's measured RTF, else the
+         * prediction), so the warning shows exactly when an engine plays
+         * whole pieces. Debug builds read the `chunkMode` knob.
          */
         suspend fun forRequest(
             engineName: String,
             settings: SettingsRepository,
             filesDir: File,
-            ownRtf: Double,
             playbackRate: Float,
         ): RenderMode {
             val force = forced(EngineDevKnobs.get(filesDir, "chunkMode"))
-            if (ownRtf > 0.0) return decide(ownRtf, "engine", playbackRate, force)
             val estimate = RenderPace.estimate(settings, engineName)
             return decide(estimate?.rtf, estimate?.source ?: "none", playbackRate, force)
         }
