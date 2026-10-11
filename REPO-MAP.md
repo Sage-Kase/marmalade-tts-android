@@ -573,10 +573,16 @@ When investigating **{concern}**, start at **{files}**:
   the piece will be heard at: the Narrator's render job carries the session's
   live tempo (`LivePlaybackRate`, a coroutine-context element the engines'
   flows inherit), so a speed change mid-segment reaches the next piece without
-  a re-render; system TTS has none and keeps the request's rate. In chunk mode
+  a re-render; system TTS has none and keeps the request's rate. The piece
+  already streaming when the speed rises can still stall once inside: its
+  first slices are already in the writer's queue (`Narrator.pump` writes
+  every rendered chunk at once), so only a hold inside the writer could stop
+  it (6a reader, 1× → 2× mid-paragraph: 16–22 stalls inside pieces per take
+  before; after, 0–1 per take, always in that piece, none in any later one). In chunk mode
   a `PieceGate` holds each piece's slices for `holdMs`: until every slice
   still to render arrives before playback reaches it (estimates from the
-  piece's slice grid and a `SliceCost` fit, each × 1.1, in audio ms turned
+  piece's slice grid and a `SliceCost` fit, Kokoro's and Kitten's scaled by
+  its worst recent overrun, `cautiousMs`, each × 1.1, in audio ms turned
   into played time at the current rate, against this request's own audio
   still ahead, `PlaybackHorizon.requestRemainingMs`: an earlier request's
   audio may have been flushed by a Stop the engine never hears of, e.g. a

@@ -29,8 +29,8 @@ This project follows [Semantic Versioning](https://semver.org/).
   render as fast as it speaks at the chosen speed (a slower phone, or a
   high speed), Marmalade now plays each sentence or clause whole once
   enough of it is ready, so any wait falls between sentences instead of
-  breaking one up. Where the engine keeps up, speech starts as quickly as
-  before. On a Pixel 6a, Kokoro at 2× through system text-to-speech now
+  breaking one up, including after you speed up the reader mid-article.
+  Where the engine keeps up, speech starts as quickly as before. On a Pixel 6a, Kokoro at 2× through system text-to-speech now
   pauses once for about half a second before a long sentence, where it used
   to stop several times inside it.
 - **The speed warning says what you'll hear**: it now reads "Your phone may
