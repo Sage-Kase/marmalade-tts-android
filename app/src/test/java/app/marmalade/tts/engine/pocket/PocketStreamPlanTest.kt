@@ -1,5 +1,6 @@
 package app.marmalade.tts.engine.pocket
 
+import app.marmalade.tts.engine.SliceCost
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -127,7 +128,7 @@ class PocketStreamPlanTest {
 
     @Test
     fun `decode cost fits a fixed cost per run once two sizes are seen`() {
-        val cost = PocketDecodeCost()
+        val cost = SliceCost()
         assertEquals(0.0, cost.ms(6), 1e-9)
         cost.add(6, 210.0)
         // One size seen: its ms per frame for every frame (over-estimates bigger slices).
@@ -140,7 +141,7 @@ class PocketStreamPlanTest {
     @Test
     fun `decode cost does not fit a line through slices of nearly the same size`() {
         // The 6a's first two slices of a paragraph: the line through them predicted ~0 ms for 25 frames.
-        val cost = PocketDecodeCost()
+        val cost = SliceCost()
         cost.add(6, 257.0)
         cost.add(7, 244.0)
         assertEquals(25 * 250.5 / 6.5, cost.ms(25), 1e-9)

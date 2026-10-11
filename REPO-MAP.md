@@ -607,7 +607,7 @@ When investigating **{concern}**, start at **{files}**:
     that (sentence lengths are only known to ±15%). A first-sound hold
     (`PocketStreamPlan.holdMs`, capped 3 s) is only set when the render
     can't keep up (slow phone, high speed); the decoder's cost per slice is
-    fitted live (`PocketDecodeCost`, ~60 ms + 24 ms/frame on the 6a; no line
+    fitted live (`engine/SliceCost`, ~60 ms + 24 ms/frame on the 6a; no line
     until sizes span 8 frames, or a 6- and a 7-frame slice tilt it to ~0 ms).
   - **Decode safety factor** ("G", `PocketSliceClock.DECODE_SAFETY` = 3): the
     deadline assumes a slice may take 3× its usual decode. A screen-off app

@@ -24,7 +24,6 @@ import app.marmalade.tts.engine.pocket.PocketTokenizer
 import app.marmalade.tts.engine.pocket.initStates
 import app.marmalade.tts.engine.pocket.PocketCacheShapes
 import app.marmalade.tts.engine.pocket.PocketMimiBatch
-import app.marmalade.tts.engine.pocket.PocketDecodeCost
 import app.marmalade.tts.engine.pocket.PocketSessionPlan
 import app.marmalade.tts.engine.pocket.PocketSliceBank
 import app.marmalade.tts.engine.pocket.PocketSliceClock
@@ -216,7 +215,7 @@ open class PocketEngine @Inject constructor(
     private var decodeSafety = PocketSliceClock.DECODE_SAFETY
 
     /** The decoder's measured cost per slice size, for the first-sound hold (decoder thread only). */
-    private val decodeCost = PocketDecodeCost()
+    private val decodeCost = SliceCost()
 
     /** Audio per text token (EWMA), to estimate a request's length for the hold. */
     @Volatile private var streamMsPerToken = DEFAULT_MS_PER_TOKEN
