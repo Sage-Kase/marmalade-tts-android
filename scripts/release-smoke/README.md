@@ -136,9 +136,11 @@ whole sentences anyway and logs no such line.
   - FAIL: no audio or an error; the audio didn't get shorter with speed (the
     rate never reached the engine); the app chose chunk mode (or
     `path=whole`) and playback still stalled inside a piece, however briefly
-    (every take, at least one in chunk mode); a wait or stall of 300 ms or
-    more at a speed where the app shows **no** warning (the warning lies); or
-    slower than the baseline (below).
+    (every take, at least one in chunk mode); a stall of 300 ms or more at a
+    speed where the app shows **no** warning (the warning lies), or a wait
+    that long there while streaming; or slower than the baseline (below). In
+    chunk mode a wait before a sentence is the design, not the warning lying:
+    such a row passes with a note, and only the baseline bounds its waits.
   The warning is computed the way a fresh install on the reference phone
   sees it: no measured RTF yet, so `EngineRecommender`'s prediction
   (`ANCHOR_PROBE_RTF` × `REFERENCE_COST`) × speed > 0.8. The gate reads those
@@ -153,7 +155,7 @@ whole sentences anyway and logs no such line.
   (`TopAppHold`). Before that, with the screen off it ran in the
   `foreground` cpuset (CPUs 0–5 on the 6a, no X1), about half as fast
   (Kokoro v26 at 1.0×: RTF ~0.43 here, ~1.0 there, with 1–2 s stalls). The
-  speed warning's costs now model these cores, so a long wait or stall where the
+  speed warning's costs now model these cores, so a long stall where the
   prediction shows no warning is a real failure.
 - **Screen off, phone cool.** It runs with the screen off, as when listening
   (it presses the sleep key if the screen is on). Before each engine it

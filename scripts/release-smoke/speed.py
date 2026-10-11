@@ -312,7 +312,11 @@ def judge(row: SpeedRow, model: WarningModel, length_at_1x_ms: float | None, bas
         how = "in chunk mode" if any(t.mode == "chunk" for t in chunked) else "with whole pieces"
         row.reasons.append(f"stutters {stall:.0f} ms inside a sentence or clause {how}")
     keeps_up = max(stall, wait) < KEEPUP_MAX_STALL_MS
-    if not keeps_up and not row.warns:
+    # In chunk mode a wait before a sentence is the design (#54: "a longer
+    # wait before a sentence is acceptable; a stutter is not"), not the render
+    # failing to keep up, so only a stall makes the missing warning a lie there.
+    lies = stall if (chunked and known) else max(stall, wait)
+    if lies >= KEEPUP_MAX_STALL_MS and not row.warns:
         row.reasons.append(f"{_gaps_text(stall, wait)} at a speed the app doesn't warn about")
     if baseline is None:
         row.reasons.append("no baseline row: check the numbers, then --write-baseline (README)")
@@ -334,10 +338,13 @@ def judge(row: SpeedRow, model: WarningModel, length_at_1x_ms: float | None, bas
                 row.reasons.append(f"{name} regressed: {fmt.format(now)} vs baseline {fmt.format(base)}")
     if row.reasons:
         row.result = "FAIL"
-    elif not keeps_up:
+    elif not keeps_up and row.warns:
         row.result = "WARNED"
         mode = f" ({row.mode_label} mode)" if row.mode_label != "-" else ""
         row.notes.append(f"{_gaps_text(stall, wait)}{mode}; the app warns at this speed")
+    elif not keeps_up:  # chunk mode's waits, where the app doesn't warn
+        row.result = "PASS"
+        row.notes.append(f"{_gaps_text(stall, wait)} (chunk mode); the app doesn't warn at this speed")
     else:
         row.result = "PASS"
         if row.warns:

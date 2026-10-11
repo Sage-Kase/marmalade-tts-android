@@ -202,8 +202,14 @@ class ChunkModeTest(unittest.TestCase):
         self.assertEqual(r.result, "WARNED")
         self.assertIn("waits 600 ms between pieces (chunk mode)", r.notes[0])
 
-    def test_long_waits_without_a_warning_fail(self):
+    def test_chunk_mode_waits_without_a_warning_pass_with_a_note(self):
+        # A wait before a sentence is chunk mode working, not the warning lying.
         r = row(takes=[chunk(wait_ms=600)], base={**NEW_BASE, "longest_wait_ms": 600})
+        self.assertEqual(r.result, "PASS")
+        self.assertEqual(r.notes, ["waits 600 ms between pieces (chunk mode); the app doesn't warn at this speed"])
+
+    def test_streaming_waits_without_a_warning_fail(self):
+        r = row(takes=[stream(wait_ms=600)], base={**NEW_BASE, "longest_wait_ms": 600})
         self.assertEqual(r.result, "FAIL")
         self.assertEqual(r.reasons, ["waits 600 ms between pieces at a speed the app doesn't warn about"])
 
