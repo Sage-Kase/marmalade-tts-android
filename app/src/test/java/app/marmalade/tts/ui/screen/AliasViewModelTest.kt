@@ -1008,10 +1008,11 @@ class AliasViewModelTest {
 
     @Test
     fun `predicted RTF fires the editor warning when no measured value exists`() = runTest {
-        // Probe measures Kitten at 0.9 RTF → predicted Kitten RTF 0.9; no
-        // measured value stored, so the warning runs on the prediction.
+        // Probe measures Kitten at 1.5 RTF → predicted Kitten RTF 1.5 × its
+        // cost (0.62) ≈ 0.93; no measured value stored, so the warning runs
+        // on the prediction.
         val vm = newViewModel(
-            deviceProbe = FakeDeviceProbe(DeviceProbe(measuredKittenRtf = 0.9, computeScore = null)),
+            deviceProbe = FakeDeviceProbe(DeviceProbe(measuredKittenRtf = 1.5, computeScore = null)),
         )
         vm.openEditor(alias(name = "onex", speed = 1.0f))
 

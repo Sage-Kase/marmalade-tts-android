@@ -38,6 +38,10 @@ import java.io.File
  * Kitten's generator ran 1.8× faster with 4 threads than with 5 (#12 "X1").
  * Many phones keep their single prime core out of that cpuset, and the app
  * can't read the cpuset itself (SELinux), so the rule is general.
+ * Since #52 the reader holds a TTS session to its own engine while it plays
+ * (TopAppHold, Android 12+), which puts it in `top-app` with the prime core,
+ * as system TTS always was; whether 5 threads now win on the 8a is
+ * unmeasured, so the rule stays.
  */
 object CpuClusterDetector {
 

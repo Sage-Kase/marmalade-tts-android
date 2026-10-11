@@ -19,6 +19,7 @@ import app.marmalade.tts.service.NarratorWakeLock
 import app.marmalade.tts.service.PlaybackHost
 import app.marmalade.tts.service.ServicePlaybackHost
 import app.marmalade.tts.service.ServiceHost
+import app.marmalade.tts.service.TopAppHold
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -48,6 +49,7 @@ object NarratorModule {
         keepalive: KeepaliveCoordinator,
         stats: NarratorStats,
         wakeLock: NarratorWakeLock,
+        topApp: TopAppHold,
     ): Narrator = Narrator(
         engines = EngineLookup { name -> engines[name] },
         resolver = resolver,
@@ -70,6 +72,7 @@ object NarratorModule {
     ).also {
         focus.shell = it
         wakeLock.follow(it.state)
+        topApp.follow(it.state)
     }
 
     @Provides

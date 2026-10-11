@@ -59,6 +59,7 @@ class NarratorOutputTest {
         val boundaries = h.output.writerLog.filter { "seg " in it && "→" in it }
         assertEquals(3, boundaries.size)
         assertTrue(boundaries.joinToString("\n"), boundaries.all { it.endsWith("pad=0ms underrun=0ms") })
+        assertTrue("no stall logged", h.output.writerLog.none { "stall" in it })
         h.done()
     }
 

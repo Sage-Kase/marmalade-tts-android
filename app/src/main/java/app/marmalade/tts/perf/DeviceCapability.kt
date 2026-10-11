@@ -4,6 +4,7 @@ import android.util.Log
 import app.marmalade.tts.data.KittenDirectVoiceCatalog
 import app.marmalade.tts.data.SettingsRepository
 import app.marmalade.tts.engine.kitten.KittenDirectEngine
+import app.marmalade.tts.service.TopAppHold
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
@@ -45,10 +46,14 @@ import kotlinx.coroutines.withTimeoutOrNull
  * @property computeScore Tier-1 heuristic: Σ over non-efficiency CPU clusters
  *   of `cores × maxGHz`. Null when sysfs is unreadable, which means we know
  *   nothing at all and must not guess.
+ * @property readerOnFastCores Whether in-app reading runs on the fast
+ *   (`top-app`) cores here: [TopAppHold.supported], Android 12+ (#52).
+ *   [EngineRecommender] picks its costs by it.
  */
 data class DeviceProbe(
     val measuredKittenRtf: Double?,
     val computeScore: Double?,
+    val readerOnFastCores: Boolean = true,
 )
 
 /** A stored Kitten benchmark result. See [SettingsRepository.kittenRtfMeasurement]. */
@@ -123,6 +128,7 @@ class DeviceCapability @Inject constructor(
         DeviceProbe(
             measuredKittenRtf = measureKittenRtf(),
             computeScore = computeScore(),
+            readerOnFastCores = TopAppHold.supported,
         )
     }
 

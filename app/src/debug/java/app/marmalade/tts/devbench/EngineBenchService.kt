@@ -12,6 +12,7 @@ import app.marmalade.tts.devbench.BenchSupport.TAG
 import app.marmalade.tts.engine.EngineRegistry
 import app.marmalade.tts.engine.TtsEngine
 import app.marmalade.tts.engine.kokoro.KokoroDirectEngine
+import app.marmalade.tts.service.TopAppHold
 import dagger.hilt.android.AndroidEntryPoint
 import java.io.File
 import java.util.Locale
@@ -82,6 +83,9 @@ import kotlinx.coroutines.withContext
 // Narrator asks for at a listening speed: the engines' pre-roll and
 // first-piece sizing depend on it) and paces by the played length; a line of
 // the sentences file may be a whole paragraph, rendered as one request.
+// `--ez topApp true` (issue #52) holds the in-app reader's self TTS session
+// (TopAppHold.selfSession) for the run, so the bench renders on the cores the
+// reader now gets (top-app) rather than the screen-off service's.
 // -----------------------------------------------------------------------------
 
 @AndroidEntryPoint
@@ -123,6 +127,7 @@ class EngineBenchService : Service() {
             rate = intent.getFloatExtra(EXTRA_RATE, 1f).takeIf { it > 0f } ?: 1f,
         )
         running = true
+        val topApp = if (intent.getBooleanExtra(EXTRA_TOP_APP, false)) TopAppHold.selfSession(this) else null
         val dumpTokens = intent.getStringExtra(EXTRA_DUMP_TOKENS)
         if (dumpTokens != null) {
             scope.launch {
@@ -147,6 +152,7 @@ class EngineBenchService : Service() {
                 Log.e(TAG, "failed run=${config.run}: ${t.message}", t)
             } finally {
                 if (wake.isHeld) wake.release()
+                topApp?.let { withContext(Dispatchers.Main + NonCancellable) { it.shutdown() } }
                 running = false
                 stopSelf(startId)
                 if (config.exit) {
@@ -327,6 +333,7 @@ class EngineBenchService : Service() {
         const val EXTRA_DUMP_TOKENS = "dumpTokens"
         const val EXTRA_LANG = "lang"
         const val EXTRA_RATE = "rate"
+        const val EXTRA_TOP_APP = "topApp"
 
         private const val NOTIFICATION_ID = 0xB1
         private const val WARMUP_SETTLE_MS = 3_000L

@@ -237,6 +237,14 @@ class MarmaladeTtsService : TextToSpeechService() {
     private val rulesCacheSeeded = java.util.concurrent.atomic.AtomicBoolean(false)
 
     /**
+     * Brought up by the in-app reader's own session ([TopAppHold]), which only
+     * wants the fast cores: the default-language load in `super.onCreate()`
+     * then skips the model warm-up, which would load the system-TTS voice's
+     * engine next to the reader's.
+     */
+    private var createdForTopAppHold = false
+
+    /**
      * Job driving the in-flight [onSynthesizeText] runBlocking, if any.
      * [onStop] cancels it from the binder thread. One synthesis at a time
      * per the TextToSpeechService contract, so a plain field suffices.
@@ -254,7 +262,9 @@ class MarmaladeTtsService : TextToSpeechService() {
     private var audioDelivered = false
 
     override fun onCreate() {
+        createdForTopAppHold = TopAppHold.connecting
         super.onCreate()
+        createdForTopAppHold = false
         // Mirror voice catalog into the engine-routing cache. Collection runs
         // on the service scope so it stays in sync with later upserts (e.g.
         // an engine install seeds new rows after launch).
@@ -381,6 +391,10 @@ class MarmaladeTtsService : TextToSpeechService() {
         // loads engines residency is about to evict — and each engine's
         // ensureModelLoaded holds a load lock, so a speculative one can put
         // itself in front of the utterance the user is waiting on.
+        if (createdForTopAppHold) {
+            Log.d(TAG, "warm-up skipped: created for the in-app reader's session")
+            return
+        }
         serviceScope.launch {
             try {
                 if (settings.keepaliveMode.first() == KeepaliveMode.Persistent) {
