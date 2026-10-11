@@ -166,7 +166,10 @@ data class SliceEstimate(val renderMs: Double, val audioMs: Double)
  * each finishes rendering. Slice j arrives once it and every slice before it
  * rendered (each charged [margin] × its estimate) and is needed once
  * everything before it has played. Held audio queues behind what is ahead,
- * so the piece starts once both the hold and [aheadMs] are over.
+ * so the piece starts once both the hold and [aheadMs] are over. With
+ * [slowSlice], one slice may instead take that many times its estimate
+ * (the worst place for it: the biggest slice so far), so a single slow
+ * render can't stall a released piece (#57).
  *
  * Exact for the engines' slice grids (they know every later slice's frames
  * once a piece is planned); render time is wall time, audio lengths play in
@@ -178,14 +181,19 @@ fun holdMs(
     rest: List<SliceEstimate>,
     rate: Float = 1f,
     margin: Double = PieceGate.RENDER_MARGIN,
+    slowSlice: Double? = null,
 ): Double {
     val r = if (rate > 0f) rate.toDouble() else 1.0
+    // Beyond the margin; 0 × an infinite estimate would be NaN.
+    val slowExtra = ((slowSlice ?: margin) - margin).coerceAtLeast(0.0)
     var arrives = 0.0
+    var slowest = 0.0
     var before = bankedAudioMs / r
     var start = 0.0 // when the piece must start, from now
     for (s in rest) {
         arrives += s.renderMs * margin
-        start = maxOf(start, arrives - before)
+        slowest = maxOf(slowest, s.renderMs)
+        start = maxOf(start, arrives + (if (slowExtra > 0.0) slowExtra * slowest else 0.0) - before)
         before += s.audioMs / r
     }
     return if (start <= aheadMs) 0.0 else start
@@ -198,7 +206,8 @@ fun keepsUp(
     rest: List<SliceEstimate>,
     rate: Float = 1f,
     margin: Double = PieceGate.RENDER_MARGIN,
-): Boolean = holdMs(aheadMs, bankedAudioMs, rest, rate, margin) <= 0.0
+    slowSlice: Double? = null,
+): Boolean = holdMs(aheadMs, bankedAudioMs, rest, rate, margin, slowSlice) <= 0.0
 
 /**
  * Chunk mode's hold, per piece (see the file comment). A streaming engine
@@ -213,12 +222,16 @@ fun keepsUp(
  * ([TimedPieceGate] does). A piece that never gets there plays once fully
  * rendered, so playback can only wait at a piece's start. Audio lengths are
  * audio ms; [rate] (read at every check) turns them into played time, so a
- * speed change mid-piece re-times the hold. [onRelease] hears about each
+ * speed change mid-piece re-times the hold. Once released nothing can
+ * call a piece back, so the hold also allows one slice per piece to take
+ * [slowSlice] times its estimate ([SLOW_SLICE]; null: none, for an engine
+ * whose estimates already allow for one). [onRelease] hears about each
  * piece that was held: how long after its first slice it went out, how many
  * slices went at once, and how many were still to render. Not thread-safe.
  */
 class PieceGate<T>(
     private val margin: Double = RENDER_MARGIN,
+    private val slowSlice: Double? = SLOW_SLICE,
     private val rate: () -> Float = { 1f },
     private val onRelease: (heldMs: Long, slices: Int, rest: Int) -> Unit = { _, _, _ -> },
 ) {
@@ -289,7 +302,7 @@ class PieceGate<T>(
     fun endPiece(nowMs: Long): List<T> = if (held.isEmpty()) emptyList() else release(nowMs, 0)
 
     private fun check(nowMs: Long, aheadMs: Double, rest: List<SliceEstimate>): List<T> {
-        val wait = holdMs(aheadMs, heldAudioMs, rest, rate(), margin)
+        val wait = holdMs(aheadMs, heldAudioMs, rest, rate(), margin, slowSlice)
         if (wait > 0.0) {
             // Infinite: a length the engine can't bound yet; the next slice decides.
             dueAtMs = if (wait.isInfinite()) null else nowMs + Math.ceil(wait).toLong()
@@ -319,6 +332,16 @@ class PieceGate<T>(
          * streaming had stuttered ~1.1 s in all, #54).
          */
         const val RENDER_MARGIN = 1.1
+
+        /**
+         * One slice per piece may take this many times its estimate. A
+         * slow slice is a one-off, not a trend: on the 6a the first 2 s
+         * slice of a Kokoro piece took up to 1.35x the fit while later ones
+         * stayed within 1.11x, and one such slice at about 1.8x stalled a
+         * released piece 468 ms (#57). Charging every slice that much would
+         * hold whole sentences near real time (see [RENDER_MARGIN]).
+         */
+        const val SLOW_SLICE = 2.0
     }
 }
 
@@ -337,8 +360,9 @@ class TimedPieceGate<T>(
     rate: () -> Float = { 1f },
     onRelease: (heldMs: Long, slices: Int, rest: Int) -> Unit = { _, _, _ -> },
     private val nowMs: () -> Long = { System.nanoTime() / 1_000_000 },
+    slowSlice: Double? = PieceGate.SLOW_SLICE,
 ) {
-    private val gate = PieceGate<T>(rate = rate, onRelease = onRelease)
+    private val gate = PieceGate<T>(slowSlice = slowSlice, rate = rate, onRelease = onRelease)
     private val lock = Mutex()
     private var timer: Job? = null
 
