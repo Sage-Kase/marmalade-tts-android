@@ -2,7 +2,7 @@
 <resources>
     <string name="whats_new_title">Marmalade 1.2 新功能</string>
     <string-array name="whats_new_items">
-        <item>语音开口更快了。在大多数手机上，Kitten、Kokoro 和 Pocket 现在约一秒或更短即可开始朗读。（Kokoro 需要在“引擎”页面更新。）</item>
+        <item>所有语音引擎都更快了，语音开口也更快：在大多数手机上约一秒或更短即可开始朗读。（Kokoro 需要在“引擎”页面更新。）</item>
         <item>Pocket 新增五个语音：Mary、Rita、Stephen、Ramone 和 Jenny。</item>
         <item>表现力：可在别名中为每个 Pocket 语音选择生动程度，从“平稳”到“生动”。</item>
         <item>德语引擎已修复。</item>

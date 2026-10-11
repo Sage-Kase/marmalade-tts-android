@@ -36,7 +36,7 @@ This project follows [Semantic Versioning](https://semver.org/).
   sentence rendering about twice as slowly as usual, which happens now and
   then on a phone and would otherwise still break the sentence up.
 - **The speed warning says what you'll hear**: it now reads "Your phone may
-  have a hard time generating speech at this speed, which will show as
+  have a hard time generating speech at this speed which will show as
   pauses between sentences." It shows at exactly the speeds where Marmalade
   switches to playing whole sentences, and the speed it measured for an
   engine starts over when you read in another language instead of mixing

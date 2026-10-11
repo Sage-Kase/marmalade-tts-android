@@ -5,7 +5,7 @@
          WhatsNew.NOTES_VERSION to match. -->
     <string name="whats_new_title">What\'s new in Marmalade 1.2</string>
     <string-array name="whats_new_items">
-        <item>Voices start speaking sooner. Kitten, Kokoro and Pocket now begin in about a second or less on most phones. (Kokoro needs its update from the Engines screen.)</item>
+        <item>All the voice engines are faster, and voices start speaking sooner: about a second or less on most phones. (Kokoro needs its update from the Engines screen.)</item>
         <item>Five new Pocket voices: Mary, Rita, Stephen, Ramone and Jenny.</item>
         <item>Expressiveness: choose how lively each Pocket voice sounds, from Steady to Lively, in its alias.</item>
         <item>The German engine has been fixed.</item>

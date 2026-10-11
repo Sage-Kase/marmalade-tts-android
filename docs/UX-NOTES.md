@@ -114,9 +114,9 @@ Post-v1.1 work; v1.1 ships the static 1.35 threshold as-is.
   decision (`SpeedPerfWarning.behind`) switches the engine to playing whole
   sentences (chunk mode), so the warning shows exactly when pauses between
   sentences can happen. At 0.8 streaming already stuttered (Kokoro on the
-  6a stalled at a played 0.65). New copy, Max's text (comma pending his
-  final OK): "Your phone may have a hard time generating speech at this
-  speed, which will show as pauses between sentences." The measured RTF
+  6a stalled at a played 0.65). New copy, Max's text exactly (no comma,
+  his call 2026-10-11): "Your phone may have a hard time generating speech at
+  this speed which will show as pauses between sentences." The measured RTF
   restarts when the phonemizer language changes. Setup's Recommended line
   follows it to 0.6.
 

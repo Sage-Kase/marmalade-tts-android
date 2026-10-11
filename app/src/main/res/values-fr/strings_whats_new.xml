@@ -2,7 +2,7 @@
 <resources>
     <string name="whats_new_title">Nouveautés de Marmalade 1.2</string>
     <string-array name="whats_new_items">
-        <item>Les voix commencent à parler plus tôt. Kitten, Kokoro et Pocket démarrent désormais en une seconde environ, ou moins, sur la plupart des téléphones. (Kokoro a besoin de sa mise à jour, depuis l\'écran Moteurs.)</item>
+        <item>Tous les moteurs de voix sont plus rapides, et les voix commencent à parler plus tôt : en une seconde environ, ou moins, sur la plupart des téléphones. (Kokoro a besoin de sa mise à jour, depuis l\'écran Moteurs.)</item>
         <item>Cinq nouvelles voix Pocket&#160;: Mary, Rita, Stephen, Ramone et Jenny.</item>
         <item>Expressivité&#160;: choisissez dans son alias à quel point chaque voix Pocket est vivante, de Posée à Vivante.</item>
         <item>Le moteur allemand a été corrigé.</item>
