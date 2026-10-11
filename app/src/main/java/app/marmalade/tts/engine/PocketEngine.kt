@@ -24,7 +24,6 @@ import app.marmalade.tts.engine.pocket.PocketTokenizer
 import app.marmalade.tts.engine.pocket.initStates
 import app.marmalade.tts.engine.pocket.PocketCacheShapes
 import app.marmalade.tts.engine.pocket.PocketMimiBatch
-import app.marmalade.tts.engine.pocket.PocketDecodeCost
 import app.marmalade.tts.engine.pocket.PocketSessionPlan
 import app.marmalade.tts.engine.pocket.PocketSliceBank
 import app.marmalade.tts.engine.pocket.PocketSliceClock
@@ -216,7 +215,13 @@ open class PocketEngine @Inject constructor(
     private var decodeSafety = PocketSliceClock.DECODE_SAFETY
 
     /** The decoder's measured cost per slice size, for the first-sound hold (decoder thread only). */
-    private val decodeCost = PocketDecodeCost()
+    private val decodeCost = SliceCost()
+
+    /**
+     * Chunk mode (#54, [RenderMode]): how much sent audio is still ahead of
+     * the listener.
+     */
+    private val horizon = PlaybackHorizon()
 
     /** Audio per text token (EWMA), to estimate a request's length for the hold. */
     @Volatile private var streamMsPerToken = DEFAULT_MS_PER_TOKEN
@@ -690,6 +695,8 @@ open class PocketEngine @Inject constructor(
         for ((i, c) in miniChunks.withIndex()) {
             Log.d(TAG, "  chunk[$i] (${c.length} chars): \"${c.take(80)}${if (c.length > 80) "…" else ""}\"")
         }
+        val pace = RenderMode.paceFor(engineName, settingsRepository, ctx.filesDir, playbackRate)
+        horizon.startRequest(pace.rate())
 
         // Everything that touches an ORT session runs under synthLock, and the
         // decoder coroutine ([streamChunks]) is a child of this inner
@@ -705,7 +712,7 @@ open class PocketEngine @Inject constructor(
             noiseStd = pocketNoiseStd(expressiveness)
             Log.d(TAG, "request temperature=${Expressiveness.pocketTemperature(expressiveness)}" +
                 if (expressiveness == null) " (default)" else " (alias)")
-            streamChunks(this@channelFlow, bundle, voiceEmb, miniChunks, playbackRate, streamStartNs, loadWaitMs)
+            streamChunks(this@channelFlow, bundle, voiceEmb, miniChunks, playbackRate, pace, streamStartNs, loadWaitMs)
             if (profileRequestsLeft > 0 && --profileRequestsLeft == 0) endOrtProfiling()
         } }
     }.flowOn(Dispatchers.Default)
@@ -782,7 +789,13 @@ open class PocketEngine @Inject constructor(
      * ([PocketSliceClock]: the first after 6 frames, each later one before
      * playback could run dry), and each decoded slice is sent at once, or
      * held in a [PocketSliceBank] when a render slower than playback needs
-     * a head start ([PocketStreamPlan.holdMs]). With [STREAM_OVERLAP] the
+     * a head start ([PocketStreamPlan.holdMs]). In chunk mode (#54, decided
+     * per mini-chunk by [pace], at the speed it will be heard at) a
+     * [PieceGate] in front of the bank holds the mini-chunk's slices until
+     * the rest of it can't run dry ([PocketStreamPlan.chunkRest]), or until
+     * it is fully decoded, so a wait falls between sentences. The cut rule
+     * and the first-sound bank keep [playbackRate], the request's; only the
+     * gate follows a speed change mid-request. With [STREAM_OVERLAP] the
      * decoder runs on its own coroutine, overlapping the AR steps; the
      * decoder's coroutine is a child of this scope, so a cancelled render
      * still waits for a decode in flight before [synthLock] is released
@@ -794,6 +807,7 @@ open class PocketEngine @Inject constructor(
         voiceEmb: FloatArray,
         miniChunks: List<String>,
         playbackRate: Float,
+        pace: RequestPace,
         streamStartNs: Long,
         loadWaitMs: Long,
     ) = coroutineScope {
@@ -803,7 +817,18 @@ open class PocketEngine @Inject constructor(
         val bankLock = Mutex()
         val frameMs = 1000.0 / bundle.frameRate
         val overlap = streamMode == STREAM_OVERLAP
-        val playedFrameMs = frameMs / playbackRate.coerceAtLeast(0.01f)
+        val rate = playbackRate.coerceAtLeast(0.01f)
+        val playedFrameMs = frameMs / rate
+        // Chunk mode (#54): the gate sits in front of the bank. Each chunk's
+        // AR progress is the AR thread's, read by the decoder: a job's channel
+        // hand-off makes it at least as fresh as that job.
+        var gateChunk = 0
+        val gate = PieceGate<SynthAudio>(rate = pace::rate) { heldMs, slices, rest ->
+            Log.d(PERF_TAG, "pocket chunk-mode release chunk=$gateChunk held=${heldMs}ms slices=$slices rest=$rest")
+        }
+        val generated = IntArray(miniChunks.size)
+        val finished = BooleanArray(miniChunks.size)
+        var decodedInChunk = 0
         var firstSent = false
         suspend fun send(audio: List<SynthAudio>) {
             for (a in audio) {
@@ -814,6 +839,7 @@ open class PocketEngine @Inject constructor(
                 }
                 Log.d(PERF_TAG, "pocket send audio=${a.pcm.size * 1000L / a.sampleRate}ms")
                 out.send(a)
+                horizon.onEmitted((a.pcm.size * 1000.0 / a.sampleRate / pace.rate()).toLong())
             }
         }
         // The AR loop's pace (ms per step, not the prefill, not an inline
@@ -834,6 +860,10 @@ open class PocketEngine @Inject constructor(
             val nowMs = System.nanoTime() / 1e6
             if (job.clockIndex >= 0) clock.decoded(job.clockIndex, nowMs)
             if (audio != null) decodeCost.add(job.frames, ms)
+            if (job.slice == 0) {
+                decodedInChunk = 0
+            }
+            decodedInChunk += job.frames
             if (audio != null && bank.releaseAtMs == null) {
                 // First slice of the request: hold the first sound if the
                 // render can't keep up with playback (never at 1x on the 6a).
@@ -871,7 +901,37 @@ open class PocketEngine @Inject constructor(
                 streamMsPerToken = 0.5 * streamMsPerToken + 0.5 * (audioMs / chunkTokens[job.chunk].coerceAtLeast(1))
                 Log.d(PERF_TAG, "pocket chunk=${job.chunk} rtf=${"%.2f".format(rtf)} audio=${audioMs.toLong()}ms")
             }
-            if (audio != null) bankLock.withLock { send(bank.offer(audio, System.nanoTime() / 1_000_000)) }
+            bankLock.withLock {
+                val sendMs = System.nanoTime() / 1_000_000
+                if (job.slice == 0) {
+                    val mode = pace.pieceMode()
+                    horizon.follow(mode.playbackRate)
+                    gate.startPiece(mode.chunk)
+                    gateChunk = job.chunk
+                }
+                if (audio != null) {
+                    val released = gate.offer(audio, job.frames * frameMs, sendMs, horizon.requestRemainingMs().toDouble()) {
+                        if (job.last) {
+                            emptyList()
+                        } else {
+                            PocketStreamPlan.chunkRest(
+                                estFrames = PocketStreamPlan.chunkEstFrames(chunkTokens[job.chunk], streamMsPerToken, frameMs),
+                                generatedFrames = generated[job.chunk],
+                                decodedFrames = decodedInChunk,
+                                finished = finished[job.chunk],
+                                sliceFrames = minOf(maxOf(job.frames, PocketSliceClock.MIN_SLICE_FRAMES), maxOf(decodeBatch, 1)),
+                                arMsPerFrame = arMs,
+                                decodeMs = decodeMs,
+                                overlap = overlap,
+                                frameMs = frameMs,
+                                decodeSafety = decodeSafety,
+                            )
+                        }
+                    }
+                    for (a in released) send(bank.offer(a, sendMs))
+                }
+                if (job.last) for (a in gate.endPiece(sendMs)) send(bank.offer(a, sendMs))
+            }
         }
         // Bounded, so the AR loop waits when the decoder does: when the
         // collector stops taking audio (the Narrator's read-ahead permit), the
@@ -906,7 +966,9 @@ open class PocketEngine @Inject constructor(
                     val flat = FloatArray(n * bundle.latentDim)
                     for (i in 0 until n) System.arraycopy(pending[i], 0, flat, i * bundle.latentDim, bundle.latentDim)
                     pending.clear()
-                    val index = if (n > 0) clock.submitted(n, System.nanoTime() / 1e6).first else -1
+                    val t0 = System.nanoTime()
+                    val index = if (n > 0) clock.submitted(n, t0 / 1e6).first else -1
+                    if (last) finished[idx] = true
                     submit(DecodeJob(idx, slice++, index, flat, n, last, chunkStartNs, if (last) chunkFrames else 0))
                 }
                 val onPrompt = { ms: Long -> if (idx == 0) chunk0PromptMs = ms }
@@ -919,6 +981,7 @@ open class PocketEngine @Inject constructor(
                     if (firstFrameNs == 0L) firstFrameNs = nowNs
                     if (idx == 0) chunk0Frames++
                     chunkFrames++
+                    generated[idx] = chunkFrames
                     pending.add(latent)
                     if (clock.shouldCut(pending.size, nowNs / 1e6, arMs)) cut(last = false)
                     lastFrameNs = System.nanoTime()
@@ -929,6 +992,10 @@ open class PocketEngine @Inject constructor(
             worker?.join()
             bankLock.withLock { send(bank.flush()) }
             streamArMsPerFrame = arMs
+        } catch (t: Throwable) {
+            // Cancelled or failed: what this stream sent has been cut off.
+            horizon.clear()
+            throw t
         } finally {
             // A render shorter than its hold ends here, not when the timer fires.
             holdTimer?.cancel()

@@ -1,6 +1,7 @@
 package app.marmalade.tts.playback
 
 import app.marmalade.tts.engine.EngineNotInstalledException
+import app.marmalade.tts.engine.LivePlaybackRate
 import app.marmalade.tts.engine.SynthAudio
 import app.marmalade.tts.engine.TtsEngine
 import kotlin.math.roundToInt
@@ -73,6 +74,12 @@ class FakeEngine(
      */
     var slicesPerChunk = 1
     val synthLock = Mutex()
+
+    /** Share of each slice's render reported as [SynthAudio.extraRenderMs] (chunk mode's extra calls). */
+    var extraRenderShare = 0.0
+
+    /** The live playback rate ([LivePlaybackRate]) each slice saw, in order; null without one. */
+    val liveRates = ArrayList<Float?>()
 
     val renders = ArrayList<Render>()
 
@@ -173,7 +180,11 @@ class FakeEngine(
             concurrent--
             r.endMs = clock()
         }
+        liveRates += currentCoroutineContext()[LivePlaybackRate]?.rate?.value
         val samples = (t * audioMsPerToken * sampleRate / 1000 / slicesPerChunk).roundToInt()
-        return SynthAudio(ShortArray(samples) { (it % 200 - 100).toShort() }, sampleRate, resumePoint = slice == 0)
+        return SynthAudio(
+            ShortArray(samples) { (it % 200 - 100).toShort() }, sampleRate, resumePoint = slice == 0,
+            extraRenderMs = (renderMs * extraRenderShare).roundToInt().toLong(),
+        )
     }
 }

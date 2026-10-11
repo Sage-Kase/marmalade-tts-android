@@ -110,6 +110,15 @@ Post-v1.1 work; v1.1 ships the static 1.35 threshold as-is.
   (any versionCode change) and for one engine after its bundle or a voice
   pack is installed or updated, so an engine sped up in a new release is
   not warned about on the old measurements; the prediction covers the gap.
+- Addendum (#54, 2026-10-11): the trigger is now **> 0.6**, and the same
+  decision (`SpeedPerfWarning.behind`) switches the engine to playing whole
+  sentences (chunk mode), so the warning shows exactly when pauses between
+  sentences can happen. At 0.8 streaming already stuttered (Kokoro on the
+  6a stalled at a played 0.65). New copy, Max's text (comma pending his
+  final OK): "Your phone may have a hard time generating speech at this
+  speed, which will show as pauses between sentences." The measured RTF
+  restarts when the phonemizer language changes. Setup's Recommended line
+  follows it to 0.6.
 
 ### 2026-09-21 — five UI fixes from Max's screenshot review (A–E)
 

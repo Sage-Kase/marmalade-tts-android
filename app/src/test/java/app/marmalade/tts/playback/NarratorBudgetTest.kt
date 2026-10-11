@@ -286,6 +286,35 @@ class NarratorBudgetTest {
     }
 
     @Test
+    fun `26b - chunk mode's extra render time is left out of the measured RTF`() = runTest {
+        val h = harness(NarratorConfig(budgetMs = 10_000.0))
+        h.kokoro.internalBuffer = true
+        // A fifth of every render is chunk mode's extra slicing (#54).
+        h.kokoro.extraRenderShare = 0.2
+        val segs = article(4, sentences = 4)
+        h.open(segs)
+        h.runUntil(maxMs = 300_000) { h.article.status == Status.Finished }
+        assertTrue("some RTF recorded", h.rtfs.isNotEmpty())
+        for ((_, rtf) in h.rtfs) assertEquals(0.436 * 0.8, rtf, 0.02)
+        h.done()
+    }
+
+    @Test
+    fun `27 - a speed change reaches the render in flight`() = runTest {
+        // #54: the engine re-decides chunk mode per piece at the speed it will be heard at.
+        val h = harness()
+        h.kokoro.slicesPerChunk = 4
+        h.open(listOf(paragraph(6, fill = 'a')))
+        h.runUntil { h.kokoro.liveRates.size >= 2 }
+        assertEquals(1f, h.kokoro.liveRates.first())
+        h.narrator.setSpeed(2f)
+        h.settle()
+        h.runUntil { h.article.status == Status.Finished }
+        assertEquals(2f, h.kokoro.liveRates.last())
+        h.done()
+    }
+
+    @Test
     fun `trimming at a paragraph start keeps the new paragraph's unheard audio`() = runTest {
         // Whole-sentence chunks; ~2 s of heard audio kept. When paragraph 1
         // starts, the old paragraph's heard index (3) must not mark its

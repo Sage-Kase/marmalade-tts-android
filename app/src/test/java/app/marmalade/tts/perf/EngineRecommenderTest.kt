@@ -226,10 +226,13 @@ class EngineRecommenderTest {
             assertEquals("fast=$fast", pocket, EngineRecommender.recommend(probeFor(pocket, line - eps, fast), fdroid)!!.recommended)
             assertEquals("fast=$fast", kitten, EngineRecommender.recommend(probeFor(pocket, line + eps, fast), fdroid)!!.recommended)
         }
-        // A phone twice as slow as the reference: Pocket on Android 12+, Kitten before.
-        val twiceAsSlow = DeviceProbe(EngineRecommender.ANCHOR_PROBE_RTF * 2, 5.0)
-        assertEquals(pocket, EngineRecommender.recommend(twiceAsSlow, fdroid)!!.recommended)
-        assertEquals(kitten, EngineRecommender.recommend(twiceAsSlow.copy(readerOnFastCores = false), fdroid)!!.recommended)
+        // A phone 1.5x as slow as the reference: Pocket on Android 12+ (0.53),
+        // Kitten before (0.74). Twice as slow (0.70) is Kitten on both since
+        // #54 lowered the line to the speed warning's 0.6.
+        val slower = DeviceProbe(EngineRecommender.ANCHOR_PROBE_RTF * 1.5, 5.0)
+        assertEquals(pocket, EngineRecommender.recommend(slower, fdroid)!!.recommended)
+        assertEquals(kitten, EngineRecommender.recommend(slower.copy(readerOnFastCores = false), fdroid)!!.recommended)
+        assertEquals(kitten, EngineRecommender.recommend(DeviceProbe(EngineRecommender.ANCHOR_PROBE_RTF * 2, 5.0), fdroid)!!.recommended)
     }
 
     // -- invariants -------------------------------------------------------------

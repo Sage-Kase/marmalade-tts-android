@@ -60,6 +60,20 @@ object UtteranceLanguage {
         }
 
     /**
+     * The language [engineName] renders [voiceId] in when an utterance
+     * resolves to [language], null meaning the voice's own (its espeak
+     * voice). A measured render speed is kept per language (#54), and
+     * headings and short lines resolve to null where the paragraphs around
+     * them resolve to the voice's language: they are one language.
+     */
+    fun renderLanguage(engineName: String, voiceId: String, language: String?): String? =
+        language ?: when (engineName) {
+            KokoroDirectVoiceCatalog.ENGINE -> KokoroDirectVoiceCatalog.espeakVoiceFor(voiceId.substringAfter(':'))
+            KittenDirectVoiceCatalog.ENGINE -> KittenDirectVoiceCatalog.ESPEAK_VOICE
+            else -> null
+        }
+
+    /**
      * [stored] resolved against this utterance's own [text].
      *
      * An explicit language always outranks detection. [fallback] is the

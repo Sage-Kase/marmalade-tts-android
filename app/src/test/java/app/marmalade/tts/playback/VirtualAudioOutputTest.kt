@@ -42,7 +42,8 @@ class VirtualAudioOutputTest {
         fun begin(session: Long = 7, epoch: Int = 1, rate: Int = 24_000, tempo: Float = 1f, track: Track = Track.Main) =
             out.submit(OutputCommand.Begin(track, session, epoch, rate, emptyList(), tempo))
 
-        fun write(tag: ChunkTag, pcm: ShortArray, track: Track = Track.Main) = out.submit(OutputCommand.Write(track, tag, pcm))
+        fun write(tag: ChunkTag, pcm: ShortArray, track: Track = Track.Main, pieceStart: Boolean = true) =
+            out.submit(OutputCommand.Write(track, tag, pcm, pieceStart))
 
         fun end(session: Long = 7, epoch: Int = 1, track: Track = Track.Main) = out.submit(OutputCommand.End(track, session, epoch))
 
@@ -146,16 +147,18 @@ class VirtualAudioOutputTest {
         assertEquals("all of it heard before the next chunk", 505.0, r.heardMs(), 0.5)
         assertEquals("its last frame was heard by then", 0.0, r.heardMs(Track.Main, from = finished + 10), 0.0)
         val t = testScheduler.currentTime
-        r.write(tag(1), pcm(500))
+        // A later slice of chunk 0's piece (a sentence that stuttered, #54).
+        r.write(tag(1), pcm(500), pieceStart = false)
         r.end()
         run(1_000)
         val c1 = r.at { it is OutputEvent.ChunkStarted && it.tag.chunk == 1 }!!
         assertTrue("chunk 1 heard ${c1 - t} ms after it was written", c1 - t <= 100)
         assertEquals(1_005.0, r.heardMs(), 0.01)
-        // The late chunk is logged as a stall: silent from chunk 0's end until it came.
+        // The late chunk is logged as a stall: silent from chunk 0's end until it came, inside a piece.
         val stall = r.out.writerLog.single { "stall" in it }
         assertTrue(stall, "main: stall before seg 0 chunk 1 session=7 silent=" in stall)
-        val silent = stall.substringAfter("silent=").removeSuffix("ms").toLong()
+        assertTrue(stall, stall.endsWith("ms piece=mid"))
+        val silent = stall.substringAfter("silent=").substringBefore("ms").toLong()
         assertTrue("$stall, chunk 0 finished at $finished, chunk 1 written at $t", silent in t - finished - 50..t - finished + 50)
     }
 

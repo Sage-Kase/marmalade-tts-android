@@ -81,7 +81,19 @@ Does playback keep up at 1.0×, 1.25×, 1.5× and 2.0×, and does the app warn
 where it doesn't? Users speed voices up (alias slider, reader chips); an engine
 that renders slower than the audio plays stalls mid-sentence. The app's speed
 warning (`perf/SpeedPerfWarning.kt`) is meant to say so beforehand. This stage
-checks that it tells the truth, and that no release gets slower unnoticed.
+checks that it tells the truth, that chunk mode keeps the gaps between
+sentences, and that no release gets slower unnoticed.
+
+**Chunk mode** (#54). The streaming engines (Kokoro, Kokoro German, Kitten,
+Pocket) send a piece (a sentence, or a clause piece of one) slice by slice.
+For each request the engine decides whether streaming keeps up at the asked
+speed; if not, it holds each piece's slices until the rest of the piece can't
+run dry, so playback may wait between pieces but never inside one. The engine
+logs its choice once per request (tag `RenderMode`, Info, kept in the R8
+build): `kokoro-direct-v1_0 mode=chunk rtf=0.43 (predicted) speed=2.00
+played=0.86 path=sliced`. `path=whole` means the engine renders every piece
+whole before sending it, which the gate treats like chunk mode. VITS renders
+whole sentences anyway and logs no such line.
 
 - **Rows.** One voice per engine (`SPEED_VOICES` in `speed.py`: Kitten Leo,
   Kokoro Heart, Kokoro German Thorsten, Pocket Alba, plus the first voice of
@@ -92,7 +104,7 @@ checks that it tells the truth, and that no release gets slower unnoticed.
   (default 2, interleaved across speeds) and judged on the best take.
 - **Every take starts cold.** After each render the gate waits until its
   audio would have finished playing in real time (from first sound, plus any
-  stalls), plus 1 s (`COLD_MARGIN_MS`). The app's playback horizon
+  waits and stalls), plus 1 s (`COLD_MARGIN_MS`). The app's playback horizon
   (`engine/PlaybackHorizon.kt`) counts emitted audio as still playing until
   then, and its chunking reads it: renders back to back saw 4–6 s of audio
   "still ahead", kept whole sentences and hid the stall a listener meets
@@ -101,25 +113,42 @@ checks that it tells the truth, and that no release gets slower unnoticed.
   `setSpeechRate`, as a client app would, renders to a file, and timestamps
   every chunk as the engine hands it to Android (`onAudioAvailable`).
   `speed.py` replays those arrival times against a real-time audio clock:
-  **first sound** is when the first chunk arrived; a **stall** is a chunk
-  arriving after everything before it had already played out (gaps under
-  50 ms are buffer jitter and not counted). This is the system-TTS path
+  **first sound** is when the first chunk arrived; a gap is a chunk arriving
+  after everything before it had already played out (gaps under 50 ms are
+  buffer jitter and not counted). At the end of each request the app logs
+  where each piece starts in the audio it handed over (`MarmaladeTtsService:
+  pieces: starts=0,52800,… samples=…`, sample offsets), and `pieces.py` reads
+  it with the `RenderMode` line. A gap right before the chunk that starts a
+  piece (byte offset 2 × its sample offset) is a **wait**: playback paused
+  between sentences. Any other gap is a **stall**: a stutter inside one. A
+  build from before #54 logs no pieces line, so every gap counts as a stall
+  and the row notes that piece boundaries were unknown. This is the system-TTS path
   (TalkBack, other apps). The in-app reader schedules its own segments
   (`MarmaladeSynthService`) and isn't measured here, but its engine runs in
   the slower place (below).
-- **Verdicts.**
-  - PASS: keeps up (no stall of 300 ms or more; shorter ones land at a chunk
-    seam as a slightly long pause).
-  - WARNED: stalls, and the app shows its speed warning at that speed. Some
-    engines can't keep up at 2× on a 6a; the app saying so is correct.
-    Reported, not failed.
+- **Verdicts.** Each metric is judged on the best take, except a stall
+  inside a piece in chunk mode: any one take with one fails the row.
+  - PASS: keeps up (no wait or stall of 300 ms or more; shorter ones land at
+    a chunk seam as a slightly long pause).
+  - WARNED: waits or stalls 300 ms or more, and the app shows its speed
+    warning at that speed. Some engines can't keep up at 2× on a 6a; the app
+    saying so is correct. Reported, not failed; the notes say whether it
+    waited between pieces or stalled inside one.
   - FAIL: no audio or an error; the audio didn't get shorter with speed (the
-    rate never reached the engine); a stall at a speed where the app shows
-    **no** warning (the warning lies); or slower than the baseline (below).
+    rate never reached the engine); the app chose chunk mode (or
+    `path=whole`) and playback still stalled inside a piece, however briefly
+    (every take, at least one in chunk mode); a stall of 300 ms or more at a
+    speed where the app shows **no** warning (the warning lies), or a wait
+    that long there while streaming; or slower than the baseline (below). In
+    chunk mode a wait before a sentence is the design, not the warning lying:
+    such a row passes with a note, and only the baseline bounds its waits.
   The warning is computed the way a fresh install on the reference phone
   sees it: no measured RTF yet, so `EngineRecommender`'s prediction
-  (`ANCHOR_PROBE_RTF` × `REFERENCE_COST`) × speed > 0.8. The gate reads those
-  constants from the Kotlin, so retuning a cost retunes the gate.
+  (`ANCHOR_PROBE_RTF` × `REFERENCE_COST`) × speed > 0.6
+  (`EFFECTIVE_RTF_THRESHOLD`). Since #54 the same decision puts the engine in
+  chunk mode, so on the reference phone "warns" and `mode=chunk` agree. The
+  gate reads those constants from the Kotlin, so retuning a cost retunes the
+  gate.
 - **Which cores this measures** (#50). Android's TTS manager
   (system_server) binds the engine for every client with
   `BIND_SCHEDULE_LIKE_TOP_APP`, so a system-TTS engine runs on the
@@ -130,7 +159,7 @@ checks that it tells the truth, and that no release gets slower unnoticed.
   (`TopAppHold`). Before that, with the screen off it ran in the
   `foreground` cpuset (CPUs 0–5 on the 6a, no X1), about half as fast
   (Kokoro v26 at 1.0×: RTF ~0.43 here, ~1.0 there, with 1–2 s stalls). The
-  speed warning's costs now model these cores, so a stall where the
+  speed warning's costs now model these cores, so a long stall where the
   prediction shows no warning is a real failure.
 - **Screen off, phone cool.** It runs with the screen off, as when listening
   (it presses the sleep key if the screen is on). Before each engine it
@@ -140,9 +169,13 @@ checks that it tells the truth, and that no release gets slower unnoticed.
   would read as a regression. Each row records the skin temperature and free
   memory it started from. A full run takes about half an hour, mostly
   cooling.
-- **Output.** `speed-table.md` and `speed-lab.html` with the clips: “as
-  rendered” and, where a row stalled, “as heard” (the clip with silence put
-  in at each stall). With `--whisper-python <python with faster_whisper>`
+- **Output.** `speed-table.md` (with the mode the app chose: `chunk`,
+  `stream`, `whole`, `-` for no line, or e.g. `stream/chunk` when takes
+  differed; the longest wait between pieces; the longest stall inside a
+  piece) and `speed-lab.html` with the clips: “as rendered” and, where a row
+  waited or stalled, “as heard” (the clip with silence put in at each wait
+  and stall). `results.json` keeps each take's waits, stalls, piece starts
+  and the `RenderMode` fields (mode, path, rtf, source; null without a line). With `--whisper-python <python with faster_whisper>`
   (or `MTTS_WHISPER_PYTHON`) each clip is also transcribed offline
   (`whisper-check.py`) and the lab shows how much of the text Whisper heard.
   That's for listening, not gated. To serve the lab, copy `speed-lab.html`
@@ -151,11 +184,16 @@ checks that it tells the truth, and that no release gets slower unnoticed.
 ### Baseline
 
 `speed-baseline.json` holds the last release's numbers on the reference phone
-per `voice@speed`: first sound, render RTF (render time ÷ audio length) and
-longest stall, best of the takes. A row fails when a value exceeds
+per `voice@speed`: first sound, render RTF (render time ÷ audio length),
+longest stall inside a piece (`longest_stall_ms`) and longest wait between
+pieces (`longest_wait_ms`), best of the takes. A row fails when a value exceeds
 baseline × factor + slack (`speed.py`: first sound × 1.5 + 200 ms, render
-RTF × 1.25 + 0.05, stall × 1.25 + 250 ms), above the run-to-run spread on a
-cooled 6a. A row with no baseline entry fails too, so a new voice or engine can't
+RTF × 1.25 + 0.05, stall and wait each × 1.25 + 250 ms), above the run-to-run
+spread on a cooled 6a. A row measured before #54 has no `longest_wait_ms`;
+its `longest_stall_ms` was the longest gap of either kind, so the gate
+compares the longest gap of either kind against it, as before. A re-baseline
+writes both fields (a run whose piece boundaries were unknown keeps writing
+the old form). A row with no baseline entry fails too, so a new voice or engine can't
 skip the comparison.
 
 Refresh it on purpose only, once a release's numbers are checked: run the

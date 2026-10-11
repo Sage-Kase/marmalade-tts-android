@@ -3,6 +3,7 @@ package app.marmalade.tts.playback
 import app.marmalade.tts.engine.EngineNotInstalledException
 import app.marmalade.tts.engine.SynthAudio
 import app.marmalade.tts.engine.TtsEngine
+import app.marmalade.tts.lang.UtteranceLanguage
 import app.marmalade.tts.preprocessing.Emotion
 import app.marmalade.tts.preprocessing.ProsodyApplier
 import kotlinx.coroutines.CancellationException
@@ -107,7 +108,8 @@ internal class SegmentRenderer(
                     stats.recordLatency(voice.voiceId, voice.engine, now - startedAt, text.length)
                 }
                 if (!waited) {
-                    renderSum += renderMs
+                    // Chunk mode's extra generator calls don't count (#54).
+                    renderSum += (renderMs - audio.extraRenderMs).coerceAtLeast(0)
                     audioSum += audio.pcm.size * 1000.0 / audio.sampleRate
                 }
                 emit(RenderEvent.Chunk(index++, audio, renderMs, skewed = waited))
@@ -118,7 +120,8 @@ internal class SegmentRenderer(
                 lastResume = clock()
             }
             if (warm && audioSum >= MIN_RTF_AUDIO_MS && renderSum > 0) {
-                stats.recordRtf(voice.engine, renderSum / audioSum)
+                val language = UtteranceLanguage.renderLanguage(voice.engine, voice.voiceId, prepared.phonemizationLanguage)
+                stats.recordRtf(voice.engine, renderSum / audioSum, language)
             }
             emit(RenderEvent.Done)
         } catch (e: CancellationException) {

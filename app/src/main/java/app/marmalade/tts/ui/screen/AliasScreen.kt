@@ -752,7 +752,7 @@ private fun AliasEditorSheet(
                 // AliasViewModel.showSpeedWarning. The reader sheet mirrors it.
                 if (showSpeedWarning) {
                     // The ⚠️ lead is composed here, not baked into the string,
-                    // so the eight translated warning strings stay untouched.
+                    // which the reader's speed sheet shares.
                     Text(
                         text = "⚠️ " + stringResource(R.string.alias_speed_perf_warning),
                         style = MaterialTheme.typography.bodySmall,

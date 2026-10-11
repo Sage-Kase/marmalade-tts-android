@@ -5,6 +5,11 @@ import android.content.Intent
 import android.os.IBinder
 import android.util.Log
 import app.marmalade.tts.data.SettingsRepository
+import app.marmalade.tts.lang.VoiceChoice
+import app.marmalade.tts.playback.NarratorControl
+import app.marmalade.tts.reader.ArticleBlock
+import app.marmalade.tts.reader.ReaderArticle
+import app.marmalade.tts.reader.ReaderPlaybackController
 import app.marmalade.tts.service.MarmaladeSynthService
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -36,12 +41,20 @@ import kotlinx.coroutines.launch
 // speaks `files/bench/<name>` in that voice through MarmaladeSynthService,
 // the in-app path (Narrator, AudioTrack, wake lock, TopAppHold), as the Speak
 // screen does: for timing and battery runs of in-app speech from adb.
+//
+// Issue #54: `--es readFile <name> --es voice <voice id>` [`--ef speed <x>`]
+// reads `files/bench/<name>` in the reader instead (one block per blank-line
+// paragraph, through ReaderPlaybackController, as the reader screen does), so
+// a run can change the reader's speed mid-paragraph (`--ef readerSpeed <x>`)
+// or stop everything (`--ez stop true`) like the reader's controls.
 // -----------------------------------------------------------------------------
 
 @AndroidEntryPoint
 class DevStateService : Service() {
 
     @Inject lateinit var settings: SettingsRepository
+    @Inject lateinit var reader: ReaderPlaybackController
+    @Inject lateinit var narrator: NarratorControl
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -63,6 +76,16 @@ class DevStateService : Service() {
                     }
                 }
                 intent?.getStringExtra(EXTRA_SPEAK_FILE)?.let { speak(it, intent) }
+                intent?.getStringExtra(EXTRA_READ_FILE)?.let { read(it, intent) }
+                if (intent?.hasExtra(EXTRA_READER_SPEED) == true) {
+                    val speed = intent.getFloatExtra(EXTRA_READER_SPEED, 1f)
+                    reader.setSpeed(speed)
+                    Log.i(TAG, "reader speed=$speed")
+                }
+                if (intent?.getBooleanExtra(EXTRA_STOP, false) == true) {
+                    narrator.stop()
+                    Log.i(TAG, "stop")
+                }
                 Log.i(
                     TAG,
                     "state onboarded=${settings.onboarded.first()} " +
@@ -89,6 +112,23 @@ class DevStateService : Service() {
         Log.i(TAG, "speak file=$name voice=${intent.getStringExtra(EXTRA_VOICE)} chars=${text.length()}")
     }
 
+    /** Reads `files/bench/[name]` in the reader: one paragraph block per blank-line-separated paragraph. */
+    private fun read(name: String, intent: Intent) {
+        val text = java.io.File(filesDir, "bench/$name").readText()
+        val paragraphs = text.split(Regex("\\n\\s*\\n")).map { it.trim().replace(Regex("\\s+"), " ") }.filter { it.isNotEmpty() }
+        val voiceId = intent.getStringExtra(EXTRA_VOICE) ?: return
+        val article = ReaderArticle(
+            url = "dev://$name/${System.currentTimeMillis()}",
+            title = name,
+            byline = null,
+            blocks = paragraphs.map { ArticleBlock.Paragraph(it) },
+            totalTextChars = paragraphs.sumOf { it.length },
+        )
+        reader.open(article, intent.getFloatExtra(EXTRA_SPEED, 1f), VoiceChoice.Installed(voiceId, voiceId.substringBefore(':')))
+        reader.play()
+        Log.i(TAG, "read file=$name voice=$voiceId blocks=${paragraphs.size}")
+    }
+
     override fun onDestroy() {
         scope.cancel()
         super.onDestroy()
@@ -101,6 +141,9 @@ class DevStateService : Service() {
         const val EXTRA_SPEAK_FILE = "speakFile"
         const val EXTRA_VOICE = "voice"
         const val EXTRA_SPEED = "speed"
+        const val EXTRA_READ_FILE = "readFile"
+        const val EXTRA_READER_SPEED = "readerSpeed"
+        const val EXTRA_STOP = "stop"
         const val NOTIFICATION_ID = 0xB3
     }
 }

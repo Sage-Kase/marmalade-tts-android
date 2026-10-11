@@ -1,5 +1,6 @@
 package app.marmalade.tts.playback
 
+import app.marmalade.tts.engine.LivePlaybackRate
 import java.util.TreeMap
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
@@ -70,7 +71,8 @@ data class NarratorConfig(
  *    next ([RenderPlanner]); preparing continues while paused, except after
  *    a Navigation pause;
  *  - speed is a time-stretch in the writer for every voice, cloud included:
- *    a change never re-renders;
+ *    a change never re-renders (the render in flight hears it through
+ *    [LivePlaybackRate] and re-decides chunk mode from its next piece, #54);
  *  - a permanent focus loss pauses the article and keeps its place
  *    ([PausedBy.FocusLoss]);
  *  - a session paused for [NarratorConfig.pausedTimeoutMs] is stopped (the
@@ -269,6 +271,9 @@ class Narrator(
         var startGranted = false
         val rtf = RtfEstimator()
         var residencyEngine: String? = null
+
+        /** [tempo], live, for the engine rendering this session ([LivePlaybackRate], #54). */
+        val liveTempo = MutableStateFlow(1f)
 
         val isArticle: Boolean get() = kind is Kind.Article
         val active: Boolean
@@ -520,6 +525,8 @@ class Narrator(
         s.speed = speed
         log("speed $old→$speed")
         if (s.begun) output.submit(OutputCommand.SetTempo(s.track, s.id, speed))
+        // A render in flight re-decides chunk mode for its next piece (#54).
+        s.liveTempo.value = s.tempo
     }
 
     private fun oneShotNow(msg: Msg.OneShot) {
@@ -785,7 +792,8 @@ class Narrator(
         val engine = engines.engine(voice.engine)
         val sessionId = s.id
         val rate = s.tempo
-        val job = scope.launch(workDispatcher) {
+        s.liveTempo.value = rate
+        val job = scope.launch(workDispatcher + LivePlaybackRate(s.liveTempo)) {
             renderer.render(engine, voice, seg.text, rate, permit) { event ->
                 inbox.trySend(Msg.Rendered(sessionId, token, event))
             }
@@ -978,7 +986,7 @@ class Narrator(
                 val seg = s.segs[s.writeSeg]
                 val chunk = seg.chunks[s.writeChunk]
                 if (chunk != null) {
-                    output.submit(OutputCommand.Write(track, s.tag(s.writeSeg, s.writeChunk), chunk.pcm))
+                    output.submit(OutputCommand.Write(track, s.tag(s.writeSeg, s.writeChunk), chunk.pcm, chunk.resumePoint))
                     s.writeChunk++
                     continue
                 }

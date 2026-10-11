@@ -14,10 +14,20 @@ package app.marmalade.tts.engine
  * slices (KittenDirect, a cloud WAV stream) sets it on the first slice only,
  * so the Narrator never resumes mid-word after an interruption.
  */
-data class SynthAudio(val pcm: ShortArray, val sampleRate: Int, val resumePoint: Boolean = true) {
+data class SynthAudio(
+    val pcm: ShortArray,
+    val sampleRate: Int,
+    val resumePoint: Boolean = true,
+    /**
+     * Render time (ms) spent on this audio only because of how it was sent:
+     * chunk mode's shorter slices cost extra generator calls (#54). The
+     * app's measured RTF leaves it out, so it doesn't depend on the mode.
+     */
+    val extraRenderMs: Long = 0,
+) {
 
     // Generated equality so test fixtures can compare audio buffers directly
-    // (audio only: [resumePoint] is a playback hint, not part of the sound).
+    // (audio only: [resumePoint] and [extraRenderMs] are hints, not part of the sound).
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is SynthAudio) return false

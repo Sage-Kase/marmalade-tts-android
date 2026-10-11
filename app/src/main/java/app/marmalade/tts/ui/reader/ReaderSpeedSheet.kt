@@ -97,11 +97,12 @@ fun ReaderSpeedSheet(
             )
             // The perf warning fires when the chosen speed outruns the
             // primary alias engine's measured/predicted RTF — the ViewModel
-            // does that resolution (see ReaderViewModel.showSpeedWarning).
+            // does that resolution (see ReaderViewModel.showSpeedWarning),
+            // the same one that puts the engine in chunk mode (#54).
             // Same copy as the alias editor's slider warning.
             if (showPerfWarning) {
-                // ⚠️ prefix composed here, not in the shared string, so the
-                // eight translations of alias_speed_perf_warning stay untouched.
+                // The ⚠️ lead is composed here, not baked into the string,
+                // which the alias editor shares.
                 Text(
                     text = "⚠️ " + stringResource(R.string.alias_speed_perf_warning),
                     style = MaterialTheme.typography.bodySmall,

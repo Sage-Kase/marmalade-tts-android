@@ -1,5 +1,7 @@
 package app.marmalade.tts.engine.pocket
 
+import app.marmalade.tts.engine.SliceEstimate
+
 /**
  * When to cut a slice in Pocket's streamed render (issue #15 "E"): latent
  * frames are decoded and sent in slices while the AR loop is still running,
@@ -189,50 +191,80 @@ object PocketStreamPlan {
         return clock.stallMs()
     }
 
+    /**
+     * Chunk mode's length guess for a mini-chunk (#54): [tokens] at
+     * [msPerToken] of audio each, in frames of [frameMs], times
+     * [CHUNK_EST_MARGIN]. Lengths are only known to ±15%, and a guess too
+     * long only holds a slow render's chunk a little longer.
+     */
+    fun chunkEstFrames(tokens: Int, msPerToken: Double, frameMs: Double): Int =
+        kotlin.math.ceil(tokens * msPerToken / frameMs * CHUNK_EST_MARGIN).toInt()
+
+    /**
+     * Chunk mode (#54): the slices of a mini-chunk still to arrive once
+     * [decodedFrames] of it are decoded, for [app.marmalade.tts.engine.keepsUp]. The AR loop has
+     * generated [generatedFrames] ([finished]: all of them); the chunk is
+     * guessed at [estFrames] ([chunkEstFrames]), at least
+     * [PocketSliceClock.MIN_SLICE_FRAMES] more while the AR loop is still on
+     * it. A chunk that has overrun its guess has no length to go by: one
+     * slice of unknown (infinite) render time, so the gate holds it to its
+     * end rather than guess a few more frames and release early.
+     *
+     * The frames left are cut into slices of [sliceFrames]. A slice is
+     * submitted once the AR loop (at [arMsPerFrame]) has generated its last
+     * frame and is decoded in [decodeMs]: beside the AR loop when [overlap],
+     * else blocking it. One decode per piece is assumed slow, [decodeSafety]
+     * times a full slice's (the streaming cut rule's
+     * [PocketSliceClock.DECODE_SAFETY]: about one slice in 50 is parked on a
+     * little core), charged on the first slice so every later one waits for
+     * it: after release that decode would otherwise stall inside the piece.
+     * Not every slice: 3 × (60 + 24 × 6) ms per 6-frame slice that plays
+     * 240 ms at 2× reads as a decoder that never keeps up, and held whole
+     * chunks (first sound 1.2 s instead of 0.3 s, #54). The gate's own margin
+     * ([app.marmalade.tts.engine.PieceGate.RENDER_MARGIN]) covers the AR
+     * loop's jitter. Each estimate's render time is the
+     * gap between its arrival and the previous one's (the first counts from
+     * now), its audio length `frames × [frameMs]`.
+     */
+    fun chunkRest(
+        estFrames: Int,
+        generatedFrames: Int,
+        decodedFrames: Int,
+        finished: Boolean,
+        sliceFrames: Int,
+        arMsPerFrame: Double,
+        decodeMs: (Int) -> Double,
+        overlap: Boolean,
+        frameMs: Double,
+        decodeSafety: Double = PocketSliceClock.DECODE_SAFETY,
+    ): List<SliceEstimate> {
+        if (!finished && generatedFrames >= estFrames) return listOf(SliceEstimate(Double.POSITIVE_INFINITY, 0.0))
+        val queued = (generatedFrames - decodedFrames).coerceAtLeast(0)
+        val toGenerate = if (finished) 0 else maxOf(estFrames - generatedFrames, PocketSliceClock.MIN_SLICE_FRAMES)
+        val size = sliceFrames.coerceAtLeast(1)
+        val out = ArrayList<SliceEstimate>()
+        var ar = 0.0 // when the AR loop has generated the frames so far
+        var decoderFree = 0.0
+        var lastArrival = 0.0
+        var cut = 0
+        while (cut < queued + toGenerate) {
+            val n = minOf(size, queued + toGenerate - cut)
+            // Frames of this slice the AR loop still has to generate.
+            ar += (cut + n - maxOf(cut, queued)).coerceAtLeast(0) * arMsPerFrame
+            val slow = if (out.isEmpty()) (decodeSafety - 1.0).coerceAtLeast(0.0) * decodeMs(size) else 0.0
+            val arrival = (if (overlap) maxOf(ar, decoderFree) else ar) + decodeMs(n) + slow
+            if (overlap) decoderFree = arrival else ar = arrival
+            out += SliceEstimate(arrival - lastArrival, n * frameMs)
+            lastArrival = arrival
+            cut += n
+        }
+        return out
+    }
+
     private const val HOLD_PASSES = 3
-}
 
-/**
- * The decoder's cost per run as `fixed + perFrame × frames`, fitted to the
- * last few slice decodes (on the 6a a 6-frame slice cost ~210 ms and a
- * 46-frame one ~1100 ms: a fixed cost per run dominates small slices).
- * Until the sizes seen span [MIN_SPREAD] frames it charges the observed ms
- * per frame to every frame, which over-estimates bigger slices: an earlier
- * cut, never a later one. (A line through a 6- and a 7-frame slice tilted
- * with their jitter and once predicted a 25-frame decode at ~0 ms on the 6a,
- * so that slice was cut late and playback waited 0.8 s.) Thread-safe (the
- * decoder adds, the AR loop reads).
- */
-class PocketDecodeCost(private val capacity: Int = 8) {
-    private val samples = ArrayDeque<Pair<Int, Double>>()
-
-    @Synchronized
-    fun add(frames: Int, ms: Double) {
-        if (frames <= 0) return
-        samples.addLast(frames to ms)
-        while (samples.size > capacity) samples.removeFirst()
-    }
-
-    val isEmpty: Boolean @Synchronized get() = samples.isEmpty()
-
-    @Synchronized
-    fun ms(frames: Int): Double {
-        if (samples.isEmpty()) return 0.0
-        val n = samples.size.toDouble()
-        val mx = samples.sumOf { it.first.toDouble() } / n
-        val my = samples.sumOf { it.second } / n
-        if (samples.maxOf { it.first } - samples.minOf { it.first } < MIN_SPREAD) return frames * my / mx
-        val sxx = samples.sumOf { (it.first - mx) * (it.first - mx) }
-        val slope = samples.sumOf { (it.first - mx) * (it.second - my) } / sxx
-        // A noisy fit can still tilt: a decode never gets cheaper with more frames.
-        if (slope <= 0.0) return frames * my / mx
-        return maxOf(my + slope * (frames - mx), 0.0)
-    }
-
-    private companion object {
-        /** The fit needs slice sizes at least this far apart. */
-        const val MIN_SPREAD = 8
-    }
+    /** [chunkEstFrames]' margin over the token-rate guess. */
+    const val CHUNK_EST_MARGIN = 1.2
 }
 
 /**

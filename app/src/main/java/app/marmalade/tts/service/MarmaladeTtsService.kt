@@ -720,6 +720,12 @@ class MarmaladeTtsService : TextToSpeechService() {
         // coefficients need the sample rate). Empty chain = pass-through.
         var chain: StreamingEffectChain? = null
         val plan = applySpeedFallback(engineHandleFor(engineName), params.speed, params.effectBlocks)
+        // Where each piece (a sentence or clause: a chunk flagged as a resume
+        // point) starts in the audio handed to the client, in samples, for
+        // the release gate: a wait at one of these is between pieces, any
+        // other is a stall inside one (#54).
+        var sent = 0L
+        val pieceStarts = StringBuilder()
         streamForEngine(
             engineName,
             stripped,
@@ -739,13 +745,20 @@ class MarmaladeTtsService : TextToSpeechService() {
                         )
                     }
                 }
+                if (audio.resumePoint) {
+                    if (pieceStarts.isNotEmpty()) pieceStarts.append(',')
+                    pieceStarts.append(sent)
+                }
                 val shaped = c.process(audio.pcm)
                 if (shaped.isNotEmpty()) streamPcm(callback, shaped)
+                sent += shaped.size
             }
         // Drain the effect tail (e.g. reverb ring-out) as a final chunk.
         chain?.flush()?.takeIf { it.isNotEmpty() }?.let { tail ->
             streamPcm(callback, tail)
         }
+        // Info, so release builds keep it: the release gate reads it.
+        Log.i(TAG, "pieces: starts=$pieceStarts samples=$sent")
         callback.done()
     }
 
