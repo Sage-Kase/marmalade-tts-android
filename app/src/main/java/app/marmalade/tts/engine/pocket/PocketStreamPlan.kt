@@ -210,12 +210,17 @@ object PocketStreamPlan {
      *
      * The frames left are cut into slices of [sliceFrames]. A slice is
      * submitted once the AR loop (at [arMsPerFrame]) has generated its last
-     * frame and is decoded in [decodeMs] × [decodeSafety]: beside the AR loop
-     * when [overlap], else blocking it. The safety is the streaming cut
-     * rule's ([PocketSliceClock.DECODE_SAFETY]): a decode parked on a little
-     * core after the piece was let go would stall inside it, which chunk
-     * mode must not. The gate's own margin ([app.marmalade.tts.engine.PieceGate.RENDER_MARGIN])
-     * then covers the AR loop's jitter. Each estimate's render time is the
+     * frame and is decoded in [decodeMs]: beside the AR loop when [overlap],
+     * else blocking it. One decode per piece is assumed slow, [decodeSafety]
+     * times a full slice's (the streaming cut rule's
+     * [PocketSliceClock.DECODE_SAFETY]: about one slice in 50 is parked on a
+     * little core), charged on the first slice so every later one waits for
+     * it: after release that decode would otherwise stall inside the piece.
+     * Not every slice: 3 × (60 + 24 × 6) ms per 6-frame slice that plays
+     * 240 ms at 2× reads as a decoder that never keeps up, and held whole
+     * chunks (first sound 1.2 s instead of 0.3 s, #54). The gate's own margin
+     * ([app.marmalade.tts.engine.PieceGate.RENDER_MARGIN]) covers the AR
+     * loop's jitter. Each estimate's render time is the
      * gap between its arrival and the previous one's (the first counts from
      * now), its played length `frames × [playedFrameMs]`.
      */
@@ -243,7 +248,8 @@ object PocketStreamPlan {
             val n = minOf(size, queued + toGenerate - cut)
             // Frames of this slice the AR loop still has to generate.
             ar += (cut + n - maxOf(cut, queued)).coerceAtLeast(0) * arMsPerFrame
-            val arrival = (if (overlap) maxOf(ar, decoderFree) else ar) + decodeSafety * decodeMs(n)
+            val slow = if (out.isEmpty()) (decodeSafety - 1.0).coerceAtLeast(0.0) * decodeMs(size) else 0.0
+            val arrival = (if (overlap) maxOf(ar, decoderFree) else ar) + decodeMs(n) + slow
             if (overlap) decoderFree = arrival else ar = arrival
             out += SliceEstimate(arrival - lastArrival, n * playedFrameMs)
             lastArrival = arrival

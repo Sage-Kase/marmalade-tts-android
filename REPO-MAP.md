@@ -582,9 +582,11 @@ When investigating **{concern}**, start at **{files}**:
   slice, 4 s slices) made Kokoro at 2× on the 6a wait 2.3 s before the long
   gate sentence, where streaming had stuttered ~1.1 s in all; the shipped
   rule waits ~0.5 s once. Pocket stays slice-granular (its deadline-cut
-  slices are small) and charges each decode `DECODE_SAFETY` (3×) in its hold
-  (`PocketStreamPlan.chunkRest`), as its cut rule does: a decode parked on a
-  little core after release would stall inside the piece. Kokoro's whole path
+  slices are small). Its hold (`PocketStreamPlan.chunkRest`) assumes one
+  decode per piece takes `DECODE_SAFETY` (3×) a full slice's, as its cut
+  rule does (about one slice in 50 is parked on a little core): charging
+  every slice 3× read as a decoder that never keeps up and held whole
+  chunks (2× first sound 1.2 s instead of 0.3 s). Kokoro's whole path
   (no streaming layout, e.g. German v25) sends whole pieces anyway and logs
   `path=whole`. Logs: Info `RenderMode: <engine> mode=chunk rtf=0.43
   (predicted) speed=2.00 played=0.86 path=sliced` per request (R8 keeps it;
