@@ -128,6 +128,13 @@ This project follows [Semantic Versioning](https://semver.org/).
   Voices and settings that used Marius now use Alba.
 
 ### Fixed
+- **The buttons that open Android's settings land on the right page on
+  every supported Android version**: "Open system TTS settings" in setup
+  and "Set as system TTS engine" in Settings open Text-to-speech output,
+  and "Allow background activity" in setup opens Android's prompt. Each page is checked before it opens, so no
+  "Open with" chooser appears; if a phone lacks the page, or it closes at
+  once, the next nearest page opens instead, ending at Settings' home. The
+  old fallback for Text-to-speech, the language list, is no longer used.
 - **Kokoro German no longer pauses after a short first sentence**: when a
   short sentence ("Guten Morgen.") came before a long one, Kokoro German
   rendered the whole long sentence before playing any of it, a pause of
