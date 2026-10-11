@@ -108,7 +108,8 @@ internal class SegmentRenderer(
                     stats.recordLatency(voice.voiceId, voice.engine, now - startedAt, text.length)
                 }
                 if (!waited) {
-                    renderSum += renderMs
+                    // Chunk mode's extra generator calls don't count (#54).
+                    renderSum += (renderMs - audio.extraRenderMs).coerceAtLeast(0)
                     audioSum += audio.pcm.size * 1000.0 / audio.sampleRate
                 }
                 emit(RenderEvent.Chunk(index++, audio, renderMs, skewed = waited))

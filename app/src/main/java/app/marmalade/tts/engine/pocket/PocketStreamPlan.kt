@@ -204,9 +204,11 @@ object PocketStreamPlan {
      * Chunk mode (#54): the slices of a mini-chunk still to arrive once
      * [decodedFrames] of it are decoded, for [app.marmalade.tts.engine.keepsUp]. The AR loop has
      * generated [generatedFrames] ([finished]: all of them); the chunk is
-     * guessed at [estFrames] ([chunkEstFrames]) and, while the AR loop is
-     * still on it, at least [PocketSliceClock.MIN_SLICE_FRAMES] more (a
-     * guess the render has already overtaken knows nothing better).
+     * guessed at [estFrames] ([chunkEstFrames]), at least
+     * [PocketSliceClock.MIN_SLICE_FRAMES] more while the AR loop is still on
+     * it. A chunk that has overrun its guess has no length to go by: one
+     * slice of unknown (infinite) render time, so the gate holds it to its
+     * end rather than guess a few more frames and release early.
      *
      * The frames left are cut into slices of [sliceFrames]. A slice is
      * submitted once the AR loop (at [arMsPerFrame]) has generated its last
@@ -222,7 +224,7 @@ object PocketStreamPlan {
      * ([app.marmalade.tts.engine.PieceGate.RENDER_MARGIN]) covers the AR
      * loop's jitter. Each estimate's render time is the
      * gap between its arrival and the previous one's (the first counts from
-     * now), its played length `frames × [playedFrameMs]`.
+     * now), its audio length `frames × [frameMs]`.
      */
     fun chunkRest(
         estFrames: Int,
@@ -233,9 +235,10 @@ object PocketStreamPlan {
         arMsPerFrame: Double,
         decodeMs: (Int) -> Double,
         overlap: Boolean,
-        playedFrameMs: Double,
+        frameMs: Double,
         decodeSafety: Double = PocketSliceClock.DECODE_SAFETY,
     ): List<SliceEstimate> {
+        if (!finished && generatedFrames >= estFrames) return listOf(SliceEstimate(Double.POSITIVE_INFINITY, 0.0))
         val queued = (generatedFrames - decodedFrames).coerceAtLeast(0)
         val toGenerate = if (finished) 0 else maxOf(estFrames - generatedFrames, PocketSliceClock.MIN_SLICE_FRAMES)
         val size = sliceFrames.coerceAtLeast(1)
@@ -251,7 +254,7 @@ object PocketStreamPlan {
             val slow = if (out.isEmpty()) (decodeSafety - 1.0).coerceAtLeast(0.0) * decodeMs(size) else 0.0
             val arrival = (if (overlap) maxOf(ar, decoderFree) else ar) + decodeMs(n) + slow
             if (overlap) decoderFree = arrival else ar = arrival
-            out += SliceEstimate(arrival - lastArrival, n * playedFrameMs)
+            out += SliceEstimate(arrival - lastArrival, n * frameMs)
             lastArrival = arrival
             cut += n
         }

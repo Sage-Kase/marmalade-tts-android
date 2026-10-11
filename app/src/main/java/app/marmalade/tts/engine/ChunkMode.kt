@@ -6,9 +6,13 @@ import app.marmalade.tts.perf.RenderPace
 import app.marmalade.tts.perf.SpeedPerfWarning
 import java.io.File
 import java.util.Locale
+import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -27,11 +31,17 @@ import kotlinx.coroutines.sync.withLock
 //    up comfortably, else chunk mode: exactly where the speed-up warning
 //    shows ([app.marmalade.tts.perf.SpeedPerfWarning.behind], fed the same
 //    measured-else-predicted RTF through [app.marmalade.tts.perf.RenderPace]).
+//    The decision is per piece ([RequestPace]): the in-app reader's speed can
+//    change mid-segment ([LivePlaybackRate]), and the next piece follows it.
 //  - In chunk mode a [PieceGate] holds each piece's slices until the rest of
 //    that piece can't run dry ([holdMs]), or the piece is fully rendered.
 //    Any wait then falls BEFORE a sentence or clause, never inside one.
 //    Kokoro and Kitten also cut smaller slices then
 //    ([app.marmalade.tts.engine.kitten.KittenStreamSlicing.CHUNK_MODE_MAX_SLICE_FRAMES]).
+//    The audio a gate counts as still ahead is this request's own
+//    ([PlaybackHorizon.requestRemainingMs]): a Stop the engine never hears
+//    about (a client flushing an utterance whose render had finished) must
+//    not make the next request's first piece look covered.
 // -----------------------------------------------------------------------------
 
 /** Logcat tag of the per-request mode line (Info, so release builds keep it: the release gate reads it). */
@@ -79,21 +89,24 @@ data class RenderMode(
         }
 
         /**
-         * The mode for one request of [engineName], from the RTF the speed
-         * warning reads ([RenderPace]: the app's measured RTF, else the
-         * prediction), so the warning shows exactly when an engine plays
-         * whole pieces. Debug builds read the `chunkMode` knob.
+         * One request of [engineName]'s pace: the RTF the speed warning reads
+         * ([RenderPace]: the app's measured RTF, else the prediction), so the
+         * warning shows exactly when an engine plays whole pieces, and the
+         * rate it is heard at: [playbackRate], or the caller's
+         * [LivePlaybackRate]. Debug builds read the `chunkMode` knob.
          */
-        suspend fun forRequest(
+        suspend fun paceFor(
             engineName: String,
             settings: SettingsRepository,
             filesDir: File,
             playbackRate: Float,
-        ): RenderMode {
-            val force = forced(EngineDevKnobs.get(filesDir, "chunkMode"))
-            val estimate = RenderPace.estimate(settings, engineName)
-            return decide(estimate?.rtf, estimate?.source ?: "none", playbackRate, force)
-        }
+        ): RequestPace = RequestPace(
+            engineName,
+            RenderPace.estimate(settings, engineName),
+            playbackRate,
+            forced(EngineDevKnobs.get(filesDir, "chunkMode")),
+            currentCoroutineContext()[LivePlaybackRate]?.rate,
+        )
 
         /** Debug knob `chunkMode=on|off` ([EngineDevKnobs]); null = decide. */
         fun forced(knob: String?): Boolean? = when (knob?.trim()?.lowercase()) {
@@ -104,108 +117,187 @@ data class RenderMode(
     }
 }
 
-/** One slice of a piece still to render: its render time and its PLAYED length, both ms. */
-data class SliceEstimate(val renderMs: Double, val playedMs: Double)
+/**
+ * The rate a render is heard at, live: the in-app reader's speed can change
+ * while a segment renders (the Narrator time-stretches what is already
+ * rendered), so its render job carries this and the engines read it per
+ * piece. Without it (system TTS: the rate is fixed per utterance) the
+ * request's playbackRate holds.
+ */
+class LivePlaybackRate(val rate: StateFlow<Float>) : AbstractCoroutineContextElement(LivePlaybackRate) {
+    companion object Key : CoroutineContext.Key<LivePlaybackRate>
+}
+
+/**
+ * One request's pace: the RTF chunk mode decides on (read once per request)
+ * and the rate it is heard at, [rate] (live when [live] is given). An engine
+ * asks [pieceMode] at each piece's start, so a speed change mid-segment
+ * reaches the next piece; the [RENDER_MODE_TAG] line is logged for the
+ * first piece and again whenever the mode or the rate changes.
+ */
+class RequestPace(
+    private val engineName: String,
+    private val estimate: RenderPace.Estimate?,
+    private val requestRate: Float,
+    private val force: Boolean?,
+    private val live: StateFlow<Float>? = null,
+    private val log: (RenderMode) -> Unit = { it.log(engineName) },
+) {
+    private var logged: RenderMode? = null
+
+    /** The rate the audio is heard at now (> 0). */
+    fun rate(): Float = (live?.value ?: requestRate).takeIf { it > 0f } ?: 1f
+
+    /** The mode at [rate] now, without logging. */
+    fun mode(): RenderMode = RenderMode.decide(estimate?.rtf, estimate?.source ?: "none", rate(), force)
+
+    /** The mode for the piece starting now; logs it when it differs from the last one logged. */
+    fun pieceMode(): RenderMode = mode().also { if (it != logged) { log(it); logged = it } }
+}
+
+/** One slice of a piece still to render: its render time (wall ms) and its audio length (ms at 1.0×). */
+data class SliceEstimate(val renderMs: Double, val audioMs: Double)
 
 /**
  * How long from now to hold a piece so it plays to its end without running
- * dry (0: release now). The listener has [aheadMs] of earlier audio still to
- * hear, then the piece's [bankedMs] already rendered, then [rest] (in order)
- * as each finishes rendering. Slice j arrives once it and every slice before
- * it rendered (each charged [margin] × its estimate) and is needed once
+ * dry (0: release now; infinite: unknown until more of it renders). The
+ * listener has [aheadMs] (played ms) of earlier audio still to hear, then
+ * the piece's [bankedAudioMs] already rendered, then [rest] (in order) as
+ * each finishes rendering. Slice j arrives once it and every slice before it
+ * rendered (each charged [margin] × its estimate) and is needed once
  * everything before it has played. Held audio queues behind what is ahead,
  * so the piece starts once both the hold and [aheadMs] are over.
  *
  * Exact for the engines' slice grids (they know every later slice's frames
- * once a piece is planned); render time is wall time, played lengths are on
- * the played clock (audio ÷ playback rate).
+ * once a piece is planned); render time is wall time, audio lengths play in
+ * audio ÷ [rate] ms.
  */
-fun holdMs(aheadMs: Double, bankedMs: Double, rest: List<SliceEstimate>, margin: Double = PieceGate.RENDER_MARGIN): Double {
+fun holdMs(
+    aheadMs: Double,
+    bankedAudioMs: Double,
+    rest: List<SliceEstimate>,
+    rate: Float = 1f,
+    margin: Double = PieceGate.RENDER_MARGIN,
+): Double {
+    val r = if (rate > 0f) rate.toDouble() else 1.0
     var arrives = 0.0
-    var before = bankedMs
+    var before = bankedAudioMs / r
     var start = 0.0 // when the piece must start, from now
     for (s in rest) {
         arrives += s.renderMs * margin
         start = maxOf(start, arrives - before)
-        before += s.playedMs
+        before += s.audioMs / r
     }
     return if (start <= aheadMs) 0.0 else start
 }
 
 /** Whether a piece released now plays to its end without running dry ([holdMs] is 0). */
-fun keepsUp(aheadMs: Double, bankedMs: Double, rest: List<SliceEstimate>, margin: Double = PieceGate.RENDER_MARGIN): Boolean =
-    holdMs(aheadMs, bankedMs, rest, margin) <= 0.0
+fun keepsUp(
+    aheadMs: Double,
+    bankedAudioMs: Double,
+    rest: List<SliceEstimate>,
+    rate: Float = 1f,
+    margin: Double = PieceGate.RENDER_MARGIN,
+): Boolean = holdMs(aheadMs, bankedAudioMs, rest, rate, margin) <= 0.0
 
 /**
  * Chunk mode's hold, per piece (see the file comment). A streaming engine
- * calls [startPiece] before a piece's first slice, [offer] with each rendered
- * slice, and [endPiece] once the piece is fully rendered; it sends whatever
- * comes back, in order. Out of chunk mode every slice comes straight back.
+ * calls [startPiece] (with the piece's mode) before a piece's first slice,
+ * [offer] with each rendered slice, and [endPiece] once the piece is fully
+ * rendered; it sends whatever comes back, in order. Out of chunk mode every
+ * slice comes straight back.
  *
  * Holding stops for the rest of the piece once [keepsUp] says the slices
  * still to render will each arrive before playback needs them: at the next
- * slice, or earlier at [dueAtMs] if the engine calls [releaseIfDue] then
+ * slice, or earlier at [dueAtMs] if the engine calls [recheck] then
  * ([TimedPieceGate] does). A piece that never gets there plays once fully
- * rendered, so playback can only wait at a piece's start. [onRelease] hears
- * about each piece that was held: how long after its first slice it went
- * out, how many slices went at once, and how many were still to render.
- * Not thread-safe.
+ * rendered, so playback can only wait at a piece's start. Audio lengths are
+ * audio ms; [rate] (read at every check) turns them into played time, so a
+ * speed change mid-piece re-times the hold. [onRelease] hears about each
+ * piece that was held: how long after its first slice it went out, how many
+ * slices went at once, and how many were still to render. Not thread-safe.
  */
 class PieceGate<T>(
-    private val chunk: Boolean,
     private val margin: Double = RENDER_MARGIN,
+    private val rate: () -> Float = { 1f },
     private val onRelease: (heldMs: Long, slices: Int, rest: Int) -> Unit = { _, _, _ -> },
 ) {
     private val held = ArrayList<T>()
     private var open = true
     private var heldSince = 0L
     private var restAtDue = 0
+    private var lastOfferAt = 0L
+    private var lastRest: () -> List<SliceEstimate> = { emptyList() }
 
-    /** Played ms of the current piece held so far. */
-    var heldPlayedMs = 0.0
+    /** Audio ms of the current piece held so far. */
+    var heldAudioMs = 0.0
         private set
 
-    /** While holding: when releasing becomes safe, as of the last [offer]. Null otherwise. */
+    /** While holding: when releasing may be safe, as of the last check. Null otherwise. */
     var dueAtMs: Long? = null
         private set
 
-    fun startPiece() {
+    /** A new piece, played in chunk mode or not. */
+    fun startPiece(chunk: Boolean) {
         // A piece the engine abandoned (empty render) leaves nothing to send.
         held.clear()
-        heldPlayedMs = 0.0
+        heldAudioMs = 0.0
         dueAtMs = null
         open = !chunk
     }
 
     /**
-     * One rendered slice of [playedMs] at [nowMs]. [aheadMs]: earlier audio
-     * still to be heard before this piece starts; [rest]: the piece's slices
-     * still to render. Returns the slices to send now.
+     * One rendered slice of [audioMs] at [nowMs]. [aheadMs]: earlier audio
+     * (played ms) still to be heard before this piece starts; [rest]: the
+     * piece's slices still to render. Returns the slices to send now.
      */
-    fun offer(slice: T, playedMs: Double, nowMs: Long, aheadMs: Double, rest: () -> List<SliceEstimate>): List<T> {
+    fun offer(slice: T, audioMs: Double, nowMs: Long, aheadMs: Double, rest: () -> List<SliceEstimate>): List<T> {
         if (open) return listOf(slice)
         if (held.isEmpty()) heldSince = nowMs
         held += slice
-        heldPlayedMs += playedMs
-        val restNow = rest()
-        val wait = holdMs(aheadMs, heldPlayedMs, restNow, margin)
-        if (wait > 0.0) {
-            dueAtMs = nowMs + Math.ceil(wait).toLong()
-            restAtDue = restNow.size
-            return emptyList()
-        }
-        return release(nowMs, restNow.size)
+        heldAudioMs += audioMs
+        lastOfferAt = nowMs
+        lastRest = rest
+        return check(nowMs, aheadMs, rest())
     }
 
-    /** The held slices, once [dueAtMs] has come (empty before, or when nothing is held). */
-    fun releaseIfDue(nowMs: Long): List<T> {
-        val due = dueAtMs ?: return emptyList()
-        if (open || held.isEmpty() || nowMs < due) return emptyList()
-        return release(nowMs, restAtDue)
+    /**
+     * At [dueAtMs]: release if it is still safe, else hold on. The slice in
+     * flight has been rendering since the last [offer]; if it is already
+     * later than its estimate allowed, the piece waits for it (the next
+     * [offer] decides), else the hold is recomputed with its remaining
+     * time, the current [rate] and [aheadMs].
+     */
+    fun recheck(nowMs: Long, aheadMs: Double): List<T> {
+        if (open || held.isEmpty()) {
+            dueAtMs = null
+            return emptyList()
+        }
+        val rest = lastRest()
+        val elapsed = (nowMs - lastOfferAt).toDouble()
+        val inFlight = rest.firstOrNull()
+        if (inFlight != null && elapsed >= inFlight.renderMs * margin) {
+            dueAtMs = null
+            restAtDue = rest.size
+            return emptyList()
+        }
+        val remaining = if (inFlight == null) rest else listOf(inFlight.copy(renderMs = inFlight.renderMs - elapsed / margin)) + rest.drop(1)
+        return check(nowMs, aheadMs, remaining)
     }
 
     /** The piece is fully rendered: whatever is still held goes. */
     fun endPiece(nowMs: Long): List<T> = if (held.isEmpty()) emptyList() else release(nowMs, 0)
+
+    private fun check(nowMs: Long, aheadMs: Double, rest: List<SliceEstimate>): List<T> {
+        val wait = holdMs(aheadMs, heldAudioMs, rest, rate(), margin)
+        if (wait > 0.0) {
+            // Infinite: a length the engine can't bound yet; the next slice decides.
+            dueAtMs = if (wait.isInfinite()) null else nowMs + Math.ceil(wait).toLong()
+            restAtDue = rest.size
+            return emptyList()
+        }
+        return release(nowMs, rest.size)
+    }
 
     private fun release(nowMs: Long, rest: Int): List<T> {
         open = true
@@ -214,7 +306,7 @@ class PieceGate<T>(
         if (held.size > 1 || rest == 0 || nowMs > heldSince) onRelease(nowMs - heldSince, held.size, rest)
         val out = ArrayList(held)
         held.clear()
-        heldPlayedMs = 0.0
+        heldAudioMs = 0.0
         return out
     }
 
@@ -232,34 +324,42 @@ class PieceGate<T>(
 
 /**
  * A [PieceGate] whose hold ends at [PieceGate.dueAtMs], not only when the
- * next slice is rendered: a timer on [scope] releases it, so a sentence waits
- * no longer than it must even while the engine is busy with a long slice.
- * Every call (and [send]) runs under one lock; an engine that reads state
- * [send] changes does so inside [offer]'s lambdas or between pieces.
+ * next slice is rendered: a timer on [scope] re-checks then
+ * ([PieceGate.recheck]) and releases if it is still safe, else re-arms or
+ * waits for the next slice, so a sentence waits no longer than it must even
+ * while the engine is busy with a long slice. Every call (and [send]) runs
+ * under one lock; an engine that reads state [send] changes does so inside
+ * [offer]'s lambdas or between pieces.
  */
 class TimedPieceGate<T>(
-    chunk: Boolean,
     private val scope: CoroutineScope,
     private val send: suspend (List<T>) -> Unit,
+    rate: () -> Float = { 1f },
     onRelease: (heldMs: Long, slices: Int, rest: Int) -> Unit = { _, _, _ -> },
     private val nowMs: () -> Long = { System.nanoTime() / 1_000_000 },
 ) {
-    private val gate = PieceGate<T>(chunk, onRelease = onRelease)
+    private val gate = PieceGate<T>(rate = rate, onRelease = onRelease)
     private val lock = Mutex()
     private var timer: Job? = null
 
-    suspend fun startPiece() = lock.withLock {
+    suspend fun startPiece(chunk: Boolean) = lock.withLock {
         cancelTimer()
-        gate.startPiece()
+        gate.startPiece(chunk)
     }
 
-    suspend fun offer(slice: T, playedMs: Double, aheadMs: () -> Double, rest: () -> List<SliceEstimate>) = lock.withLock {
+    suspend fun offer(slice: T, audioMs: Double, aheadMs: () -> Double, rest: () -> List<SliceEstimate>) = lock.withLock {
         cancelTimer()
-        send(gate.offer(slice, playedMs, nowMs(), aheadMs(), rest))
-        val due = gate.dueAtMs ?: return@withLock
+        send(gate.offer(slice, audioMs, nowMs(), aheadMs(), rest))
+        val first = gate.dueAtMs ?: return@withLock
         timer = scope.launch {
-            delay((due - nowMs()).coerceAtLeast(0))
-            lock.withLock { send(gate.releaseIfDue(nowMs())) }
+            var due: Long? = first
+            while (due != null) {
+                delay((due - nowMs()).coerceAtLeast(0))
+                due = lock.withLock {
+                    send(gate.recheck(nowMs(), aheadMs()))
+                    gate.dueAtMs
+                }
+            }
         }
     }
 

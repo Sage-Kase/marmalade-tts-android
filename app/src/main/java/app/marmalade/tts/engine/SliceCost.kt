@@ -38,6 +38,22 @@ class SliceCost(private val capacity: Int = 8) {
         return maxOf(my + slope * (frames - mx), 0.0)
     }
 
+    /**
+     * The fixed cost of one run (ms): the fit's intercept, or 0 until the
+     * sizes seen span [MIN_SPREAD] frames (no line yet to read it from).
+     */
+    @Synchronized
+    fun fixedMs(): Double {
+        if (samples.isEmpty() || samples.maxOf { it.first } - samples.minOf { it.first } < MIN_SPREAD) return 0.0
+        val n = samples.size.toDouble()
+        val mx = samples.sumOf { it.first.toDouble() } / n
+        val my = samples.sumOf { it.second } / n
+        val sxx = samples.sumOf { (it.first - mx) * (it.first - mx) }
+        val slope = samples.sumOf { (it.first - mx) * (it.second - my) } / sxx
+        if (slope <= 0.0) return 0.0
+        return (my - slope * mx).coerceIn(0.0, my)
+    }
+
     private companion object {
         /** The fit needs slice sizes at least this far apart. */
         const val MIN_SPREAD = 8

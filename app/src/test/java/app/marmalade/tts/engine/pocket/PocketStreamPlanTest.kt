@@ -133,9 +133,12 @@ class PocketStreamPlanTest {
         cost.add(6, 210.0)
         // One size seen: its ms per frame for every frame (over-estimates bigger slices).
         assertEquals(46 * 35.0, cost.ms(46), 1e-9)
+        // No line yet, so no fixed cost to read.
+        assertEquals(0.0, cost.fixedMs(), 1e-9)
         cost.add(46, 1100.0)
         // 22.25 ms per frame + 76.5 ms per run.
         assertEquals(76.5 + 12 * 22.25, cost.ms(12), 1e-9)
+        assertEquals(76.5, cost.fixedMs(), 1e-9)
     }
 
     @Test
