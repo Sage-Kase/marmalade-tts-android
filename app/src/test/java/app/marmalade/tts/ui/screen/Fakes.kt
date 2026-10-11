@@ -253,7 +253,7 @@ internal class FakeSettings(
     // setEngineRtfForTest / the real recordEngineRtf (EMA) both work.
     private val engineRtfState = MutableStateFlow<Map<String, Double>>(emptyMap())
     override val engineRtf: Flow<Map<String, Double>> = engineRtfState
-    override suspend fun recordEngineRtf(engineName: String, sampleRtf: Double) {
+    override suspend fun recordEngineRtf(engineName: String, sampleRtf: Double, language: String?) {
         val previous = engineRtfState.value[engineName]
         engineRtfState.value = engineRtfState.value +
             (engineName to app.marmalade.tts.perf.RollingRtf.update(previous, sampleRtf))

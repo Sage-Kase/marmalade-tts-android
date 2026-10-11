@@ -118,7 +118,7 @@ internal class SegmentRenderer(
                 lastResume = clock()
             }
             if (warm && audioSum >= MIN_RTF_AUDIO_MS && renderSum > 0) {
-                stats.recordRtf(voice.engine, renderSum / audioSum)
+                stats.recordRtf(voice.engine, renderSum / audioSum, prepared.phonemizationLanguage)
             }
             emit(RenderEvent.Done)
         } catch (e: CancellationException) {

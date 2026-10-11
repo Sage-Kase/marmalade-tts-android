@@ -634,12 +634,17 @@ open class SettingsRepository internal constructor(
     }
 
     /**
-     * Fold one measured RTF [sampleRtf] for [engineName] into its rolling
-     * average (see [RollingRtf]). Read-modify-write inside a single
-     * DataStore edit so concurrent utterances can't clobber each other's
-     * update.
+     * Fold one measured RTF [sampleRtf] for [engineName], rendering in
+     * [language] (the phonemizer language, null for the engine's default),
+     * into its rolling average (see [RollingRtf]). Read-modify-write inside
+     * a single DataStore edit so concurrent utterances can't clobber each
+     * other's update.
+     *
+     * The average restarts when the language changes: one engine renders
+     * languages at different speeds, and a blend of two would flip the
+     * speed warning and chunk mode (#54) back and forth between reads.
      */
-    open suspend fun recordEngineRtf(engineName: String, sampleRtf: Double) {
+    open suspend fun recordEngineRtf(engineName: String, sampleRtf: Double, language: String? = null) {
         dataStore.edit { prefs ->
             if (prefs[KEY_ENGINE_RTF_VERSION_CODE] != appVersionCode) {
                 prefs.asMap().keys
@@ -648,7 +653,11 @@ open class SettingsRepository internal constructor(
                 prefs[KEY_ENGINE_RTF_VERSION_CODE] = appVersionCode
             }
             val key = doublePreferencesKey("$ENGINE_RTF_PREFIX$engineName")
-            prefs[key] = RollingRtf.update(prefs[key], sampleRtf)
+            val languageKey = stringPreferencesKey("$ENGINE_RTF_LANGUAGE_PREFIX$engineName")
+            val lang = language.orEmpty()
+            val previous = if (prefs[languageKey].orEmpty() == lang) prefs[key] else null
+            prefs[key] = RollingRtf.update(previous, sampleRtf)
+            prefs[languageKey] = lang
         }
     }
 
@@ -660,6 +669,7 @@ open class SettingsRepository internal constructor(
     open suspend fun clearEngineRtf(engineName: String) {
         dataStore.edit { prefs ->
             prefs.remove(doublePreferencesKey("$ENGINE_RTF_PREFIX$engineName"))
+            prefs.remove(stringPreferencesKey("$ENGINE_RTF_LANGUAGE_PREFIX$engineName"))
         }
     }
 
@@ -816,6 +826,11 @@ open class SettingsRepository internal constructor(
         // Rolling per-engine measured warm RTF, one key per engine. Derived
         // data — safe to drop; repopulates from use — so not semver-frozen.
         private const val ENGINE_RTF_PREFIX = "engine_rtf_"
+
+        // The language each engine's stored RTF was measured in (#54). Starts
+        // with ENGINE_RTF_PREFIX so the version sweep takes it too; it holds
+        // a String, so [engineRtf] skips it.
+        private const val ENGINE_RTF_LANGUAGE_PREFIX = "${ENGINE_RTF_PREFIX}language_"
 
         // The versionCode that measured the stored engine RTFs (#40); any
         // other value marks them stale. Deliberately NOT prefixed with

@@ -177,6 +177,25 @@ class SettingsRepositoryTest {
     }
 
     @Test
+    fun engineRtf_restartsWhenTheLanguageChanges() = runTest {
+        // #54: Kokoro renders Spanish slower than English; a blend of the two
+        // flipped the speed warning and chunk mode between reads.
+        val repo = SettingsRepository(newDataStore(), V1_2)
+        repo.recordEngineRtf(KOKORO, 0.4, "en-us")
+        repo.recordEngineRtf(KOKORO, 0.4, "en-us")
+        repo.recordEngineRtf(KOKORO, 0.7, "es")
+        assertEquals(mapOf(KOKORO to 0.7), repo.engineRtf.first())
+
+        // Same language again: averages as before.
+        repo.recordEngineRtf(KOKORO, 0.6, "es")
+        assertEquals(mapOf(KOKORO to 0.67), repo.engineRtf.first().mapValues { Math.round(it.value * 100) / 100.0 })
+
+        // The engine's default language (null) is a language of its own.
+        repo.recordEngineRtf(KOKORO, 0.3, null)
+        assertEquals(mapOf(KOKORO to 0.3), repo.engineRtf.first())
+    }
+
+    @Test
     fun clearEngineRtf_dropsThatEngineOnly() = runTest {
         val repo = SettingsRepository(newDataStore(), V1_2)
         repo.recordEngineRtf(POCKET, 0.6)
@@ -188,7 +207,7 @@ class SettingsRepositoryTest {
     }
 
     private suspend fun rtfKeysOnDisk(ds: DataStore<Preferences>): Set<String> =
-        ds.data.first().asMap().keys
+        ds.data.first().asMap().filterValues { it is Double }.keys
             .map { it.name }
             .filter { it.startsWith("engine_rtf_") }
             .map { it.removePrefix("engine_rtf_") }

@@ -73,7 +73,7 @@ class NarratorHarness(private val test: TestScope, config: NarratorConfig = Narr
             override fun recordLatency(voiceId: String, engine: String, millis: Long, chars: Int) {
                 latencies += engine to millis
             }
-            override fun recordRtf(engine: String, rtf: Double) {
+            override fun recordRtf(engine: String, rtf: Double, language: String?) {
                 rtfs += engine to rtf
             }
         },

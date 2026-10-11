@@ -125,8 +125,8 @@ class NarratorStats @Inject constructor(
         scope.launch { runCatching { latency.record(voiceId, engine, millis, chars) } }
     }
 
-    override fun recordRtf(engine: String, rtf: Double) {
-        scope.launch { runCatching { settings.recordEngineRtf(engine, rtf) } }
+    override fun recordRtf(engine: String, rtf: Double, language: String?) {
+        scope.launch { runCatching { settings.recordEngineRtf(engine, rtf, language) } }
     }
 }
 

@@ -317,6 +317,6 @@ interface SynthStatsPort {
     /** Time to first audio of one render job. */
     fun recordLatency(voiceId: String, engine: String, millis: Long, chars: Int)
 
-    /** Warm, unskewed render-time / audio-time of one render job. */
-    fun recordRtf(engine: String, rtf: Double)
+    /** Warm, unskewed render-time / audio-time of one render job in [language] (null: the engine's default). */
+    fun recordRtf(engine: String, rtf: Double, language: String?)
 }
