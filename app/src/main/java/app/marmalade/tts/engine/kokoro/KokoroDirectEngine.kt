@@ -15,7 +15,11 @@ import app.marmalade.tts.engine.EngineDevKnobs
 import app.marmalade.tts.engine.EngineNotInstalledException
 import app.marmalade.tts.engine.OrtRunAbort
 import app.marmalade.tts.engine.PlaybackHorizon
+import app.marmalade.tts.engine.PieceGate
 import app.marmalade.tts.engine.PrerollGate
+import app.marmalade.tts.engine.RenderMode
+import app.marmalade.tts.engine.SliceCost
+import app.marmalade.tts.engine.SliceEstimate
 import app.marmalade.tts.engine.abortableInference
 import app.marmalade.tts.engine.SynthAudio
 import app.marmalade.tts.engine.TtsEngine
@@ -24,6 +28,7 @@ import app.marmalade.tts.engine.kitten.PAD_TOKEN
 import app.marmalade.tts.engine.kitten.encodePhonemes
 import app.marmalade.tts.lang.LangDetector
 import app.marmalade.tts.perf.CpuClusterDetector
+import app.marmalade.tts.perf.RollingRtf
 import app.marmalade.tts.phonemizer.CutletJaG2P
 import app.marmalade.tts.phonemizer.EnPhonemeFixups
 import app.marmalade.tts.phonemizer.EspeakPhonemizer
@@ -293,6 +298,9 @@ internal fun kokoroLaterCutBudget(budget: TextChunker.TokenBudget, head: Int): T
 /** Samples per duration frame (25 ms at 24 kHz), the generator's grid. */
 private const val FRAME_SAMPLES = TailTrim.FRAME_SAMPLES
 
+/** One frame's audio (25 ms). */
+private const val FRAME_MS = FRAME_SAMPLES * 1000.0 / KokoroDirectVoiceCatalog.SAMPLE_RATE
+
 /**
  * [base] with the short-first-piece sizes adapted to the measured speed
  * (T9). The first piece aims at [FIRST_PIECE_RENDER_MS] of render time
@@ -518,6 +526,16 @@ open class KokoroDirectEngine @Inject constructor(
     @Volatile private var measuredStreamRtf = Double.NaN
 
     /**
+     * A rolling average of the same pieces' RTF (both paths), for the
+     * request's [RenderMode] (#54): one slow piece shouldn't flip the next
+     * request into chunk mode. NaN until the first.
+     */
+    @Volatile private var modeRtf = Double.NaN
+
+    /** The generator's cost per streamed slice, for chunk mode's hold ([PieceGate], #54). */
+    private val sliceCost = SliceCost()
+
+    /**
      * What predicts a later chunk's wait for its first sound (#49): the
      * streaming planner's cost and the last first-slice time (NaN until
      * one), or the whole path's render cost. Warm-up pieces aren't recorded:
@@ -733,7 +751,7 @@ open class KokoroDirectEngine @Inject constructor(
             val pieces = synthLock.withLock { tokenPieces("Hi.", lang) }
             for (piece in pieces) {
                 if (streaming) {
-                    renderSliced(piece, voiceKey, lang, speed = 1.0f, warmup = true) { _, _ -> }
+                    renderSliced(piece, voiceKey, lang, speed = 1.0f, warmup = true) { _, _, _ -> }
                 } else {
                     synthLock.withLock { inferTokens(piece.text, piece.ids, voiceKey, speed = 1.0f, piece.styleRow) }
                 }
@@ -829,6 +847,8 @@ open class KokoroDirectEngine @Inject constructor(
             }
         }
         if (chunks.isEmpty()) return@channelFlow
+        // Every piece goes out whole on this path: chunk mode in all but name (#54).
+        RenderMode.forRequest(engineName, settings, ctx.filesDir, modeRtf, playbackRate).log(engineName, path = "whole")
         val planMs = (System.nanoTime() - planStartNs) / 1_000_000
         Log.d(
             PERF_TAG,
@@ -890,6 +910,7 @@ open class KokoroDirectEngine @Inject constructor(
                     if (piece.ids.size >= MEASURE_MIN_TOKENS && audioMs > 0) {
                         measuredMsPerToken = inferMs.toDouble() / piece.ids.size
                         measuredRtf = rtf
+                        modeRtf = RollingRtf.update(modeRtf.takeUnless { it.isNaN() }, rtf)
                     }
                     val pieceTag = if (pieces.size > 1) " piece=$pi/${pieces.size}" else ""
                     Log.d(PERF_TAG, "kokoro chunk=$idx/${idx + 1 + queue.size}$pieceTag infer=${inferMs}ms audio=${audioMs}ms rtf=${"%.2f".format(rtf)} tokens=${piece.ids.size} row=${piece.styleRow} textLen=${piece.text.length}")
@@ -1030,6 +1051,12 @@ open class KokoroDirectEngine @Inject constructor(
         if (chunks.isEmpty()) return
         val audioMs = (chunks.sumOf { it.tokens } * AUDIO_MS_PER_TOKEN / speed.coerceAtLeast(0.1f)).toLong()
         val bankMs = PrerollGate.streamBankMs(playbackRate, rtf, audioMs)
+        val mode = RenderMode.forRequest(engineName, settings, ctx.filesDir, modeRtf, playbackRate)
+        mode.log(engineName)
+        val gate = PieceGate<SynthAudio>(mode.chunk) { heldMs, slices, rest ->
+            Log.d(PERF_TAG, "kokoro chunk-mode release held=${heldMs}ms slices=$slices rest=$rest")
+        }
+        val rate = playbackRate.coerceAtLeast(0.1f)
         Log.d(
             PERF_TAG,
             "kokoro plan chunks=${chunks.size} firstTokens=${chunks.first().tokens} " +
@@ -1039,6 +1066,16 @@ open class KokoroDirectEngine @Inject constructor(
         val sender = AudioSender(this, streamStartNs, loadWaitMs, playbackRate) { "bank=${bankMs}ms" }
         val held = ArrayList<SynthAudio>()
         var heldPlayedMs = 0.0
+        // The up-front bank: slices are held until they hold bankMs of played audio.
+        suspend fun bankOrSend(audio: SynthAudio) {
+            held += audio
+            if (heldPlayedMs < bankMs) {
+                heldPlayedMs += audio.pcm.size * 1000.0 / sampleRate / rate
+                if (heldPlayedMs < bankMs) return
+            }
+            for (h in held) sender.send(h)
+            held.clear()
+        }
         val queue = ArrayDeque(chunks)
         var idx = -1
         try {
@@ -1062,15 +1099,20 @@ open class KokoroDirectEngine @Inject constructor(
                 val pieces = synthLock.withLock { tokenPieces(chunk.text, lang, encoded[chunk.text], chunk.rowTokens) }
                 for (piece in pieces) {
                     currentCoroutineContext().ensureActive()
-                    renderSliced(piece, voiceName, lang, speed) { pcm, first ->
-                        held += SynthAudio(pcm = pcm, sampleRate = sampleRate, resumePoint = first)
-                        if (heldPlayedMs < bankMs) {
-                            heldPlayedMs += pcm.size * 1000.0 / sampleRate / playbackRate
-                            if (heldPlayedMs < bankMs) return@renderSliced
+                    // Chunk mode (#54): the piece's slices wait in the gate until
+                    // the rest of it can't run dry, then go through the bank.
+                    gate.startPiece()
+                    renderSliced(piece, voiceName, lang, speed) { pcm, first, rest ->
+                        val audio = SynthAudio(pcm = pcm, sampleRate = sampleRate, resumePoint = first)
+                        val playedMs = pcm.size * 1000.0 / sampleRate / rate
+                        // Audio the bank holds plays before this piece too.
+                        val aheadMs = horizon.remainingMs() + (if (held.isEmpty()) 0.0 else heldPlayedMs)
+                        val out = gate.offer(audio, playedMs, nowMs(), aheadMs) {
+                            rest.map { SliceEstimate(sliceCost.ms(it.render.count()), it.keep.count() * FRAME_MS / rate) }
                         }
-                        for (h in held) sender.send(h)
-                        held.clear()
+                        for (a in out) bankOrSend(a)
                     }
+                    for (a in gate.endPiece(nowMs())) bankOrSend(a)
                 }
             }
             // The text ended before the bank filled.
@@ -1081,6 +1123,8 @@ open class KokoroDirectEngine @Inject constructor(
             throw t
         }
     }
+
+    private fun nowMs(): Long = System.nanoTime() / 1_000_000
 
     /**
      * Render one ≤ [MAX_PHONEMES_PER_CHUNK]-token piece on the streaming
@@ -1096,7 +1140,7 @@ open class KokoroDirectEngine @Inject constructor(
         lang: String,
         speed: Float,
         warmup: Boolean = false,
-        emit: suspend (pcm: ShortArray, first: Boolean) -> Unit,
+        emit: suspend (pcm: ShortArray, first: Boolean, rest: List<KittenStreamSlicing.Slice>) -> Unit,
     ) {
         if (piece.ids.isEmpty()) return
         val ids = wrapForKokoro(piece.ids)
@@ -1120,17 +1164,21 @@ open class KokoroDirectEngine @Inject constructor(
             val pcm = synthLock.withLock { generateSlice(plan, slice, last = i == slices.size - 1) }
             val sliceMs = (System.nanoTime() - tGen) / 1_000_000
             if (i == 0 && !warmup) measuredFirstSliceMs = sliceMs.toDouble()
+            if (!warmup) sliceCost.add(slice.render.count(), sliceMs.toDouble())
             genMs += sliceMs
             samples += pcm.size
             Log.d(PERF_TAG, "kokoro slice=$i/${slices.size} frames=${slice.render.count()} gen=${sliceMs}ms")
             if (pcm.isEmpty()) continue
-            emit(pcm, !started)
+            emit(pcm, !started, slices.subList(i + 1, slices.size))
             started = true
         }
         val audioMs = samples * 1000L / sampleRate
         val rtf = if (audioMs > 0) (planMs + genMs).toDouble() / audioMs else Double.NaN
         // Tiny pieces are mostly fixed per-call cost: they'd overstate the RTF.
-        if (measure && audioMs > 0) measuredStreamRtf = rtf
+        if (measure && audioMs > 0) {
+            measuredStreamRtf = rtf
+            modeRtf = RollingRtf.update(modeRtf.takeUnless { it.isNaN() }, rtf)
+        }
         Log.d(
             PERF_TAG,
             "kokoro piece tokens=${ids.size} row=${piece.styleRow} plan=${planMs}ms gen=${genMs}ms " +

@@ -12,11 +12,17 @@ import app.marmalade.tts.data.SettingsRepository
 import app.marmalade.tts.engine.EngineDevKnobs
 import app.marmalade.tts.engine.EngineNotInstalledException
 import app.marmalade.tts.engine.OrtRunAbort
+import app.marmalade.tts.engine.PieceGate
+import app.marmalade.tts.engine.PlaybackHorizon
+import app.marmalade.tts.engine.RenderMode
+import app.marmalade.tts.engine.SliceCost
+import app.marmalade.tts.engine.SliceEstimate
 import app.marmalade.tts.engine.SynthAudio
 import app.marmalade.tts.engine.TtsEngine
 import app.marmalade.tts.engine.abortableInference
 import app.marmalade.tts.lang.LangDetector
 import app.marmalade.tts.perf.CpuClusterDetector
+import app.marmalade.tts.perf.RollingRtf
 import app.marmalade.tts.phonemizer.EnPhonemeFixups
 import app.marmalade.tts.phonemizer.EspeakPhonemizer
 import app.marmalade.tts.phonemizer.SharedEspeakData
@@ -93,6 +99,12 @@ private const val TAG = "KittenDirectEngine"
 
 /** Logcat tag for the P-A streaming perf diagnostic — `adb logcat -s StreamPerf`. */
 private const val PERF_TAG = "StreamPerf"
+
+/** One generator frame's audio (25 ms at 24 kHz). */
+private const val FRAME_MS = KittenTrim.FRAME_SAMPLES * 1000.0 / KittenDirectVoiceCatalog.SAMPLE_RATE
+
+/** Pieces shorter than this don't update the RTF chunk mode decides on (#54). */
+private const val MODE_MEASURE_MIN_AUDIO_MS = 1_000L
 
 /** KittenML model's style-vector dimension; fixed by the trained model. */
 private const val STYLE_DIM = 256
@@ -239,6 +251,15 @@ open class KittenDirectEngine @Inject constructor(
     private val warmupScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var warmupJob: kotlinx.coroutines.Job? = null
 
+    /**
+     * Chunk mode (#54, [RenderMode]): how much emitted audio is still ahead
+     * of the listener, a rolling RTF of this process's pieces (NaN until the
+     * first) and the generator's cost per slice.
+     */
+    private val horizon = PlaybackHorizon()
+    @Volatile private var modeRtf = Double.NaN
+    private val sliceCost = SliceCost()
+
     override fun isInstalled(): Boolean {
         if (!engineDir.isDirectory) return false
         if (!plannerFile.isFile || !genFile.isFile) return false
@@ -384,7 +405,7 @@ open class KittenDirectEngine @Inject constructor(
             val firstVoice = voiceMetas.first().displayName
             val pieces = synthLock.withLock { ipaPieces("Hi.", KITTEN_DEFAULT_ESPEAK_VOICE) }
             for (piece in pieces) {
-                renderIpa(piece.text, piece.ipa, firstVoice, speed = 1.0f, rowText = piece.text) { _, _, _ -> }
+                renderIpa(piece.text, piece.ipa, firstVoice, speed = 1.0f, rowText = piece.text, warmup = true) { _, _, _ -> }
             }
             Log.i(TAG, "warmup synth done in ${System.currentTimeMillis() - t0} ms")
         } catch (t: Throwable) {
@@ -438,10 +459,9 @@ open class KittenDirectEngine @Inject constructor(
         voiceId: String,
         speed: Float,
         phonemizationLanguage: String?,
-        // Unused: streamed Kitten renders at RTF ~0.3 on a cool 8a (~0.7
-        // warm, issue #9), so playback rarely outruns it — no pre-roll
-        // needed. Wire a PrerollGate here (see KokoroDirectEngine) if a
-        // slower device ever proves otherwise.
+        // No pre-roll: streamed Kitten renders at RTF ~0.13 on a 6a, so
+        // playback rarely outruns it. A phone where it does plays whole
+        // pieces (chunk mode, #54).
         playbackRate: Float,
         expressiveness: Float?,
     ): Flow<SynthAudio> = channelFlow {
@@ -476,43 +496,69 @@ open class KittenDirectEngine @Inject constructor(
         val chunks = TextChunker.clauseChunks(text)
         if (chunks.isEmpty()) return@channelFlow
 
+        val mode = RenderMode.forRequest(engineName, settings, ctx.filesDir, modeRtf, playbackRate)
+        mode.log(engineName)
+        val rate = mode.playbackRate
+        val gate = PieceGate<SynthAudio>(mode.chunk) { heldMs, slices, rest ->
+            Log.d(PERF_TAG, "kitten chunk-mode release held=${heldMs}ms slices=$slices rest=$rest")
+        }
         var firstSent = false
-        for ((idx, chunk) in chunks.withIndex()) {
-            // A cancelled stream (reader tap, Stop, skip) must stop HERE:
-            // inference blocks and the uncontended lock/buffered send never
-            // suspend, so without this check a cancelled producer rendered
-            // every remaining chunk while holding the service's synth mutex —
-            // the next request's TTFA paid for all of them (~11 s on the 8a).
-            ensureActive()
-            val pieces = synthLock.withLock { ipaPieces(chunk.text, espeakVoice) }
-            // An over-cap chunk's pieces go out one at a time, each as soon
-            // as it is rendered, instead of all joined after the last one.
-            for ((pi, piece) in pieces.withIndex()) {
-                // Per-piece check: a stop lands between pieces rather than
-                // after the whole chunk.
-                ensureActive()
-                // Boundary-typed gap rides on the chunk's last slice (see
-                // CLAUSE_GAP_MS/SENTENCE_GAP_MS). Not after the last chunk.
-                val gapSamples = if (idx < chunks.size - 1 && pi == pieces.size - 1) {
-                    sampleRate * (if (chunk.sentenceEnd) SENTENCE_GAP_MS else CLAUSE_GAP_MS) / 1000
-                } else {
-                    0
-                }
-                // Every piece keeps the sentence's [rowText] register.
-                renderIpa(piece.text, piece.ipa, voiceName, speed, rowText = chunk.rowText) { pcm, first, last ->
-                    if (!firstSent) {
-                        firstSent = true
-                        val ttfaMs = (System.nanoTime() - streamStartNs) / 1_000_000
-                        Log.d(PERF_TAG, "kitten TTFA=${ttfaMs}ms (loadWait=${loadWaitMs}ms)")
-                    }
-                    val out = if (last && gapSamples > 0) pcm.copyOf(pcm.size + gapSamples) else pcm
-                    // A piece starts at a clause (or, over the cap, a word):
-                    // the Narrator may resume there, never mid-piece.
-                    send(SynthAudio(pcm = out, sampleRate = sampleRate, resumePoint = first))
-                }
+        suspend fun sendAll(out: List<SynthAudio>) {
+            for (audio in out) {
+                send(audio)
+                horizon.onEmitted((audio.pcm.size * 1000L / sampleRate / rate).toLong())
             }
         }
+        try {
+            for ((idx, chunk) in chunks.withIndex()) {
+                // A cancelled stream (reader tap, Stop, skip) must stop HERE:
+                // inference blocks and the uncontended lock/buffered send never
+                // suspend, so without this check a cancelled producer rendered
+                // every remaining chunk while holding the service's synth mutex —
+                // the next request's TTFA paid for all of them (~11 s on the 8a).
+                ensureActive()
+                val pieces = synthLock.withLock { ipaPieces(chunk.text, espeakVoice) }
+                // An over-cap chunk's pieces go out one at a time, each as soon
+                // as it is rendered, instead of all joined after the last one.
+                for ((pi, piece) in pieces.withIndex()) {
+                    // Per-piece check: a stop lands between pieces rather than
+                    // after the whole chunk.
+                    ensureActive()
+                    // Boundary-typed gap rides on the chunk's last slice (see
+                    // CLAUSE_GAP_MS/SENTENCE_GAP_MS). Not after the last chunk.
+                    val gapSamples = if (idx < chunks.size - 1 && pi == pieces.size - 1) {
+                        sampleRate * (if (chunk.sentenceEnd) SENTENCE_GAP_MS else CLAUSE_GAP_MS) / 1000
+                    } else {
+                        0
+                    }
+                    // Every piece keeps the sentence's [rowText] register.
+                    gate.startPiece()
+                    renderIpa(piece.text, piece.ipa, voiceName, speed, rowText = chunk.rowText) { pcm, first, rest ->
+                        if (!firstSent) {
+                            firstSent = true
+                            val ttfaMs = (System.nanoTime() - streamStartNs) / 1_000_000
+                            Log.d(PERF_TAG, "kitten TTFA=${ttfaMs}ms (loadWait=${loadWaitMs}ms)")
+                        }
+                        val out = if (rest.isEmpty() && gapSamples > 0) pcm.copyOf(pcm.size + gapSamples) else pcm
+                        // A piece starts at a clause (or, over the cap, a word):
+                        // the Narrator may resume there, never mid-piece.
+                        val audio = SynthAudio(pcm = out, sampleRate = sampleRate, resumePoint = first)
+                        val playedMs = out.size * 1000.0 / sampleRate / rate
+                        sendAll(gate.offer(audio, playedMs, nowMs(), horizon.remainingMs().toDouble()) {
+                            rest.map { SliceEstimate(sliceCost.ms(it.render.count()), it.keep.count() * FRAME_MS / rate) }
+                        })
+                    }
+                    sendAll(gate.endPiece(nowMs()))
+                }
+            }
+        } catch (t: Throwable) {
+            // Cancelled or failed: what this stream fed has been cut off.
+            horizon.clear()
+            throw t
+        }
     }.flowOn(Dispatchers.Default)
+
+    private fun nowMs(): Long = System.nanoTime() / 1_000_000
 
     /** One planner call's worth of text: [text] and its ≤ [MAX_PHONEMES_PER_CHUNK] IPA. */
     private class IpaPiece(val text: String, val ipa: String)
@@ -571,7 +617,8 @@ open class KittenDirectEngine @Inject constructor(
         voiceName: String,
         speed: Float,
         rowText: String,
-        emit: suspend (pcm: ShortArray, first: Boolean, last: Boolean) -> Unit,
+        warmup: Boolean = false,
+        emit: suspend (pcm: ShortArray, first: Boolean, rest: List<KittenStreamSlicing.Slice>) -> Unit,
     ) {
         if (ipa.isEmpty()) return
         val inputIds = wrapForKitten(encodePhonemes(ipa))
@@ -587,11 +634,14 @@ open class KittenDirectEngine @Inject constructor(
             val pcm = synthLock.withLock { generate(plan, slice) }
             val sliceMs = (System.nanoTime() - tGen) / 1_000_000
             genMs += sliceMs
+            if (!warmup) sliceCost.add(slice.render.count(), sliceMs.toDouble())
             Log.v(PERF_TAG, "kitten slice=$i/${slices.size} frames=${slice.render.count()} gen=${sliceMs}ms")
-            emit(pcm, i == 0, i == slices.size - 1)
+            emit(pcm, i == 0, slices.subList(i + 1, slices.size))
         }
         val audioMs = plan.speech.count() * KittenTrim.FRAME_SAMPLES * 1000L / sampleRate
         val rtf = if (audioMs > 0) (planMs + genMs).toDouble() / audioMs else Double.NaN
+        // Short clauses are mostly fixed cost: they'd overstate the RTF.
+        if (!warmup && audioMs >= MODE_MEASURE_MIN_AUDIO_MS) modeRtf = RollingRtf.update(modeRtf.takeUnless { it.isNaN() }, rtf)
         Log.d(PERF_TAG, "kitten piece textLen=${text.length} plan=${planMs}ms gen=${genMs}ms slices=${slices.size} audio=${audioMs}ms rtf=${"%.2f".format(rtf)}")
     }
 
