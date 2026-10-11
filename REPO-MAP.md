@@ -497,7 +497,10 @@ When investigating **{concern}**, start at **{files}**:
   (`PrerollGate.streamBankMs`): played audio enough to cover the request's
   estimated deficit, from the last measured streamed RTF (0.85 before any),
   with the hold's render time capped at 2 s. Holding whole chunks made a
-  sped-up listener wait for a full sentence plus the next one's plan.
+  sped-up listener wait for a full sentence plus the next one's plan. No
+  bank in chunk mode (#57): the gate already holds each piece, and the bank
+  only held a finished first sentence back until the next was released
+  (German at 2× on the 6a: 2–2.5 s of silence after a tap).
   Both graphs: CPU EP (QDQ),
   intra-op spinning ON (#5 clean phone bench, Heart: first sound median /
   worst 1.81 s / 5.6 s unsplit → 0.94 s / 1.38 s streamed + spinning). A
@@ -584,7 +587,13 @@ When investigating **{concern}**, start at **{files}**:
   piece's slice grid and a `SliceCost` fit, Kokoro's and Kitten's scaled by
   how far it has been running behind, `cautiousMs`: the second-worst
   actual ÷ fit ratio of similar-size slices, at most 1.25, so a slowdown
-  counts and one outlier doesn't; each × 1.1, in audio ms turned
+  counts and one outlier doesn't; each × 1.1, plus one slice per piece at
+  up to 2× its estimate, `PieceGate.SLOW_SLICE`, #57: once released nothing
+  calls a piece back, and on the 6a the first 2 s slice of a Kokoro piece is
+  the noisy one, up to 1.35× the fit where later ones stay within 1.11×; one
+  at ~1.8× stalled a released piece 468 ms, and a margin on every slice big
+  enough for that holds whole sentences near real time; Pocket's gate adds
+  none, its `chunkRest` charges its own slow decode), in audio ms turned
   into played time at the current rate, against this request's own audio
   still ahead, `PlaybackHorizon.requestRemainingMs`: an earlier request's
   audio may have been flushed by a Stop the engine never hears of, e.g. a
@@ -599,8 +608,10 @@ When investigating **{concern}**, start at **{files}**:
   its own decision. Why 2 s (`KittenStreamSlicing.CHUNK_MODE_MAX_SLICE_FRAMES`):
   a 4 s last slice needs most of the sentence banked. First try (1.3 margin, release only at a
   slice, 4 s slices) made Kokoro at 2× on the 6a wait 2.3 s before the long
-  gate sentence, where streaming had stuttered ~1.1 s in all; the shipped
-  rule waits ~0.5 s once. Pocket stays slice-granular (its deadline-cut
+  gate sentence, where streaming had stuttered ~1.1 s in all; #54's rule
+  waited ~0.5 s once but stuttered in about 1 take in 6, and with the slow
+  slice allowed for (#57) it waits 1.0–1.3 s once, no stutter in 6 takes.
+  Pocket stays slice-granular (its deadline-cut
   slices are small). Its hold (`PocketStreamPlan.chunkRest`) assumes one
   decode per piece takes `DECODE_SAFETY` (3×) a full slice's, as its cut
   rule does (about one slice in 50 is parked on a little core): charging
