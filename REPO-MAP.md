@@ -153,7 +153,7 @@ app/src/main/
 - **Engines**: Vendored Sherpa-ONNX AAR (`libs/sherpa-onnx-static-link-onnxruntime-1.13.2.aar`).
   Models download separately per engine (setup recommends one per
   device: see "Engine speed + recommendation"). Since v0.1.19 Kokoro is **multi-language** — 53 voices
-  across American + British English, Spanish, French, Hindi, Italian,
+  (52 offered since Sky's retirement, issue #2) across American + British English, Spanish, French, Hindi, Italian,
   Japanese, Brazilian Portuguese, and Mandarin. Voice/language
   orthogonality holds at the synthesizer (non-English voice speaks
   English with the voice's accent).
@@ -362,7 +362,14 @@ When investigating **{concern}**, start at **{files}**:
   move with `VoiceAliasDao.repointVoice`, the default voice follows, the
   row is deleted. Today: Pocket's `marius` → `alba` (its WAV stays in the
   bundle, unread), mirrored for the clean twin by
-  `PocketDevVoiceCatalog.retiredVoices`. `PocketVoiceCatalog.OFFER_VCTK_VOICES`
+  `PocketDevVoiceCatalog.retiredVoices`, and Kokoro's `af_sky` → `af_heart`
+  (issue #2). `allRetiredVoices` (`RetiredEngines.kt`) is the union start-up
+  applies; system TTS maps a request or `onLoadVoice` naming a retired id
+  through it too, so a client that saved the old name keeps speaking. Kokoro
+  addresses `voices.bin` by row, so a retired Kokoro voice stays in the
+  catalog's private `speakerVoices` (rows don't shift) and only leaves
+  `voices`; `KokoroDirectEngine` renders it as its replacement
+  (`liveVoiceKey`), style row and genstats alike. `PocketVoiceCatalog.OFFER_VCTK_VOICES`
   is the one-line switch that would retire `azelma`/`eponine`/`fantine` the
   same way. The installer's Pocket layout check requires a WAV per offered
   voice only (per engine: the clean twin checks its own list).
