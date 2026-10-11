@@ -1014,6 +1014,7 @@ open class KokoroDirectEngine @Inject constructor(
      * hold [PrerollGate.streamBankMs] of played audio, worked out up front
      * from the last measured streamed RTF ([DEFAULT_STREAM_RTF] before any)
      * and the request's token count, then everything goes out as rendered.
+     * None in chunk mode, whose gate holds each piece itself.
      */
     private suspend fun ProducerScope<SynthAudio>.streamSliced(
         text: String,
@@ -1044,8 +1045,11 @@ open class KokoroDirectEngine @Inject constructor(
         }
         if (chunks.isEmpty()) return
         val audioMs = (chunks.sumOf { it.tokens } * AUDIO_MS_PER_TOKEN / speed.coerceAtLeast(0.1f)).toLong()
-        val bankMs = PrerollGate.streamBankMs(playbackRate, rtf, audioMs)
         val pace = RenderMode.paceFor(engineName, settings, ctx.filesDir, playbackRate)
+        // In chunk mode the gate already keeps each piece from running dry; a
+        // bank would only hold a finished first sentence back until the next
+        // one is released (2-2.5 s of silence after a tap, German at 2x, #57).
+        val bankMs = if (pace.mode().chunk) 0L else PrerollGate.streamBankMs(playbackRate, rtf, audioMs)
         horizon.startRequest(pace.rate())
         Log.d(
             PERF_TAG,
