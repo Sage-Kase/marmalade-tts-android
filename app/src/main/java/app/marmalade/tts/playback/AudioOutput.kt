@@ -47,8 +47,18 @@ sealed interface OutputCommand {
         val tempo: Float,
     ) : OutputCommand
 
-    /** Raw engine PCM; the writer runs the session's chain on it just before the track. */
-    data class Write(override val track: Track, val tag: ChunkTag, val pcm: ShortArray) : OutputCommand {
+    /**
+     * Raw engine PCM; the writer runs the session's chain on it just before
+     * the track. [pieceStart]: the chunk starts a piece (a sentence or clause,
+     * [app.marmalade.tts.engine.SynthAudio.resumePoint]); a stall before one
+     * is a wait between pieces, any other a stutter inside one (#54).
+     */
+    data class Write(
+        override val track: Track,
+        val tag: ChunkTag,
+        val pcm: ShortArray,
+        val pieceStart: Boolean = true,
+    ) : OutputCommand {
         override fun equals(other: Any?): Boolean = other is Write && other.track == track && other.tag == tag
         override fun hashCode(): Int = 31 * track.hashCode() + tag.hashCode()
     }

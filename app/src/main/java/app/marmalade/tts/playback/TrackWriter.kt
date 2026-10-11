@@ -271,7 +271,7 @@ class TrackWriter(
         }
         val pcm = item.pcm
         if (offset == 0) {
-            noteBoundary(item.tag)
+            noteBoundary(item.tag, item.pieceStart)
             marks.addLast(Mark(written, OutputEvent.ChunkStarted(track, item.tag)))
         }
         val to = minOf(pcm.size, offset + (s.sampleRate * sliceMs / 1000).coerceAtLeast(1))
@@ -557,9 +557,11 @@ class TrackWriter(
     /**
      * Log the silence a block boundary cost: padding written plus time the
      * track sat empty. And any chunk that came after the session's real audio
-     * had run out: a stall, silent from then until now (#52).
+     * had run out: a stall, silent from then until now (#52), at a piece's
+     * start (`piece=start`, a wait between sentences or clauses) or inside
+     * one (`piece=mid`, a stutter; #54).
      */
-    private fun noteBoundary(tag: ChunkTag) {
+    private fun noteBoundary(tag: ChunkTag, pieceStart: Boolean) {
         val prev = lastChunkEnd
         val t = out
         if (prev != null && t != null && tag.chunk == 0 && prev.sessionId == tag.sessionId && prev.segment != tag.segment) {
@@ -569,7 +571,7 @@ class TrackWriter(
         }
         val dry = dryAt
         if (dry != null && prev?.sessionId == tag.sessionId) {
-            log("$name: stall before seg ${tag.segment} chunk ${tag.chunk} session=${tag.sessionId} silent=${clock() - dry}ms")
+            log("$name: stall before seg ${tag.segment} chunk ${tag.chunk} session=${tag.sessionId} silent=${clock() - dry}ms piece=${if (pieceStart) "start" else "mid"}")
         }
         paddedFrames = 0
         underrunMs = 0

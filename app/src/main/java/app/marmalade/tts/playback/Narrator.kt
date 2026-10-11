@@ -978,7 +978,7 @@ class Narrator(
                 val seg = s.segs[s.writeSeg]
                 val chunk = seg.chunks[s.writeChunk]
                 if (chunk != null) {
-                    output.submit(OutputCommand.Write(track, s.tag(s.writeSeg, s.writeChunk), chunk.pcm))
+                    output.submit(OutputCommand.Write(track, s.tag(s.writeSeg, s.writeChunk), chunk.pcm, chunk.resumePoint))
                     s.writeChunk++
                     continue
                 }
