@@ -569,16 +569,27 @@ When investigating **{concern}**, start at **{files}**:
   prediction); `ChunkModeTest` pins that the two agree. The engines kept
   their own in-process RTF in round 1; it flipped modes between requests
   (the gate's warm-up read Kokoro at 0.61) and the UI couldn't see it, so it
-  went. In chunk mode
+  went. The mode is decided per piece (`RequestPace.pieceMode`), at the speed
+  the piece will be heard at: the Narrator's render job carries the session's
+  live tempo (`LivePlaybackRate`, a coroutine-context element the engines'
+  flows inherit), so a speed change mid-segment reaches the next piece without
+  a re-render; system TTS has none and keeps the request's rate. In chunk mode
   a `PieceGate` holds each piece's slices for `holdMs`: until every slice
   still to render arrives before playback reaches it (estimates from the
-  piece's slice grid and a `SliceCost` fit, each × 1.1, against the
-  engine's `PlaybackHorizon`), else until the piece is fully rendered: a wait
-  falls before a sentence or clause, never inside one. Kokoro and Kitten use
-  `TimedPieceGate` (a timer releases at the computed moment, not at the next
-  slice) and cut 2 s slices in chunk mode
-  (`KittenStreamSlicing.CHUNK_MODE_MAX_SLICE_FRAMES`): a 4 s last slice needs
-  most of the sentence banked. First try (1.3 margin, release only at a
+  piece's slice grid and a `SliceCost` fit, each × 1.1, in audio ms turned
+  into played time at the current rate, against this request's own audio
+  still ahead, `PlaybackHorizon.requestRemainingMs`: an earlier request's
+  audio may have been flushed by a Stop the engine never hears of, e.g. a
+  client flushing an utterance whose render had finished), else until the
+  piece is fully rendered: a wait falls before a sentence or clause, never
+  inside one. Kokoro and Kitten use `TimedPieceGate` (a timer re-checks at
+  the computed moment, `PieceGate.recheck`, and releases unless the slice in
+  flight is already late, in which case its arrival decides) and cut 2 s
+  slices in chunk mode. Those cost one extra generator call per 4 s (~120 ms,
+  ~+0.03 RTF): the engines report it as `SynthAudio.extraRenderMs`, which
+  `SegmentRenderer` leaves out of the measured RTF, so the mode can't feed
+  its own decision. Why 2 s (`KittenStreamSlicing.CHUNK_MODE_MAX_SLICE_FRAMES`):
+  a 4 s last slice needs most of the sentence banked. First try (1.3 margin, release only at a
   slice, 4 s slices) made Kokoro at 2× on the 6a wait 2.3 s before the long
   gate sentence, where streaming had stuttered ~1.1 s in all; the shipped
   rule waits ~0.5 s once. Pocket stays slice-granular (its deadline-cut
@@ -589,7 +600,8 @@ When investigating **{concern}**, start at **{files}**:
   chunks (2× first sound 1.2 s instead of 0.3 s). Kokoro's whole path
   (no streaming layout, e.g. German v25) sends whole pieces anyway and logs
   `path=whole`. Logs: Info `RenderMode: <engine> mode=chunk rtf=0.43
-  (predicted) speed=2.00 played=0.86 path=sliced` per request (R8 keeps it;
+  (predicted) speed=2.00 played=0.86 path=sliced` per request, again when a
+  piece's mode or speed changes (R8 keeps it;
   the release gate reads it), `StreamPerf` `<engine> chunk-mode release
   held=…ms slices=… rest=…` per held piece. Debug knob `chunkMode=on|off`
   forces a mode. The 0.6 threshold: on the 6a Kokoro v26 (RTF ~0.43)
@@ -658,14 +670,18 @@ When investigating **{concern}**, start at **{files}**:
     1.3 s → 0 per 3-paragraph run, 0.44 s → 0.01 s per 14 sentences, same
     RTF, +3% CPU, audio within 1 LSB. Per-thread cores: `ps -T -p <pid> -o
     TID,PSR,TIME+` (`~/coding/scratch/pocket-speed/psr.sh`).
-  - **Chunk mode** (#54, `engine/ChunkMode.kt`): when the request's `RenderMode`
-    says the render can't keep up, a `PieceGate` in front of the bank holds each
-    mini-chunk's slices until `PocketStreamPlan.chunkRest` (length guessed from
-    tokens ×1.2, AR at `arMs`, decoder at `decodeCost`) says the rest can't run
-    dry against `horizon` (a `PlaybackHorizon` fed by every send), else until the
-    chunk is decoded. The RTF it decides on is the AR loop's and the decoder's
-    own time (`pocket chunk=… own=`), not wall time: read-ahead back-pressure
-    would otherwise read as a slow render.
+  - **Chunk mode** (#54, `engine/ChunkMode.kt`): when the mini-chunk's
+    `RenderMode` (decided per mini-chunk by the request's `RequestPace`) says the
+    render can't keep up, a `PieceGate` in front of the bank holds its slices
+    until `PocketStreamPlan.chunkRest` (length guessed from tokens ×1.2, AR at
+    `arMs`, decoder at `decodeCost`, one decode charged `DECODE_SAFETY`) says the
+    rest can't run dry against this request's audio still ahead
+    (`horizon.requestRemainingMs`), else until the chunk is decoded. A chunk past
+    its length guess has no length to go by: it is held to its end. The cut rule
+    still cuts small slices then; it costs nothing measurable, since the decoder
+    runs beside the AR loop (6a: 4-frame slices decode at ~21 ms/frame, the AR
+    loop takes ~29; render RTF in chunk mode at 2× 0.307 per 1×, streaming at
+    1.5× 0.303).
   - **Threads** ("B", `PocketSessionPlan`): the flow head and the decoder get
     half the threads (at least 2): with the decoder alongside the AR loop, two
     full pools oversubscribed the 6a (2 decoder threads: same RTF, −11% CPU,
@@ -966,8 +982,17 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   already stuttered). The measured RTF is an EMA per engine
   (`SettingsRepository.engineRtf`, fed by `SegmentRenderer` via
   `SynthStatsPort.recordRtf`, warm segments only); it restarts when the
-  phonemizer language changes (`engine_rtf_language_<engine>`), so a
-  blend of two languages can't flip the warning between reads. It is dropped
+  phonemizer language changes (`engine_rtf_language_<engine>`; no detected
+  language counts as the voice's own, `UtteranceLanguage.renderLanguage`, so
+  headings don't restart it), so a blend of two languages can't flip the
+  warning between reads. The alias editor's warning reads the alias speed
+  alone, as the Speak screen and shared text play it (the reader sheet has
+  its own, on its chip); on system TTS the speed is alias × the calling
+  app's rate (TalkBack sends its own; only apps that set none get
+  `tts_default_rate`), which the editor can't know, so it doesn't guess.
+  The engine decides chunk mode from the request's real rate there, so
+  playback still never stutters inside a sentence; only the warning can be
+  missing. It is dropped
   when stale (#40): every value when the app's versionCode differs from
   the one stamped with them (`measured_rtf_version_code`; read as absent,
   wiped by the next `recordEngineRtf`), and one engine's when an install
