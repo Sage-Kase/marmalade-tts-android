@@ -106,6 +106,33 @@ class SettingsLinksTest {
         }
     }
 
+    @Test
+    fun `a quick return from the battery dialog is an answer, not a bounce`() {
+        for (sdk in sdks) {
+            val battery = SettingsLinks.targets(SettingsLink.BATTERY, sdk)
+            assertFalse("sdk $sdk", SettingsLinks.watchForBounce(battery, 0))
+            // The app list and App info are full-screen pages: a quick return there is a bounce.
+            assertTrue("sdk $sdk", SettingsLinks.watchForBounce(battery, 1))
+            assertTrue("sdk $sdk", SettingsLinks.watchForBounce(battery, 2))
+        }
+    }
+
+    @Test
+    fun `every full-screen page is watched for a bounce, except the last resort`() {
+        for (link in SettingsLink.entries) for (sdk in sdks) {
+            val targets = SettingsLinks.targets(link, sdk)
+            for (i in targets.indices) {
+                val expected = i < targets.lastIndex && targets[i].page != SettingsPage.BATTERY_DIALOG
+                assertEquals("$link on $sdk, target $i", expected, SettingsLinks.watchForBounce(targets, i))
+            }
+        }
+    }
+
+    @Test
+    fun `the battery dialog is the only dialog`() {
+        assertEquals(listOf(SettingsPage.BATTERY_DIALOG), SettingsPage.entries.filter { it.dialog })
+    }
+
     private val none: (String) -> Boolean = { false }
     private val settings = SettingsMatch(exported = true, permission = null)
 

@@ -103,9 +103,10 @@ object SystemSettings {
      * Settings always opens in its own task, fresh (CLEAR_TASK, so Back
      * doesn't walk pages left from an earlier visit; it returns to us). In
      * our task, a Settings page that crashes takes our screen down with it
-     * (STT #79: Android 17's Language & region did). If the page bounces
-     * straight back anyway ([watchForBounce]), the next target opens, so
-     * the user always gets somewhere in Settings.
+     * (STT #79: Android 17's Language & region did). If a full-screen page
+     * bounces straight back anyway ([watchForBounce]), the next target
+     * opens, so the user always gets somewhere in Settings. A dialog isn't
+     * watched ([SettingsLinks.watchForBounce]).
      */
     fun open(context: Context, link: SettingsLink, from: Int = 0): SettingsTarget? {
         val targets = SettingsLinks.targets(link, Build.VERSION.SDK_INT)
@@ -114,17 +115,15 @@ object SystemSettings {
         }
         val landed = index?.let { targets[it] }
         Log.i(TAG, "$link landed on ${landed?.page}")
-        if (index != null && index < targets.lastIndex) watchForBounce(context, link, index)
+        if (index != null && SettingsLinks.watchForBounce(targets, index)) watchForBounce(context, link, index)
         return landed
     }
 
     /**
      * A page that crashes or refuses us closes at once and our screen comes
      * back within [BOUNCE_MS] of leaving; a person using it takes longer.
-     * Then the targets after [index] are tried, unless the link's job got
-     * done: the battery dialog closes at once when we're already exempt, and
-     * a quick Allow is a success, not a bounce. (A quick Deny opens the app
-     * list: it can't be told apart from a phone that refuses the dialog.)
+     * Then the targets after [index] are tried, unless the link's job is
+     * already done (a quick look at the page by someone already set up).
      * Activities that finish as they open Settings aren't watched: they
      * don't come back.
      */

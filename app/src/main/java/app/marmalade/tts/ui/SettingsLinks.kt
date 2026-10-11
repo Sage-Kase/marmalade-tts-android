@@ -16,8 +16,11 @@ enum class SettingsLink {
     BATTERY,
 }
 
-/** The Settings page a [SettingsTarget] lands on. */
-enum class SettingsPage {
+/**
+ * The Settings page a [SettingsTarget] lands on. A [dialog] is answered with
+ * one tap, so a quick return from it is an answer, not a bounce.
+ */
+enum class SettingsPage(val dialog: Boolean = false) {
     /** Text-to-speech output, with the Preferred engine row. */
     TTS,
 
@@ -34,9 +37,9 @@ enum class SettingsPage {
     SYSTEM,
 
     /** The yes/no dialog that exempts this app from battery optimisation. */
-    BATTERY_DIALOG,
+    BATTERY_DIALOG(dialog = true),
 
-    /** The list of apps and their battery optimisation (App battery usage from 15). */
+    /** The list of apps and their battery optimisation (App battery usage from 15, and on the Pixel 6a's 14). */
     BATTERY_LIST,
 
     /** This app's App info page. */
@@ -146,8 +149,8 @@ object SettingsLinks {
      * - the direct yes/no dialog (`fuelgauge.RequestIgnoreBatteryOptimizations`);
      *   it needs the REQUEST_IGNORE_BATTERY_OPTIMIZATIONS permission we
      *   declare, and closes at once if we're already exempt;
-     * - the app list (Battery optimization up to 14, App battery usage
-     *   from 15), for phones that hide the dialog;
+     * - the app list (Battery optimization up to 14 in AOSP, App battery usage
+     *   from 15 and on the Pixel 6a's 14), for phones that hide the dialog;
      * - this app's App info page.
      */
     private fun battery(): List<SettingsTarget> = listOf(
@@ -162,6 +165,16 @@ object SettingsLinks {
         SettingsLink.TTS -> tts(sdk)
         SettingsLink.BATTERY -> battery()
     }
+
+    /**
+     * Whether a quick return to our screen after [targets]`[index]` opened
+     * means the page bounced, so the next target should open. Not after the
+     * last target (nothing follows), and not after a dialog: a quick Deny is
+     * the user's answer (#53 review). A phone that hides the battery dialog
+     * doesn't export or resolve it, so it is skipped before launch instead.
+     */
+    fun watchForBounce(targets: List<SettingsTarget>, index: Int): Boolean =
+        index < targets.lastIndex && !targets[index].page.dialog
 
     /**
      * Whether a target whose intent resolved to [matches] can be started

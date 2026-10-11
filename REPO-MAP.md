@@ -1143,7 +1143,8 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   `SystemSettings.open` resolves each target (one exported match, no
   permission we lack; only the final `ACTION_SETTINGS` may show a chooser),
   starts it with NEW_TASK|CLEAR_TASK, and if our screen comes back within
-  1.5 s while the job isn't done, tries the next target. On AOSP 9–17 the
+  1.5 s from a full-screen page while the job isn't done, tries the next
+  target. The battery dialog isn't watched: a quick Deny is an answer. On AOSP 9–17 the
   first target always wins (`com.android.settings.TTS_SETTINGS`; the battery
   dialog); the rest are for phone makers' Settings. Debug probe:
   `devbench/SettingsLinkProbeActivity` (usage in its KDoc).
