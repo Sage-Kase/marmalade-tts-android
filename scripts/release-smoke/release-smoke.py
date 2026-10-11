@@ -9,8 +9,9 @@ played aloud. Two stages, both run by default:
          a WAV. A row passes when audio came out (samples, plausible length,
          not silence) and the app's process logged no exception.
   speed  one voice per engine at 1.0x, 1.25x, 1.5x and 2.0x (speed.py): first
-         sound, and whether real-time playback would have stalled, judged
-         against the app's own speed warning and the last release's baseline.
+         sound, and whether real-time playback would have waited between
+         sentences or stalled inside one, judged against the app's chunk mode,
+         its own speed warning and the last release's baseline.
 
 Prints pass/fail tables and exits 1 if any row fails (2 on a setup error).
 Usage and the one-time phone setup: README.md next to this file.
@@ -30,6 +31,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 import bundles
+import pieces
 import routing
 import speed
 
@@ -387,6 +389,14 @@ def spoken_as(phone: Phone, since: str, pids: set[str]) -> list[routing.Resolved
     return routing.parse("\n".join(mine))
 
 
+def render_lines(phone: Phone, since: str, pids: set[str]) -> tuple[pieces.RenderMode | None, pieces.Pieces | None]:
+    """The app's chunk-mode and piece lines (pieces.py) logged by [pids] since [since]."""
+    log = phone.adb("logcat", "-d", "-v", "epoch", "-T", since,
+                    "-s", f"{pieces.MODE_TAG}:I", f"{pieces.PIECES_TAG}:I", check=False)
+    mine = [ln for ln in log.splitlines() if (m := LOGCAT_RE.match(ln)) and m.group(2) in pids]
+    return pieces.latest("\n".join(mine))
+
+
 def load_allowlist() -> list[re.Pattern]:
     path = HERE / "logcat-allow.txt"
     lines = path.read_text().splitlines() if path.exists() else []
@@ -532,8 +542,8 @@ def cold_after(res: dict[str, str]) -> float:
     now = time.monotonic()
     if res.get("status") != "ok" or not res.get("chunks"):
         return now
-    first, stalls = speed.replay(speed.parse_chunks(res["chunks"]), int(res["sampleRate"]))
-    return now + speed.cold_wait_ms(first, int(res["durationMs"]), stalls, int(res["synthMs"])) / 1000
+    first, waits, stalls = speed.replay(speed.parse_chunks(res["chunks"]), int(res["sampleRate"]))
+    return now + speed.cold_wait_ms(first, int(res["durationMs"]), waits, stalls, int(res["synthMs"])) / 1000
 
 
 def speed_stage(phone: Phone, pkg: str, picks: list[tuple[str, str | None]], texts: dict[str, str],
@@ -586,16 +596,20 @@ def speed_stage(phone: Phone, pkg: str, picks: list[tuple[str, str | None]], tex
                     if why not in r.reasons:
                         r.reasons.append(why)
                     continue
-                first, stalls = speed.replay(speed.parse_chunks(res["chunks"]), int(res["sampleRate"]))
+                mode, pcs = render_lines(phone, since, pids | phone.pids(pkg))
+                starts = list(pcs.starts) if pcs else None
+                first, waits, stalls = speed.replay(speed.parse_chunks(res["chunks"]), int(res["sampleRate"]), starts)
                 t = speed.Take(first_sound_ms=first, synth_ms=int(res["synthMs"]),
-                               duration_ms=int(res["durationMs"]), stalls=stalls)
+                               duration_ms=int(res["durationMs"]), stalls=stalls, waits=waits,
+                               piece_starts=starts, mode=mode and mode.mode, path=mode and mode.path,
+                               rtf=mode and mode.rtf, source=mode and mode.source)
                 if take == 0:
                     local = out / "speed" / f"{tag}.wav"
                     if subprocess.run(["adb", "-s", phone.serial, "pull", res["file"], str(local)],
                                       capture_output=True).returncode == 0:
                         t.wav = f"speed/{local.name}"
-                        if stalls:
-                            speed.write_as_heard(local, stalls, out / speed.as_heard_name(t.wav))
+                        if t.gaps:
+                            speed.write_as_heard(local, t.gaps, out / speed.as_heard_name(t.wav))
                 r.takes.append(t)
     return rows
 
@@ -737,7 +751,7 @@ def main() -> int:
         failed += len(bad)
         warned = sum(r.result == "WARNED" for r in srows)
         summary = (f"{len(srows) - len(bad)}/{len(srows)} rows pass"
-                   + (f" ({warned} stall where the app warns)" if warned else "")
+                   + (f" ({warned} wait or stall where the app warns)" if warned else "")
                    + (f"; {len(bad)} FAIL" if bad else ""))
         header = f"speed stage — {build} — {stamp} — {summary}"
         table = print_rows(header, speed.TABLE_COLS, speed.table(srows))

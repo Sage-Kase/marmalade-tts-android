@@ -6,16 +6,25 @@ pair through the public TextToSpeech API with setSpeechRate(speed), to a file
 (nothing is played), and timestamps every audio chunk as the engine hands it
 over. Replaying those arrivals against a real-time audio clock gives what a
 listener would have heard: when the first sound came, and where playback would
-have run dry waiting for the next chunk (a stall).
+have run dry waiting for the next chunk. The app logs where each piece (a
+sentence or clause) starts in the audio (pieces.py), which splits those gaps
+in two: a WAIT is a gap right before a piece starts (playback paused between
+sentences), a STALL is one inside a piece (a stutter). Without that line (a
+build from before #54) every gap counts as a stall.
 
 A row fails when the app would mislead the user or a release got slower:
   - no audio, an error, or the speed not applied (length doesn't scale);
-  - it stalls at a speed where the app shows no speed warning (the warning
-    lies: SpeedPerfWarning with the reference phone's probe prediction);
+  - the app chose chunk mode (or renders whole pieces) and it still stalled
+    inside a piece: chunk mode exists so that can't happen (#54);
+  - it waits or stalls 300 ms or more at a speed where the app shows no speed
+    warning (the warning lies: SpeedPerfWarning with the reference phone's
+    probe prediction);
   - it regressed past a tolerance against speed-baseline.json, the previous
-    release's numbers on the same phone (first sound, render RTF, stalls).
-A row that stalls where the app DOES warn is reported (WARNED), not failed:
-some engines can't keep up at 2x on a Pixel 6a, and the app says so.
+    release's numbers on the same phone (first sound, render RTF, longest
+    stall, longest wait).
+A row that waits or stalls where the app DOES warn is reported (WARNED), not
+failed: some engines can't keep up at 2x on a Pixel 6a, and the app says so.
+Each metric is judged on its best take.
 """
 from __future__ import annotations
 
@@ -40,10 +49,10 @@ SPEED_VOICES = {
 }
 
 # A gap in the replayed audio shorter than this is jitter the audio buffer
-# absorbs; it isn't counted at all.
+# absorbs; it isn't counted at all (neither as a wait nor as a stall).
 STALL_MIN_MS = 50
-# A row keeps up while its longest stall is under this. Shorter stalls land at
-# a chunk seam and read as a slightly long pause (on a cool 6a, Jenny stalls
+# A row keeps up while its longest gap (wait or stall) is under this. Shorter
+# gaps land at a chunk seam and read as a slightly long pause (on a cool 6a, Jenny stalls
 # 90-250 ms after "Good morning." from 1.0x to 2.0x, 2026-10-10: listen in the
 # lab's "as heard" column). Longer ones are an audible hang.
 KEEPUP_MAX_STALL_MS = 300
@@ -70,18 +79,53 @@ RENDER_RTF_FACTOR, RENDER_RTF_SLACK = 1.25, 0.05
 STALL_FACTOR, STALL_SLACK_MS = 1.25, 250
 
 
+Gap = tuple[float, float]  # (audio position ms, ms the clock waited)
+
+
 @dataclass
 class Take:
-    """One render of a row: what the probe saw."""
+    """One render of a row: what the probe saw, and how the app said it sent it."""
     first_sound_ms: int
     synth_ms: int
     duration_ms: int
-    stalls: list[tuple[float, float]]  # (audio position ms, stall ms)
+    stalls: list[Gap]  # inside a piece (every gap when piece_starts is None)
+    waits: list[Gap] = field(default_factory=list)  # right before a piece starts
+    piece_starts: list[int] | None = None  # samples; None = the app logged no pieces line
+    mode: str | None = None  # RenderMode line: chunk | stream; None = no line (VITS, pre-#54)
+    path: str | None = None  # sliced | whole
+    rtf: float | None = None  # the RTF the app's decision used, at 1.0x
+    source: str | None = None  # where that RTF came from
     wav: str | None = None
 
     @property
     def longest_stall_ms(self) -> float:
         return max((s for _, s in self.stalls), default=0.0)
+
+    @property
+    def longest_wait_ms(self) -> float:
+        return max((s for _, s in self.waits), default=0.0)
+
+    @property
+    def longest_gap_ms(self) -> float:
+        return max(self.longest_stall_ms, self.longest_wait_ms)
+
+    @property
+    def gaps(self) -> list[Gap]:
+        """Both kinds, in audio order: where the listener heard silence."""
+        return sorted(self.waits + self.stalls)
+
+    @property
+    def pieces_known(self) -> bool:
+        return self.piece_starts is not None
+
+    @property
+    def chunked(self) -> bool:
+        """Sent in whole pieces (chunk mode, or an engine that renders them whole)."""
+        return self.mode == "chunk" or self.path == "whole"
+
+    @property
+    def mode_label(self) -> str:
+        return "whole" if self.path == "whole" else (self.mode or "-")
 
     @property
     def render_rtf(self) -> float:
@@ -118,6 +162,12 @@ class SpeedRow:
         vals = [getattr(t, metric) for t in self.takes]
         return min(vals) if vals else None
 
+    @property
+    def mode_label(self) -> str:
+        """The takes' modes ("chunk", "stream", "whole"), "stream/chunk" when the app
+        decided differently between takes, "-" when it logged none."""
+        labels = [m for m in dict.fromkeys(t.mode_label for t in self.takes) if m != "-"]
+        return "/".join(labels) or "-"
 
 
 def parse_chunks(spec: str) -> list[tuple[int, int]]:
@@ -125,35 +175,42 @@ def parse_chunks(spec: str) -> list[tuple[int, int]]:
     return [(int(a), int(b)) for a, b in (c.split(":") for c in spec.split(";") if c)]
 
 
-def replay(chunks: list[tuple[int, int]], sample_rate: int) -> tuple[int, list[tuple[float, float]]]:
+def replay(chunks: list[tuple[int, int]], sample_rate: int,
+           piece_starts: list[int] | None = None) -> tuple[int, list[Gap], list[Gap]]:
     """Play the chunks in real time from the first one's arrival (16-bit mono).
 
-    Returns the first sound (ms after the request) and every stall of at least
-    STALL_MIN_MS as (position in the audio, ms the clock waited). A stall is a
-    chunk arriving after everything before it had already played out."""
+    Returns the first sound (ms after the request), then every gap of at least
+    STALL_MIN_MS as (position in the audio, ms the clock waited), split into
+    waits and stalls. A gap is a chunk arriving after everything before it had
+    already played out. It is a wait when that chunk starts a piece (its byte
+    offset is 2 x one of [piece_starts], the app's sample offsets), else a
+    stall. Without [piece_starts] every gap is a stall."""
     if not chunks:
-        return -1, []
+        return -1, [], []
+    starts = None if piece_starts is None else {2 * s for s in piece_starts}
     first = chunks[0][0]
     clock = float(first)  # wall time at which the queued audio runs out
     played = 0.0  # audio ms queued so far
-    stalls = []
+    offset = 0  # bytes queued so far: where this chunk starts in the stream
+    waits, stalls = [], []
     for at, nbytes in chunks:
         if at > clock:
             if at - clock >= STALL_MIN_MS:
-                stalls.append((played, at - clock))
+                (waits if starts is not None and offset in starts else stalls).append((played, at - clock))
             clock = float(at)
         ms = nbytes / 2 / sample_rate * 1000
         clock += ms
         played += ms
-    return first, stalls
+        offset += nbytes
+    return first, waits, stalls
 
 
-def cold_wait_ms(first_sound_ms: float, duration_ms: float, stalls: list[tuple[float, float]],
+def cold_wait_ms(first_sound_ms: float, duration_ms: float, waits: list[Gap], stalls: list[Gap],
                  synth_ms: float) -> float:
     """How long after a render finished to wait before the next one starts
     cold: the rest of its real-time playback (which began at first sound and
-    was held up by every stall), plus COLD_MARGIN_MS."""
-    playback_ends = first_sound_ms + duration_ms + sum(s for _, s in stalls)
+    was held up by every wait and stall), plus COLD_MARGIN_MS."""
+    playback_ends = first_sound_ms + duration_ms + sum(s for _, s in waits + stalls)
     return max(0.0, playback_ends - synth_ms) + COLD_MARGIN_MS
 
 
@@ -161,13 +218,14 @@ def as_heard_name(wav: str) -> str:
     return wav[:-len(".wav")] + "-as-heard.wav"
 
 
-def write_as_heard(src: Path, stalls: list[tuple[float, float]], dest: Path) -> None:
-    """[src] with silence inserted at each stall: what the 6a would have played."""
+def write_as_heard(src: Path, gaps: list[Gap], dest: Path) -> None:
+    """[src] with silence inserted at each gap (in audio order; waits and
+    stalls alike): what the 6a would have played."""
     with wave.open(str(src), "rb") as w:
         params, frames = w.getparams(), w.readframes(w.getnframes())
     rate, width = params.framerate, params.sampwidth * params.nchannels
     out, pos = bytearray(), 0
-    for at_ms, stall_ms in stalls:
+    for at_ms, stall_ms in gaps:
         cut = min(len(frames), int(at_ms * rate / 1000) * width)
         out += frames[pos:cut] + b"\0" * (int(stall_ms * rate / 1000) * width)
         pos = cut
@@ -240,19 +298,37 @@ def judge(row: SpeedRow, model: WarningModel, length_at_1x_ms: float | None, bas
         want = length_at_1x_ms / row.speed
         if abs(duration - want) > SPEED_LENGTH_TOLERANCE * want:
             row.reasons.append(f"speed not applied? {duration / 1000:.2f} s, expected ~{want / 1000:.2f} s")
-    stall = row.best("longest_stall_ms")
-    keeps_up = stall < KEEPUP_MAX_STALL_MS
+    stall = row.best("longest_stall_ms")  # inside a piece
+    wait = row.best("longest_wait_ms")  # between pieces
+    known = all(t.pieces_known for t in row.takes)
+    if not known:
+        row.notes.append("piece boundaries unknown (no pieces line: a build from before #54?), "
+                         "so every gap counts as a stall")
+    # Chunk mode holds a piece back until it can't run dry, so a stall inside
+    # one is a bug whatever the warning says. Every take stalled (best take >
+    # 0), at least one of them in chunk mode.
+    chunked = [t for t in row.takes if t.chunked]
+    if chunked and known and stall >= STALL_MIN_MS:
+        how = "in chunk mode" if any(t.mode == "chunk" for t in chunked) else "with whole pieces"
+        row.reasons.append(f"stutters {stall:.0f} ms inside a sentence or clause {how}")
+    keeps_up = max(stall, wait) < KEEPUP_MAX_STALL_MS
     if not keeps_up and not row.warns:
-        row.reasons.append(f"stalls {stall:.0f} ms at a speed the app doesn't warn about")
+        row.reasons.append(f"{_gaps_text(stall, wait)} at a speed the app doesn't warn about")
     if baseline is None:
         row.reasons.append("no baseline row: check the numbers, then --write-baseline (README)")
     else:
         checks = [("first sound", row.best("first_sound_ms"), baseline["first_sound_ms"],
                    FIRST_SOUND_FACTOR, FIRST_SOUND_SLACK_MS, "{:.0f} ms"),
                   ("render RTF", row.best("render_rtf"), baseline["render_rtf"],
-                   RENDER_RTF_FACTOR, RENDER_RTF_SLACK, "{:.2f}"),
-                  ("longest stall", stall, baseline["longest_stall_ms"],
-                   STALL_FACTOR, STALL_SLACK_MS, "{:.0f} ms")]
+                   RENDER_RTF_FACTOR, RENDER_RTF_SLACK, "{:.2f}")]
+        if "longest_wait_ms" in baseline:
+            checks += [("longest stall (inside a piece)", stall, baseline["longest_stall_ms"],
+                        STALL_FACTOR, STALL_SLACK_MS, "{:.0f} ms"),
+                       ("longest wait (between pieces)", wait, baseline["longest_wait_ms"],
+                        STALL_FACTOR, STALL_SLACK_MS, "{:.0f} ms")]
+        else:  # a row measured before #54: its longest_stall_ms is the longest gap of either kind
+            checks.append(("longest stall", row.best("longest_gap_ms"), baseline["longest_stall_ms"],
+                           STALL_FACTOR, STALL_SLACK_MS, "{:.0f} ms"))
         for name, now, base, factor, slack, fmt in checks:
             if now > base * factor + slack:
                 row.reasons.append(f"{name} regressed: {fmt.format(now)} vs baseline {fmt.format(base)}")
@@ -260,18 +336,36 @@ def judge(row: SpeedRow, model: WarningModel, length_at_1x_ms: float | None, bas
         row.result = "FAIL"
     elif not keeps_up:
         row.result = "WARNED"
-        row.notes.append(f"stalls {stall:.0f} ms; the app warns at this speed")
+        mode = f" ({row.mode_label} mode)" if row.mode_label != "-" else ""
+        row.notes.append(f"{_gaps_text(stall, wait)}{mode}; the app warns at this speed")
     else:
         row.result = "PASS"
         if row.warns:
             row.notes.append("keeps up, but the app warns at this speed")
 
 
+def _gaps_text(stall: float, wait: float) -> str:
+    """The audible gaps of [KEEPUP_MAX_STALL_MS] or more, by kind."""
+    parts = []
+    if stall >= KEEPUP_MAX_STALL_MS:
+        parts.append(f"stalls {stall:.0f} ms inside a piece")
+    if wait >= KEEPUP_MAX_STALL_MS:
+        parts.append(f"waits {wait:.0f} ms between pieces")
+    return " and ".join(parts)
+
+
 def baseline_entry(row: SpeedRow, build: str, date: str) -> dict:
-    return {"first_sound_ms": round(row.best("first_sound_ms")),
-            "render_rtf": round(row.best("render_rtf"), 3),
-            "longest_stall_ms": round(row.best("longest_stall_ms")),
-            "build": build, "measured": date}
+    """longest_stall_ms is inside a piece and longest_wait_ms between pieces.
+    A row whose piece boundaries were unknown keeps the old form (only
+    longest_stall_ms, the longest gap of either kind), which judge() reads as such."""
+    entry = {"first_sound_ms": round(row.best("first_sound_ms")),
+             "render_rtf": round(row.best("render_rtf"), 3)}
+    if all(t.pieces_known for t in row.takes):
+        entry["longest_stall_ms"] = round(row.best("longest_stall_ms"))
+        entry["longest_wait_ms"] = round(row.best("longest_wait_ms"))
+    else:
+        entry["longest_stall_ms"] = round(row.best("longest_gap_ms"))
+    return {**entry, "build": build, "measured": date}
 
 
 def load_baseline(path: Path) -> dict:
@@ -302,20 +396,25 @@ def word_match(reference: str, heard: str) -> float:
 
 
 def table(rows: list[SpeedRow]) -> list[list[str]]:
+    def ms(metric: str) -> str:
+        if not r.takes:
+            return "-"
+        v = r.best(metric)
+        return f"{v:.0f} ms" if v else "none"
+
     out = []
     for r in rows:
-        stalls = r.best("longest_stall_ms")
-        out.append([r.engine, r.voice.split(":", 1)[-1], f"{r.speed:g}x", r.bundle, r.result,
+        out.append([r.engine, r.voice.split(":", 1)[-1], f"{r.speed:g}x", r.bundle, r.result, r.mode_label,
                     f"{r.best('first_sound_ms'):.0f} ms" if r.takes else "-",
                     f"{r.best('render_rtf'):.2f}" if r.takes else "-",
-                    (f"{stalls:.0f} ms" if stalls else "none") if r.takes else "-",
+                    ms("longest_wait_ms"), ms("longest_stall_ms"),
                     "-" if r.warns is None else ("yes" if r.warns else "no"),
                     "; ".join(r.reasons + r.notes)[:160]])
     return out
 
 
-TABLE_COLS = ["engine", "voice", "speed", "bundle", "result", "first sound", "render RTF",
-              "longest stall", "app warns", "why"]
+TABLE_COLS = ["engine", "voice", "speed", "bundle", "result", "mode", "first sound", "render RTF",
+              "longest wait (between pieces)", "longest stall (inside a piece)", "app warns", "why"]
 
 ENGINE_NAMES = {"kitten-direct-v0_8": "Kitten", "kokoro-direct-v1_0": "Kokoro",
                 "kokoro-de-v1_0": "Kokoro German", "pocket-tts-en-v2026_04": "Pocket",
@@ -339,17 +438,14 @@ def write_lab(out: Path, rows: list[SpeedRow], meta: dict, texts: dict[str, str]
         for r in mine:
             t = r.takes[0] if r.takes else None
             clip = f'<audio controls preload="none" src="{escape(t.wav)}"></audio>' if t and t.wav else "-"
-            heard_wav = as_heard_name(t.wav) if t and t.wav and t.stalls else None
+            heard_wav = as_heard_name(t.wav) if t and t.wav and t.gaps else None
             heard = (f'<audio controls preload="none" src="{escape(heard_wav)}"></audio>'
-                     if heard_wav else "same (no stall)")
-            stalls = ", ".join(f"{s:.0f} ms at {a / 1000:.1f} s" for a, s in t.stalls) if t else "-"
-            best = r.best("longest_stall_ms")
-            if t and best != t.longest_stall_ms:
-                stalls = (stalls or "none") + f" (best take: {f'{best:.0f} ms' if best else 'none'})"
+                     if heard_wav else "same (no gap)")
             whisper = (f'{r.whisper_match:.0%} <small>“{escape(r.whisper or "")}”</small>'
                        if r.whisper_match is not None else "not run")
-            cells = [f"{r.speed:g}×", verdict(r), clip, heard,
-                     f"{r.best('first_sound_ms'):.0f} ms" if t else "-", escape(stalls or "none"),
+            cells = [f"{r.speed:g}×", verdict(r), _mode_cell(r), clip, heard,
+                     f"{r.best('first_sound_ms'):.0f} ms" if t else "-",
+                     _gaps_cell(r, "waits", "longest_wait_ms"), _gaps_cell(r, "stalls", "longest_stall_ms"),
                      "yes" if r.warns else "no", whisper, escape("; ".join(r.reasons + r.notes)) or "-"]
             trs.append("<tr>" + "".join(f"<td>{c}</td>" for c in cells) + "</tr>")
         lang = "de" if engine == "kokoro-de-v1_0" else "en"
@@ -359,8 +455,9 @@ def write_lab(out: Path, rows: list[SpeedRow], meta: dict, texts: dict[str, str]
 from {_warn_from(pred, meta['threshold'])}. Measured from skin {mine[0].skin_c} °C with
 {mine[0].mem_available_mb} MB free. Text: “{escape(texts[lang])}”</p>
 <table>
-<thead><tr><th>speed</th><th>gate</th><th>clip (as rendered)</th><th>as heard on the 6a</th>
-<th>first sound</th><th>stalls</th><th>app warns</th><th>Whisper</th><th>notes</th></tr></thead>
+<thead><tr><th>speed</th><th>gate</th><th>mode</th><th>clip (as rendered)</th><th>as heard on the 6a</th>
+<th>first sound</th><th>waits (between pieces)</th><th>stalls (inside a piece)</th><th>app warns</th>
+<th>Whisper</th><th>notes</th></tr></thead>
 <tbody>{''.join(trs)}</tbody></table>""")
 
     gate_rows = "".join("<tr>" + "".join(f"<td>{escape(c)}</td>" for c in cells) + "</tr>" for cells in table(rows))
@@ -380,11 +477,16 @@ from {_warn_from(pred, meta['threshold'])}. Measured from skin {mine[0].skin_c} 
 gate drives. <b>{escape(meta['summary'])}</b></p>
 <div class="note">
 <p><b>How to listen.</b> “Clip” is the audio as the engine made it. “As heard on the 6a” is the same clip with
-silence put in wherever playback would have waited for the engine (a stall). Nothing was played aloud: the
-gate times each chunk as it arrives and replays that against the clock.</p>
-<p><b>Gate rule.</b> PASS: keeps up (no stall of {KEEPUP_MAX_STALL_MS} ms or more). WARNED: stalls, and the app
-shows its speed warning at that speed. FAIL: stalls where the app shows no warning, no audio, the speed didn't
-apply, or slower than the last release's baseline.</p>
+silence put in wherever playback would have waited for the engine. A wait falls between pieces (sentences or
+clauses); a stall falls inside one, a stutter. Nothing was played aloud: the gate times each chunk as it
+arrives and replays that against the clock.</p>
+<p><b>Mode.</b> How the app chose to send each request (its <code>RenderMode</code> line): stream (slices as they
+render), chunk (each piece held until it can't run dry) or whole (the engine renders every piece whole), with
+the render RTF the choice used and where it came from. “-”: no line (VITS, or a build from before #54).</p>
+<p><b>Gate rule.</b> PASS: keeps up (no wait or stall of {KEEPUP_MAX_STALL_MS} ms or more). WARNED: waits or
+stalls that long, and the app shows its speed warning at that speed. FAIL: a stall inside a piece in chunk mode,
+a long wait or stall where the app shows no warning, no audio, the speed didn't apply, or slower than the last
+release's baseline.</p>
 <p>Build {escape(meta['build'])} · {escape(meta['date'])} · {escape(meta['phone'])} ({escape(meta['screen'])}) ·
 best of {meta['takes']} takes per row; clips are from the first take.</p>
 </div>
@@ -397,6 +499,30 @@ best of {meta['takes']} takes per row; clips are from the first take.</p>
     path = out / "speed-lab.html"
     path.write_text(html)
     return path
+
+
+def _mode_cell(r: SpeedRow) -> str:
+    """The first take's mode (its clip is the one the lab plays), and the others' if they differ."""
+    if not r.takes or r.takes[0].mode_label == "-":
+        return "-"
+    t = r.takes[0]
+    rtf = f"{t.rtf:.2f}" if t.rtf is not None else "-"
+    cell = f"{escape(t.mode_label)} <small>RTF {rtf} ({escape(t.source or '?')})</small>"
+    if r.mode_label != t.mode_label:
+        cell += f" <small>takes: {escape(r.mode_label)}</small>"
+    return cell
+
+
+def _gaps_cell(r: SpeedRow, kind: str, metric: str) -> str:
+    """The first take's gaps of one kind, and the best take's longest when it differs."""
+    if not r.takes:
+        return "-"
+    t = r.takes[0]
+    text = ", ".join(f"{s:.0f} ms at {a / 1000:.1f} s" for a, s in getattr(t, kind)) or "none"
+    best = r.best(metric)
+    if best != getattr(t, metric):
+        text += f" (best take: {f'{best:.0f} ms' if best else 'none'})"
+    return escape(text)
 
 
 def _warn_from(pred: float | None, threshold: float) -> str:
