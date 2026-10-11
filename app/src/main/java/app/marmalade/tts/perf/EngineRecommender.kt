@@ -108,8 +108,8 @@ object EngineRecommender {
      * Before #52 the costs modelled the slower `foreground` cpuset (CPUs
      * 0–5, no X1) that a screen-off foreground service gets, about twice
      * as slow (#50 measured both placements). Android 11 and older still
-     * read that way (the reader's session needs the Android 12 TTS manager);
-     * a measured in-app RTF replaces the prediction there after one read.
+     * read that way (the reader's session needs the Android 12 TTS
+     * manager), so they keep those costs: [FOREGROUND_COST].
      *
      * Pocket's 2.39 was the v27 bundle's render (#38: v21 → v27 ratio
      * 0.486 / 0.572 on the same phone, scaled from #18's v21 cost 2.81);
@@ -124,6 +124,24 @@ object EngineRecommender {
         POCKET to 1.70,
         VITS to 0.37,
     )
+
+    /**
+     * The pre-#52 costs, for phones whose reader can't hold its TTS session
+     * ([DeviceProbe.readerOnFastCores] false: Android 11 and older) and so
+     * renders in the `foreground` cpuset with the screen off. Same method
+     * without the session (#18; Pocket v27 #38, Kokoro #50).
+     */
+    val FOREGROUND_COST: Map<String, Double> = mapOf(
+        KITTEN to 1.23,
+        KOKORO to 4.69,
+        KOKORO_DE to 4.05,
+        POCKET to 2.39,
+        VITS to 0.79,
+    )
+
+    /** The cost table for where this phone's in-app reader runs. */
+    fun costs(probe: DeviceProbe): Map<String, Double> =
+        if (probe.readerOnFastCores) REFERENCE_COST else FOREGROUND_COST
 
     /**
      * The onboarding probe's Kitten RTF on the reference phone, measured in
@@ -185,11 +203,12 @@ object EngineRecommender {
 
     /**
      * Predicted warm RTF for [engineName] on this device, or null when the
-     * probe carries no signal or the engine isn't in [REFERENCE_COST]. The
-     * speed-up warning uses it before measured RTFs accrue.
+     * probe carries no signal or the engine isn't modelled ([costs]). The
+     * speed-up warning uses it before measured RTFs accrue; setup's fits
+     * ([recommend]) only ever use it.
      */
     fun predictedRtf(engineName: String, probe: DeviceProbe): Double? {
-        val cost = REFERENCE_COST[engineName] ?: return null
+        val cost = costs(probe)[engineName] ?: return null
         return probeKittenRtf(probe)?.let { it * cost }
     }
 
@@ -202,9 +221,10 @@ object EngineRecommender {
      */
     fun recommend(probe: DeviceProbe, offered: Collection<String>): EngineRecommendation? {
         val kittenRtf = probeKittenRtf(probe) ?: return null
-        val rtf = { engine: String -> kittenRtf * REFERENCE_COST.getValue(engine) }
+        val cost = costs(probe)
+        val rtf = { engine: String -> kittenRtf * cost.getValue(engine) }
         val pick = candidates(offered).first { it == KITTEN || rtf(it) <= RECOMMENDED_MAX_RTF }
-        val fits = (offered.filter { it in REFERENCE_COST } + KITTEN).associateWith { engine ->
+        val fits = (offered.filter { it in cost } + KITTEN).associateWith { engine ->
             when {
                 engine == pick -> EngineFit.RECOMMENDED
                 engine == KITTEN || rtf(engine) <= FINE_MAX_RTF -> EngineFit.FINE

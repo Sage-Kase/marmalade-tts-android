@@ -31,8 +31,8 @@ This project follows [Semantic Versioning](https://semver.org/).
   later). On a Pixel 6a with the screen off, Kokoro renders about twice
   as fast and no longer pauses mid-sentence at normal speed, and a long
   read uses less battery per hour of listening, not more.
-- **Speed estimates match**: setup and the speed warning now expect every
-  engine to render at that faster rate. On phones like the Pixel 6a, the
+- **Speed estimates match**: on Android 12 and later, setup and the speed
+  warning now expect every engine to render at that faster rate. On phones like the Pixel 6a, the
   speed warning no longer shows for Kokoro at normal speed (it starts at
   about 1.75×), and setup recommends Pocket on somewhat slower phones than
   before.

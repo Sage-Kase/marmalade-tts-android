@@ -922,8 +922,9 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   "Fine" in onboarding and warns from about 1.75×. Before #52 they
   modelled the screen-off `foreground` cpuset (Kokoro 4.69, predicting
   0.97, warning from 1.0×). Android 11 and older keep the slow placement
-  (no TTS manager service), and their first measured read replaces the
-  prediction.
+  (no TTS manager service, so no hold) and keep those pre-#52 costs:
+  `FOREGROUND_COST`, picked by `DeviceProbe.readerOnFastCores` (=
+  `TopAppHold.supported`, the hold's own SDK gate).
 - Re-bench before changing a cost or a `SpeedTier`: costs are bench
   service RTF ÷ in-app probe RTF, and the bench must run on the reader's
   cores: `EngineBenchService --ez topApp true` holds the reader's TTS

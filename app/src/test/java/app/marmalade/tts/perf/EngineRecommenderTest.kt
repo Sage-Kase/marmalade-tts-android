@@ -39,10 +39,14 @@ class EngineRecommenderTest {
     private fun cost(engine: String) = EngineRecommender.REFERENCE_COST.getValue(engine)
 
     /** A measured probe whose predicted RTF for [engine] is [rtf]. */
-    private fun probeFor(engine: String, rtf: Double) = DeviceProbe(
-        measuredKittenRtf = rtf / cost(engine),
-        computeScore = EngineRecommender.ANCHOR_COMPUTE_SCORE,
-    )
+    private fun probeFor(engine: String, rtf: Double, fastCores: Boolean = true): DeviceProbe {
+        val costs = if (fastCores) EngineRecommender.REFERENCE_COST else EngineRecommender.FOREGROUND_COST
+        return DeviceProbe(
+            measuredKittenRtf = rtf / costs.getValue(engine),
+            computeScore = EngineRecommender.ANCHOR_COMPUTE_SCORE,
+            readerOnFastCores = fastCores,
+        )
+    }
 
     /** The reference phone (Pixel 6a) as the app measured it. */
     private val referencePhone = DeviceProbe(EngineRecommender.ANCHOR_PROBE_RTF, EngineRecommender.ANCHOR_COMPUTE_SCORE)
@@ -182,6 +186,52 @@ class EngineRecommenderTest {
         assertEquals(EngineFit.MAY_BE_SLOW, rec.fits[kokoro])
     }
 
+    // -- Android 11 and older: no TopAppHold, the pre-#52 costs (#52 review) --------
+
+    /** The reference phone's speed on Android 11 or older: the reader stays on the slower cores. */
+    private val referenceOnOldAndroid = referencePhone.copy(readerOnFastCores = false)
+
+    @Test
+    fun theCostTableFollowsWhereTheReaderRuns() {
+        assertEquals(EngineRecommender.REFERENCE_COST, EngineRecommender.costs(referencePhone))
+        assertEquals(EngineRecommender.FOREGROUND_COST, EngineRecommender.costs(referenceOnOldAndroid))
+        assertEquals(EngineRecommender.REFERENCE_COST.keys, EngineRecommender.FOREGROUND_COST.keys)
+        for (engine in EngineRecommender.REFERENCE_COST.keys) {
+            assertTrue(engine, EngineRecommender.FOREGROUND_COST.getValue(engine) > cost(engine))
+        }
+    }
+
+    @Test
+    fun predictedRtfOnBothSidesOfAndroid12() {
+        assertEquals(0.46, EngineRecommender.predictedRtf(kokoro, referencePhone)!!, 0.005)
+        assertEquals(0.97, EngineRecommender.predictedRtf(kokoro, referenceOnOldAndroid)!!, 0.005)
+        assertEquals(0.35, EngineRecommender.predictedRtf(pocket, referencePhone)!!, 0.005)
+        assertEquals(0.49, EngineRecommender.predictedRtf(pocket, referenceOnOldAndroid)!!, 0.005)
+    }
+
+    @Test
+    fun kokoroIsFineOnAndroid12ButMayBeSlowOnOlder() {
+        assertEquals(EngineFit.FINE, EngineRecommender.recommend(referencePhone, fdroid)!!.fits[kokoro])
+        val old = EngineRecommender.recommend(referenceOnOldAndroid, fdroid)!!
+        assertEquals(pocket, old.recommended)
+        assertEquals(EngineFit.MAY_BE_SLOW, old.fits[kokoro])
+        assertEquals(kitten, EngineRecommender.recommend(referenceOnOldAndroid, noPocket)!!.recommended)
+    }
+
+    @Test
+    fun pocketsComfortLineOnBothSidesOfAndroid12() {
+        val eps = 1e-6
+        for (fast in listOf(true, false)) {
+            val line = EngineRecommender.RECOMMENDED_MAX_RTF
+            assertEquals("fast=$fast", pocket, EngineRecommender.recommend(probeFor(pocket, line - eps, fast), fdroid)!!.recommended)
+            assertEquals("fast=$fast", kitten, EngineRecommender.recommend(probeFor(pocket, line + eps, fast), fdroid)!!.recommended)
+        }
+        // A phone twice as slow as the reference: Pocket on Android 12+, Kitten before.
+        val twiceAsSlow = DeviceProbe(EngineRecommender.ANCHOR_PROBE_RTF * 2, 5.0)
+        assertEquals(pocket, EngineRecommender.recommend(twiceAsSlow, fdroid)!!.recommended)
+        assertEquals(kitten, EngineRecommender.recommend(twiceAsSlow.copy(readerOnFastCores = false), fdroid)!!.recommended)
+    }
+
     // -- invariants -------------------------------------------------------------
 
     @Test
@@ -204,6 +254,13 @@ class EngineRecommenderTest {
             assertEquals(
                 EngineRecommender.ANCHOR_PROBE_RTF * cost,
                 EngineRecommender.predictedRtf(engine, referencePhone)!!,
+                1e-9,
+            )
+        }
+        for ((engine, cost) in EngineRecommender.FOREGROUND_COST) {
+            assertEquals(
+                EngineRecommender.ANCHOR_PROBE_RTF * cost,
+                EngineRecommender.predictedRtf(engine, referenceOnOldAndroid)!!,
                 1e-9,
             )
         }

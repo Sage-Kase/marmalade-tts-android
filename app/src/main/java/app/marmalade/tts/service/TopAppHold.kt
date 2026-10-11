@@ -51,7 +51,7 @@ class TopAppHold @Inject constructor(
     }
 
     private fun bind() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        if (!supported) return
         // Debug builds' A/B switch (#52's battery runs); release never reads it.
         if (EngineDevKnobs.get(context.filesDir, "topAppHold") == "off") return
         tts = selfSession(context)
@@ -75,6 +75,14 @@ class TopAppHold @Inject constructor(
         @Volatile
         var connecting: Boolean = false
             private set
+
+        /**
+         * Whether the hold can run here (Android 12+, see the class doc). The
+         * speed predictions read it too ([app.marmalade.tts.perf.DeviceProbe.readerOnFastCores]):
+         * without the hold the reader stays on the slower cores.
+         */
+        val supported: Boolean
+            get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 
         /**
          * A silent session to this app's own engine; [TextToSpeech.shutdown]
