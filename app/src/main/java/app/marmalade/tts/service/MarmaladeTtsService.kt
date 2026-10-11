@@ -22,6 +22,7 @@ import app.marmalade.tts.data.KokoroDirectVoiceCatalog
 import app.marmalade.tts.data.CloudApiVoiceCatalog
 import app.marmalade.tts.data.PocketVoiceCatalog
 import app.marmalade.tts.data.VitsVoiceCatalog
+import app.marmalade.tts.data.allRetiredVoices
 import app.marmalade.tts.data.isVoiceReleased
 import app.marmalade.tts.engine.vits.VitsDirectEngine
 import app.marmalade.tts.install.EngineInstaller
@@ -451,17 +452,19 @@ class MarmaladeTtsService : TextToSpeechService() {
 
     /**
      * Called by the system when a voice is selected. Accept any voice ID
-     * the catalog knows about (kitten or kokoro); reject the rest so the
-     * system falls back to the language-level default.
+     * the catalog knows about (kitten or kokoro), and a retired one a client
+     * saved before it went ([liveVoiceName]); reject the rest so the system
+     * falls back to the language-level default.
      */
     override fun onLoadVoice(voiceName: String?): Int {
         if (voiceName.isNullOrEmpty()) return TextToSpeech.ERROR
+        val live = liveVoiceName(voiceName)
         // Cache-first: every voice the catalog ships gets seeded into
         // voiceEngineCache by the onCreate collector. Defensive runBlocking
         // fallback covers the race where the framework asks about a voice
         // that arrived since the service started.
-        val cached = voiceEngineCache[voiceName]?.engine
-        val engineName = cached ?: runBlocking { voiceDao.findById(voiceName) }
+        val cached = voiceEngineCache[live]?.engine
+        val engineName = cached ?: runBlocking { voiceDao.findById(live) }
             ?.also { voiceEngineCache[it.id] = VoiceRouting(it.engine, it.sampleRate) }
             ?.engine
         return if (engineName != null && isKnownEngine(engineName)) {
@@ -472,6 +475,13 @@ class MarmaladeTtsService : TextToSpeechService() {
     }
 
     override fun onIsValidVoiceName(voiceName: String?): Int = onLoadVoice(voiceName)
+
+    /**
+     * [voiceName], or its replacement when its catalog retired it (issue #2:
+     * Kokoro's `af_sky` → `af_heart`): a client that saved the old name keeps
+     * speaking, with the voice its aliases were moved to.
+     */
+    private fun liveVoiceName(voiceName: String): String = allRetiredVoices[voiceName] ?: voiceName
 
     public override fun onGetDefaultVoiceNameFor(
         lang: String?,
@@ -866,7 +876,7 @@ class MarmaladeTtsService : TextToSpeechService() {
      * main thread).
      */
     internal fun resolveSynthParams(request: SynthesisRequest): SynthParams {
-        val requested = request.voiceName?.takeIf { it.isNotBlank() }
+        val requested = request.voiceName?.takeIf { it.isNotBlank() }?.let(::liveVoiceName)
         val callerPackage = resolveCallerPackage(request)
 
         // 1. Per-app mapping wins over the caller-specified voice. Single

@@ -3,8 +3,9 @@ package app.marmalade.tts.data
 import app.marmalade.tts.data.db.VoiceMeta
 
 /**
- * Static catalog of the 53 Kokoro v1.0 voices, served by the direct-ORT
- * `KokoroDirectEngine`.
+ * Static catalog of the Kokoro v1.0 voices, served by the direct-ORT
+ * `KokoroDirectEngine`: the 53 speakers of the bundle's `voices.bin`, of
+ * which the app offers all but [retiredVoices].
  *
  * Voice naming convention (upstream `hexgrad/Kokoro-82M` v1.0):
  *   First letter (region/language):
@@ -28,13 +29,23 @@ object KokoroDirectVoiceCatalog {
     fun voiceId(voiceKey: String): String = "$ENGINE:$voiceKey"
 
     /**
-     * The 53 Kokoro v1.0 voices, in the exact order Sherpa-ONNX's
+     * Voices the app no longer offers (retired id → replacement id), applied
+     * on every start by [migrateRetiredVoices] and by system TTS to a request
+     * that names one. `af_sky` went in 1.2 (issue #2) for `af_heart`, another
+     * American English female voice. Its `voices.bin` row stays (the bundle
+     * is unchanged); [liveVoiceKey] keeps the engine from ever speaking it.
+     */
+    val retiredVoices: Map<String, String> = mapOf(voiceId("af_sky") to voiceId("af_heart"))
+
+    /**
+     * All 53 Kokoro v1.0 voices, in the exact order Sherpa-ONNX's
      * `voices.bin` packs them (see `scripts/kokoro/v1.0/generate_voices_bin.py`
      * in the sherpa-onnx repo). The list index is the speaker ID passed
      * into `voices.bin` row lookup, so this must stay in lockstep with
-     * the bundled binary.
+     * the bundled binary: a retired voice stays here. `sortOrder` is the
+     * speaker index.
      */
-    val voices: List<VoiceMeta> = listOf(
+    private val speakerVoices: List<VoiceMeta> = listOf(
         // 0–10  American female
         seed("af_alloy"),
         seed("af_aoede"),
@@ -102,6 +113,9 @@ object KokoroDirectVoiceCatalog {
         seed("zm_yunyang"),
     ).mapIndexed { i, v -> v.copy(sortOrder = i) }
 
+    /** The voices the app offers: every speaker but [retiredVoices]. */
+    val voices: List<VoiceMeta> = speakerVoices.filter { it.id !in retiredVoices }
+
     /**
      * Map a raw voice key (the `af_bella` part of the voice id — NOT the
      * flagged displayName) to its speaker index in `voices.bin`.
@@ -113,7 +127,14 @@ object KokoroDirectVoiceCatalog {
 
     /** Pre-built key→index map; built once at class-load time. */
     private val SPEAKER_INDEX: Map<String, Int> =
-        voices.mapIndexed { i, v -> v.id.substringAfter(':') to i }.toMap()
+        speakerVoices.mapIndexed { i, v -> v.id.substringAfter(':') to i }.toMap()
+
+    /**
+     * The raw key the engine speaks a request for [voiceKey] with: its
+     * replacement when it is retired ([retiredVoices]), else itself.
+     */
+    fun liveVoiceKey(voiceKey: String): String =
+        retiredVoices[voiceId(voiceKey)]?.substringAfter(':') ?: voiceKey
 
     /**
      * UI label for a raw voice key: flag + capitalized speaker handle,
