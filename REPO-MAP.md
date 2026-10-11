@@ -1136,6 +1136,18 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   `installFailureText`) and offers Retry + "Remove download".
 - `MainActivity.kt` — decides between `OnboardingScreen` and `AppRoot`
   based on `onboarded` flag; sets theme via `MarmaladeTtsTheme`.
+- `ui/SettingsLinks.kt` + `ui/SystemSettings.kt` (#53, ported from
+  marmalade-stt-android #79) — onboarding's and Settings' jumps into system
+  Settings (Text-to-speech output; the battery exemption). `SettingsLinks`
+  holds the pure per-SDK target lists and the resolve rule (unit-tested);
+  `SystemSettings.open` resolves each target (one exported match, no
+  permission we lack; only the final `ACTION_SETTINGS` may show a chooser),
+  starts it with NEW_TASK|CLEAR_TASK, and if our screen comes back within
+  1.5 s from a full-screen page while the job isn't done, tries the next
+  target. The battery dialog isn't watched: a quick Deny is an answer. On AOSP 9–17 the
+  first target always wins (`com.android.settings.TTS_SETTINGS`; the battery
+  dialog); the rest are for phone makers' Settings. Debug probe:
+  `devbench/SettingsLinkProbeActivity` (usage in its KDoc).
 - **"What's new" pop-up** (#41, 1.2): `ui/whatsnew/WhatsNewDialog.kt`
   (an M3 `AlertDialog`; title is a heading, notes a TalkBack list) shown by
   `AppRoot` over the Speak route only, while `AppRootViewModel.showWhatsNew`.
@@ -1253,6 +1265,19 @@ patterns. Don't read SherpaTTS source files into a context that will
 write Marmalade code.
 
 ## Known quirks / recent gotchas
+
+- **Android 17 Settings crashes on an explicit component without its action
+  (#53, from STT #79).** Language & region's `onViewCreated` compares the
+  intent's action, so `setClassName(...)` alone NPEs Settings, and with
+  Settings in our task that took our activity down too. Every explicit
+  Settings component in `SettingsLinks` carries its action, Settings always
+  opens in its own task, and a bounce (back within 1.5 s) falls through to
+  the next target. Related traps: `LANGUAGE_SETTINGS` matches two activities
+  on 14/15 (a chooser); the highlight extra `:settings:fragment_args_key` is
+  read only inside the `:settings:show_fragment_args` bundle up to 16; the
+  battery dialog closes at once when we're already exempt; on 15
+  `Settings$LanguageAndInputSettingsActivity` still resolves but crashes
+  Settings ("Invalid fragment for this activity"), so it isn't a 14+ target.
 
 - **In-app speech holds a TTS session to its own app (#52, `service/TopAppHold.kt`).**
   A screen-off foreground service sits in the `foreground` cpuset (6a: CPUs
