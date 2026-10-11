@@ -74,6 +74,10 @@ the phone to cool (skin ≤ 33 °C: a warm 6a renders a third slower). A stall w
 reference phone's prediction, constants read from the Kotlin) shows no warning
 fails, as does a regression against the committed `speed-baseline.json`
 (refresh on purpose: `--write-baseline`, per engine with `--engines`).
+Since #54 each gap is a **wait** (playback ran dry exactly at a piece's first
+byte, from the service's Info line `pieces: starts=… samples=…`) or a
+**stall** (inside a piece); a stall inside a piece when the engine's
+`RenderMode` line says chunk mode (or `path=whole`) fails the row.
 Before measuring it restarts the app and reads the `EngineBundle` lines its
 TTS service logs on start (`install/InstalledBundle.kt`: per engine/pack on
 disk, the download its install meta records vs the catalog's) and refuses
@@ -555,6 +559,33 @@ When investigating **{concern}**, start at **{files}**:
   `REFERENCE_COST[kokoro-de]` 2.12. On the `foreground` cpuset (Android 11
   and older) 0.8 s instead of 2.4 s but RTF 0.97 vs 0.85 (Thorsten's
   planner keeps more fp32 than base Kokoro's): `FOREGROUND_COST` 4.62.
+- **Chunk mode: whole pieces when the engine can't keep up** (#54,
+  `engine/ChunkMode.kt`). Per request each streaming engine (Kokoro's
+  streaming path, Kitten, Pocket) picks a `RenderMode`: stream (slices as
+  they render, as before) while its RTF × playback rate is ≤ 0.6, else chunk
+  mode. The RTF is the engine's own rolling measurement in this process,
+  else `perf/RenderPace` (the app's measured RTF, else `EngineRecommender`'s
+  prediction: the speed warning's sources), else none (stream). In chunk mode
+  a `PieceGate` holds each piece's slices for `holdMs`: until every slice
+  still to render arrives before playback reaches it (estimates from the
+  piece's slice grid and a `SliceCost` fit, each × 1.1, against the
+  engine's `PlaybackHorizon`), else until the piece is fully rendered: a wait
+  falls before a sentence or clause, never inside one. Kokoro and Kitten use
+  `TimedPieceGate` (a timer releases at the computed moment, not at the next
+  slice) and cut 2 s slices in chunk mode
+  (`KittenStreamSlicing.CHUNK_MODE_MAX_SLICE_FRAMES`): a 4 s last slice needs
+  most of the sentence banked. First try (1.3 margin, release only at a
+  slice, 4 s slices) made Kokoro at 2× on the 6a wait 2.3 s before the long
+  gate sentence, where streaming had stuttered ~1.1 s in all; the shipped
+  rule waits ~0.5 s once. Pocket stays slice-granular (its deadline-cut
+  slices are small). Kokoro's whole path
+  (no streaming layout, e.g. German v25) sends whole pieces anyway and logs
+  `path=whole`. Logs: Info `RenderMode: <engine> mode=chunk rtf=0.43
+  (predicted) speed=2.00 played=0.86 path=sliced` per request (R8 keeps it;
+  the release gate reads it), `StreamPerf` `<engine> chunk-mode release
+  held=…ms slices=… rest=…` per held piece. Debug knob `chunkMode=on|off`
+  forces a mode. The 0.6 threshold: on the 6a Kokoro v26 (RTF ~0.43)
+  streamed clean at 1.25× (played 0.54) and stalled 60–120 ms at 1.5× (0.65).
 - **Pocket streams** (issue #15, `engine/PocketEngine.kt` + `engine/pocket/`;
   both flavors since #29). Five graphs: text_conditioner, mimi_encoder (voice prompt),
   flow_lm_main (the AR transformer, int8, 6 KV caches of 1000 rows), flow_lm_flow
@@ -619,6 +650,14 @@ When investigating **{concern}**, start at **{files}**:
     1.3 s → 0 per 3-paragraph run, 0.44 s → 0.01 s per 14 sentences, same
     RTF, +3% CPU, audio within 1 LSB. Per-thread cores: `ps -T -p <pid> -o
     TID,PSR,TIME+` (`~/coding/scratch/pocket-speed/psr.sh`).
+  - **Chunk mode** (#54, `engine/ChunkMode.kt`): when the request's `RenderMode`
+    says the render can't keep up, a `PieceGate` in front of the bank holds each
+    mini-chunk's slices until `PocketStreamPlan.chunkRest` (length guessed from
+    tokens ×1.2, AR at `arMs`, decoder at `decodeCost`) says the rest can't run
+    dry against `horizon` (a `PlaybackHorizon` fed by every send), else until the
+    chunk is decoded. The RTF it decides on is the AR loop's and the decoder's
+    own time (`pocket chunk=… own=`), not wall time: read-ahead back-pressure
+    would otherwise read as a slow render.
   - **Threads** ("B", `PocketSessionPlan`): the flow head and the decoder get
     half the threads (at least 2): with the decoder alongside the AR loop, two
     full pools oversubscribed the 6a (2 decoder threads: same RTF, −11% CPU,
@@ -651,7 +690,7 @@ When investigating **{concern}**, start at **{files}**:
     A/B), `pocket.ortProfile=<requests>`, `pocket.file.<graph>` (sideloaded
     graph), `pocket.cacheLen`, `pocket.mimiCap`. Logcat `StreamPerf`: per chunk
     `pocket chunk=i prof …` (AR split main/state/flow) and `… decode=…`, per
-    slice `pocket slice …`, per request `pocket hold=…`. Bench driver and
+    slice `pocket slice …`, per request `pocket hold=…`, per held chunk `pocket chunk-mode release …`. Bench driver and
     analysis scripts: `~/coding/scratch/pocket-speed/`.
 - `engine/SherpaEngine.kt` — abstract base (loadLock, ensureModelLoaded,
   synthesize, release, floatToPcm16, sampleRate)
@@ -792,8 +831,10 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   Logcat `D/AudioTrackOutput`: `track opened|released|rebuild`, and per block
   boundary `seg A→B session=S pad=Xms underrun=Yms` (0/0 = gapless); a chunk
   that came after the session's real audio ran out (the render fell behind,
-  #52) logs `stall before seg S chunk C session=X silent=Yms`, from when the
-  audio ran dry to the late chunk's write. A refused
+  #52) logs `stall before seg S chunk C session=X silent=Yms piece=start|mid`,
+  from when the audio ran dry to the late chunk's write; `piece=mid` is a
+  stutter inside a sentence (#54: `OutputCommand.Write.pieceStart` carries
+  the chunk's resume-point flag). A refused
   format, failed write or parked track (head frozen 2.5 s while playing real
   audio) → `OutputEvent.TrackFailed` for EVERY session with audio on or queued
   for that track (a short one-shot can sit on it whole, End applied) → each
