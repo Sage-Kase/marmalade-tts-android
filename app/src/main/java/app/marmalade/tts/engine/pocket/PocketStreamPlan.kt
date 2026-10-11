@@ -1,5 +1,7 @@
 package app.marmalade.tts.engine.pocket
 
+import app.marmalade.tts.engine.SliceEstimate
+
 /**
  * When to cut a slice in Pocket's streamed render (issue #15 "E"): latent
  * frames are decoded and sent in slices while the AR loop is still running,
@@ -189,7 +191,66 @@ object PocketStreamPlan {
         return clock.stallMs()
     }
 
+    /**
+     * Chunk mode's length guess for a mini-chunk (#54): [tokens] at
+     * [msPerToken] of audio each, in frames of [frameMs], times
+     * [CHUNK_EST_MARGIN]. Lengths are only known to ±15%, and a guess too
+     * long only holds a slow render's chunk a little longer.
+     */
+    fun chunkEstFrames(tokens: Int, msPerToken: Double, frameMs: Double): Int =
+        kotlin.math.ceil(tokens * msPerToken / frameMs * CHUNK_EST_MARGIN).toInt()
+
+    /**
+     * Chunk mode (#54): the slices of a mini-chunk still to arrive once
+     * [decodedFrames] of it are decoded, for [app.marmalade.tts.engine.keepsUp]. The AR loop has
+     * generated [generatedFrames] ([finished]: all of them); the chunk is
+     * guessed at [estFrames] ([chunkEstFrames]) and, while the AR loop is
+     * still on it, at least [PocketSliceClock.MIN_SLICE_FRAMES] more (a
+     * guess the render has already overtaken knows nothing better).
+     *
+     * The frames left are cut into slices of [sliceFrames]. A slice is
+     * submitted once the AR loop (at [arMsPerFrame]) has generated its last
+     * frame and is decoded in [decodeMs]: beside the AR loop when [overlap],
+     * else blocking it. Each estimate's render time is the gap between its
+     * arrival and the previous one's (the first counts from now), its played
+     * length `frames × [playedFrameMs]`.
+     */
+    fun chunkRest(
+        estFrames: Int,
+        generatedFrames: Int,
+        decodedFrames: Int,
+        finished: Boolean,
+        sliceFrames: Int,
+        arMsPerFrame: Double,
+        decodeMs: (Int) -> Double,
+        overlap: Boolean,
+        playedFrameMs: Double,
+    ): List<SliceEstimate> {
+        val queued = (generatedFrames - decodedFrames).coerceAtLeast(0)
+        val toGenerate = if (finished) 0 else maxOf(estFrames - generatedFrames, PocketSliceClock.MIN_SLICE_FRAMES)
+        val size = sliceFrames.coerceAtLeast(1)
+        val out = ArrayList<SliceEstimate>()
+        var ar = 0.0 // when the AR loop has generated the frames so far
+        var decoderFree = 0.0
+        var lastArrival = 0.0
+        var cut = 0
+        while (cut < queued + toGenerate) {
+            val n = minOf(size, queued + toGenerate - cut)
+            // Frames of this slice the AR loop still has to generate.
+            ar += (cut + n - maxOf(cut, queued)).coerceAtLeast(0) * arMsPerFrame
+            val arrival = (if (overlap) maxOf(ar, decoderFree) else ar) + decodeMs(n)
+            if (overlap) decoderFree = arrival else ar = arrival
+            out += SliceEstimate(arrival - lastArrival, n * playedFrameMs)
+            lastArrival = arrival
+            cut += n
+        }
+        return out
+    }
+
     private const val HOLD_PASSES = 3
+
+    /** [chunkEstFrames]' margin over the token-rate guess. */
+    const val CHUNK_EST_MARGIN = 1.2
 }
 
 /**
