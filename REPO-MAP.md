@@ -1275,7 +1275,9 @@ write Marmalade code.
   the next target. Related traps: `LANGUAGE_SETTINGS` matches two activities
   on 14/15 (a chooser); the highlight extra `:settings:fragment_args_key` is
   read only inside the `:settings:show_fragment_args` bundle up to 16; the
-  battery dialog closes at once when we're already exempt.
+  battery dialog closes at once when we're already exempt; on 15
+  `Settings$LanguageAndInputSettingsActivity` still resolves but crashes
+  Settings ("Invalid fragment for this activity"), so it isn't a 14+ target.
 
 - **In-app speech holds a TTS session to its own app (#52, `service/TopAppHold.kt`).**
   A screen-off foreground service sits in the `foreground` cpuset (6a: CPUs

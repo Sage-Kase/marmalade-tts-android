@@ -24,7 +24,7 @@ enum class SettingsPage(val dialog: Boolean = false) {
     /** Text-to-speech output, with the Preferred engine row. */
     TTS,
 
-    /** Android 9 to 15: Languages & input, with the Text-to-speech output row. */
+    /** Android 9 to 13: Languages & input, with the Text-to-speech output row. */
     LANGUAGES_AND_INPUT,
 
     /** Android 14 to 16: Languages, with the Text-to-speech output row. */
@@ -114,9 +114,11 @@ object SettingsLinks {
      * exported and with no permission, on every release from 9 to 17. The
      * rest only open where a phone maker dropped or renamed it: the page
      * that holds the Text-to-speech output row, its row highlighted.
-     * - 9 to 13: Languages & input. 14 and 15 also have Languages, and
-     *   `LANGUAGE_SETTINGS` matches both there (a chooser), so the
-     *   activities are named.
+     * - 9 to 13: Languages & input. 14 and 15 have Languages, named by
+     *   activity because `LANGUAGE_SETTINGS` matches both pages there (a
+     *   chooser). Their Languages & input activity is not tried: it still
+     *   resolves on 15, but Settings crashes on it ("Invalid fragment for
+     *   this activity", the API 35 emulator), and 14 disables it.
      * - 16 has Languages only, and disables it when Language & region
      *   replaces it; 16 QPR2 and 17 open Language & region, whose Speech
      *   page holds the row. The System page, its language row highlighted,
@@ -138,7 +140,7 @@ object SettingsLinks {
         }
         val system = settings("SystemDashboardActivity", SettingsPage.SYSTEM, systemRow)
         return when {
-            sdk >= 34 -> listOf(tts, languageAndRegion, languages, languagesAndInput, system, HOME)
+            sdk >= 34 -> listOf(tts, languageAndRegion, languages, system, HOME)
             else -> listOf(tts, languagesAndInput, system, HOME)
         }
     }

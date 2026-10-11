@@ -57,7 +57,7 @@ class SettingsLinksTest {
     }
 
     @Test
-    fun `14 and later fall back to Language and region, Languages, Languages and input, then System`() {
+    fun `14 and later fall back to Language and region, Languages, then System`() {
         for (sdk in 34..37) {
             val systemRow = if (sdk >= 36) "language_and_region_settings" else "language_settings"
             assertEquals(
@@ -68,7 +68,7 @@ class SettingsLinksTest {
                     component("LanguageAndRegionSettingsActivity", SettingsPage.LANGUAGE_AND_REGION, "speech_preference")
                         .copy(action = "android.settings.LANGUAGE_SETTINGS"),
                     component("LanguageSettingsActivity", SettingsPage.LANGUAGES, "tts_settings_summary"),
-                    languagesAndInput,
+                    // Not Languages & input: Settings crashes on it on 15 (the API 35 emulator).
                     component("SystemDashboardActivity", SettingsPage.SYSTEM, systemRow),
                     home,
                 ),
