@@ -1577,7 +1577,7 @@ open class EngineInstaller @Inject constructor(
      *
      * The model is either the unsplit model.onnx (v23 and older) or the
      * streaming layout (issue #13 "E"): planner + gen graphs and a
-     * genstats/<voice>.bin for every voice — the same either/or the
+     * genstats/<voice>.bin for every offered voice — the same either/or the
      * engine's own `KokoroDirectEngine.isInstalledIn` applies. Since v26
      * (issue #25) the planner is planner-rest + its text encoder `textenc`
      * (`textenc-en`, the English student, is optional). A graph may ship as

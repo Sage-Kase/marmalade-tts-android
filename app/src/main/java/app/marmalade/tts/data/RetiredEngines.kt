@@ -40,6 +40,15 @@ internal suspend fun migrateRetiredEngines(
 }
 
 /**
+ * Every catalog's retired voices (retired id → replacement id): what
+ * [migrateRetiredVoices] applies at start, and what system TTS speaks a
+ * request naming a retired voice with (`MarmaladeTtsService`).
+ */
+internal val allRetiredVoices: Map<String, String> =
+    PocketVoiceCatalog.retiredVoices + PocketDevVoiceCatalog.retiredVoices +
+        KokoroDirectVoiceCatalog.retiredVoices
+
+/**
  * Move everything that points at a retired voice onto its replacement
  * (retired voice id → replacement voice id, same engine), the voice-level
  * twin of [migrateRetiredEngines] (issue #19: Pocket's `marius` dropped for

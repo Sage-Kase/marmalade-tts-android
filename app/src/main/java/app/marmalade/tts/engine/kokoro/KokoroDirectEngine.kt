@@ -377,6 +377,13 @@ open class KokoroDirectEngine @Inject constructor(
     protected open fun speakerIdFor(voiceKey: String): Int =
         KokoroDirectVoiceCatalog.speakerIdFor(voiceKey)
 
+    /**
+     * The key a request for [voiceKey] renders with: a retired voice's
+     * replacement, else itself. Not a seam: no subclass key is retired.
+     */
+    private fun liveVoiceKey(voiceKey: String): String =
+        KokoroDirectVoiceCatalog.liveVoiceKey(voiceKey)
+
     /** espeak phonemization voice for [voiceKey] — see [espeakPhonemes]. */
     protected open fun espeakVoiceFor(voiceKey: String): String =
         KokoroDirectVoiceCatalog.espeakVoiceFor(voiceKey)
@@ -789,7 +796,9 @@ open class KokoroDirectEngine @Inject constructor(
         val streamStartNs = System.nanoTime()
         ensureLoadedSuspending()
         val loadWaitMs = (System.nanoTime() - streamStartNs) / 1_000_000
-        val voiceName = voiceId.substringAfter(':', voiceId)
+        // A retired voice (a stale caller, a not-yet-migrated alias) renders
+        // as its replacement, style row and generator statistics alike.
+        val voiceName = liveVoiceKey(voiceId.substringAfter(':', voiceId))
         // Resolve effective phonemization language: explicit override > voice's
         // natural language. espeakVoiceFor maps each voice prefix (af_*→en-us,
         // jf_*→ja, zf_*→en-us-since-zh-goes-through-lexicon). The value also
@@ -1844,7 +1853,8 @@ open class KokoroDirectEngine @Inject constructor(
             File(dir, "$graph.ort").takeIf { it.isFile } ?: File(dir, "$graph.onnx")
 
         /**
-         * Raw keys of the multilingual catalog's 53 voices: the default
+         * Raw keys of the multilingual catalog's offered voices (a retired
+         * one's stats may stay in the bundle, unread): the default
          * [voiceKeys] of the layout helpers below. An engine with its own
          * voices passes its own keys ([genStatsVoiceKeys]).
          */

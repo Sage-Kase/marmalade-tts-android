@@ -11,11 +11,12 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
  * Issue #13 "E": what pointed at a retired debug engine moves to its
- * replacement; issue #19: likewise for a retired voice.
+ * replacement; issues #19 and #2: likewise for a retired voice.
  */
 class RetiredEnginesTest {
 
@@ -169,6 +170,49 @@ class RetiredEnginesTest {
             PocketDevVoiceCatalog.retiredVoices.filterKeys { it.endsWith(":marius") },
         )
         assertEquals(PocketVoiceCatalog.retiredVoices.size, PocketDevVoiceCatalog.retiredVoices.size)
+    }
+
+    // -- Kokoro's `af_sky` → `af_heart` (issue #2) ------------------------
+
+    @Test
+    fun `an upgrade moves a Sky alias and default voice to Heart and stops offering Sky`() = runTest {
+        val sky = KokoroDirectVoiceCatalog.voiceId("af_sky")
+        val heart = KokoroDirectVoiceCatalog.voiceId("af_heart")
+        // An install from before 1.2: Sky seeded, an alias and the default voice on it.
+        val aliases = FakeAliasDao(listOf(alias("primary", sky).copy(speed = 1.3f)))
+        val voices = MemoryVoiceDao(KokoroDirectVoiceCatalog.voices + voice(sky))
+        val settings = FakeSettings(sky)
+
+        // What MarmaladeTtsApplication runs at start: the reseed, then the retirements.
+        voices.upsertAll(KokoroDirectVoiceCatalog.voices)
+        repeat(2) { migrateRetiredVoices(allRetiredVoices, aliases, voices, settings) }
+
+        val primary = aliases.getAll().first().single()
+        assertEquals(heart, primary.voiceId)
+        // Same alias (per-app routes and fallbacks key off its id), same settings.
+        assertEquals("primary", primary.id)
+        assertEquals(KokoroDirectVoiceCatalog.ENGINE, primary.engine)
+        assertEquals(1.3f, primary.speed, 0f)
+        assertEquals("other", primary.fallbackAliasId)
+        assertEquals(heart, settings.defaultVoiceId.first())
+        assertNull(voices.findById(sky))
+        assertEquals(KokoroDirectVoiceCatalog.voices.map { it.id }.toSet(), voices.rows.value.map { it.id }.toSet())
+    }
+
+    @Test
+    fun `every catalog's retired voices are applied at start`() {
+        assertEquals(
+            PocketVoiceCatalog.retiredVoices + PocketDevVoiceCatalog.retiredVoices +
+                KokoroDirectVoiceCatalog.retiredVoices,
+            allRetiredVoices,
+        )
+        // Every replacement is a voice its catalog still offers.
+        val offered = (PocketVoiceCatalog.voices + PocketDevVoiceCatalog.voices + KokoroDirectVoiceCatalog.voices)
+            .map { it.id }.toSet()
+        for ((from, to) in allRetiredVoices) {
+            assertTrue(from, to in offered)
+            assertTrue(from, from !in offered)
+        }
     }
 
     @Test

@@ -236,7 +236,7 @@ class KokoroBundleLayoutTest {
         assertTrue(KokoroDirectEngine.isInstalledIn(dir, germanKeys))
         assertEquals(RenderPath.STREAMING, KokoroDirectEngine.renderPathFor(dir, streamKnob = null, voiceKeys = germanKeys))
         assertTrue("v26 planner", KokoroDirectEngine.usesSplitPlanner(dir, plannerKnob = null))
-        // The multilingual engine needs all 53 voices' stats: not its layout.
+        // The multilingual engine needs every offered voice's stats: not its layout.
         assertFalse(KokoroDirectEngine.hasStreamingLayout(dir))
         assertFalse(KokoroDirectEngine.isInstalledIn(dir))
     }

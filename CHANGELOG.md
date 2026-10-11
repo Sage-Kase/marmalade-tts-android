@@ -156,6 +156,8 @@ This project follows [Semantic Versioning](https://semver.org/).
 ### Removed
 - **The Pocket voice Marius**, which sounded much worse than the others.
   Voices and settings that used Marius now use Alba.
+- **The Kokoro voice Sky** is no longer offered; voices and settings that
+  used Sky now use Heart.
 
 ### Fixed
 - **The buttons that open Android's settings land on the right page on

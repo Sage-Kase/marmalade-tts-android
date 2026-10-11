@@ -365,6 +365,28 @@ class MarmaladeTtsServiceTest {
         assertEquals("kokoro-direct-v1_0:bm_lewis", fakeKokoroDirectEngine.calls.single().second)
     }
 
+    // -- retired voices (issue #2: Kokoro's af_sky → af_heart) ---------------
+
+    @Test
+    fun aRetiredVoiceIsNotListedButAClientThatSavedItStillLoadsIt() {
+        val sky = "kokoro-direct-v1_0:af_sky"
+        assertTrue(service.onGetVoices().none { it.name == sky })
+        assertEquals(TextToSpeech.SUCCESS, service.onLoadVoice(sky))
+        assertEquals(TextToSpeech.SUCCESS, service.onIsValidVoiceName(sky))
+    }
+
+    @Test
+    fun aRequestNamingARetiredVoiceSpeaksWithItsReplacement() {
+        fakeKokoroDirectEngine.nextPcm = ShortArray(1024) { 0 }
+
+        service.onSynthesizeText(
+            newRequestWithVoice("hello", "kokoro-direct-v1_0:af_sky"),
+            FakeSynthesisCallback(),
+        )
+
+        assertEquals("kokoro-direct-v1_0:af_heart", fakeKokoroDirectEngine.calls.single().second)
+    }
+
     // -- primary-alias routing vs auto-filled voiceName --------------------
     //
     // TTS clients auto-fill SynthesisRequest.voiceName from the engine's

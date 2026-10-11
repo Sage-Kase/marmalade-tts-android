@@ -2,6 +2,7 @@ package app.marmalade.tts.data
 
 import app.marmalade.tts.data.db.VoiceMeta
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -30,9 +31,25 @@ class VoiceCatalogOrderingTest {
 
     @Test
     fun `kokoro sortOrder equals speaker index`() {
-        KokoroDirectVoiceCatalog.voices.forEachIndexed { i, v ->
-            assertEquals(v.id, i, v.sortOrder)
+        for (v in KokoroDirectVoiceCatalog.voices) {
+            assertEquals(v.id, KokoroDirectVoiceCatalog.speakerIdFor(v.id.substringAfter(':')), v.sortOrder)
         }
+    }
+
+    @Test
+    fun `sky is not offered but keeps its voices_bin row, and renders as heart`() {
+        val sky = KokoroDirectVoiceCatalog.voiceId("af_sky")
+        val heart = KokoroDirectVoiceCatalog.voiceId("af_heart")
+        assertEquals(mapOf(sky to heart), KokoroDirectVoiceCatalog.retiredVoices)
+        assertTrue(KokoroDirectVoiceCatalog.voices.none { it.id == sky })
+        assertEquals(52, KokoroDirectVoiceCatalog.voices.size)
+        // Removing Sky from the list must not shift the rows after it.
+        assertEquals(10, KokoroDirectVoiceCatalog.speakerIdFor("af_sky"))
+        assertEquals(11, KokoroDirectVoiceCatalog.speakerIdFor("am_adam"))
+        assertEquals(52, KokoroDirectVoiceCatalog.speakerIdFor("zm_yunyang"))
+        assertEquals("af_heart", KokoroDirectVoiceCatalog.liveVoiceKey("af_sky"))
+        assertEquals("af_bella", KokoroDirectVoiceCatalog.liveVoiceKey("af_bella"))
+        assertEquals("no_such_voice", KokoroDirectVoiceCatalog.liveVoiceKey("no_such_voice"))
     }
 
     @Test
