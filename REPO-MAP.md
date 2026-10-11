@@ -548,6 +548,13 @@ When investigating **{concern}**, start at **{files}**:
   Its genstats are fitted on German only (250 lines, CV sentence-collector
   CC0 + PD Kafka/Hesse; tokens from the app-exact G2P spec
   `kokoro-german-lab/fixtures/gen_fixtures_de.py`): 0.84 dB held out.
+  The catalog points at engines release v28 (`kokoro-de-v1_0.tar.gz`,
+  153,045,045 B, installed 170,513,746; `bundle/make_bundle.sh`). On the
+  6a's reader cores (#52's top-app hold, screen off) it starts speaking in
+  0.4 s instead of 1.2 s at the same render speed (RTF 0.43 vs v25 0.41):
+  `REFERENCE_COST[kokoro-de]` 2.12. On the `foreground` cpuset (Android 11
+  and older) 0.8 s instead of 2.4 s but RTF 0.97 vs 0.85 (Thorsten's
+  planner keeps more fp32 than base Kokoro's): `FOREGROUND_COST` 4.62.
 - **Pocket streams** (issue #15, `engine/PocketEngine.kt` + `engine/pocket/`;
   both flavors since #29). Five graphs: text_conditioner, mimi_encoder (voice prompt),
   flow_lm_main (the AR transformer, int8, 6 KV caches of 1000 rows), flow_lm_flow

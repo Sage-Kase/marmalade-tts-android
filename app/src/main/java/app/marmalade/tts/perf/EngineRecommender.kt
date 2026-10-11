@@ -116,11 +116,21 @@ object EngineRecommender {
      * the debug build here has v21, and the ratio carries over. Kokoro's
      * 4.69 was #50's re-measure of v26 (#25 had read 4.17; #49's later-chunk
      * cut costs nothing).
+     *
+     * Kokoro German is its v28 streaming bundle (#35, 2026-10-10,
+     * `~/coding/scratch/kokoro-de-k35/phone/`; the table row above is v25).
+     * Without the session, #18's method on German B1 sentences and three
+     * Hesse paragraphs read v28 at 0.981 / 0.963 against v25's 0.853 /
+     * 0.850 in the same session: 4.05 × 0.972 / 0.852 = 4.62, its
+     * [FOREGROUND_COST]. #52's A/B on v28, the same texts, A-B-B-A: without
+     * 1.000 / 0.875, with 0.434 / 0.427, ratio 0.459, so 4.62 × 0.459 = 2.12
+     * (v25's 2.06 × 1.03: on the fast cores v28 renders about as fast as
+     * v25 did).
      */
     val REFERENCE_COST: Map<String, Double> = mapOf(
         KITTEN to 0.62,
         KOKORO to 2.25,
-        KOKORO_DE to 2.06,
+        KOKORO_DE to 2.12,
         POCKET to 1.70,
         VITS to 0.37,
     )
@@ -129,12 +139,13 @@ object EngineRecommender {
      * The pre-#52 costs, for phones whose reader can't hold its TTS session
      * ([DeviceProbe.readerOnFastCores] false: Android 11 and older) and so
      * renders in the `foreground` cpuset with the screen off. Same method
-     * without the session (#18; Pocket v27 #38, Kokoro #50).
+     * without the session (#18; Pocket v27 #38, Kokoro #50, Kokoro German v28
+     * #35).
      */
     val FOREGROUND_COST: Map<String, Double> = mapOf(
         KITTEN to 1.23,
         KOKORO to 4.69,
-        KOKORO_DE to 4.05,
+        KOKORO_DE to 4.62,
         POCKET to 2.39,
         VITS to 0.79,
     )

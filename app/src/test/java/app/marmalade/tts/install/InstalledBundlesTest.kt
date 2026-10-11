@@ -49,6 +49,7 @@ class InstalledBundlesTest {
         stage("kokoro-direct-v1_0", old, "ab".repeat(32))
         val german = catalog("kokoro-de-v1_0")
         stage("kokoro-de-v1_0", german.url, german.sha256)
+        val germanRelease = InstalledBundle.releaseOf(german.url)
         val pocket = stage("pocket-tts-en-v2026_04", url = null, sha = null)
         val pack = VoicePackCatalog.all.first()
         stage("${pack.engine}/packs/${pack.id}", pack.archive.url, pack.archive.sha256)
@@ -65,7 +66,7 @@ class InstalledBundlesTest {
             byName.getValue("kokoro-direct-v1_0").logLine(),
         )
         assertEquals(
-            "kokoro-de-v1_0 installed=v25 catalog=v25 current sha=${german.sha256.take(12)}",
+            "kokoro-de-v1_0 installed=$germanRelease catalog=$germanRelease current sha=${german.sha256.take(12)}",
             byName.getValue("kokoro-de-v1_0").logLine(),
         )
         assertEquals(

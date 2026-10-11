@@ -70,7 +70,9 @@ data class EngineArchive(
  * 0.4 s) and Jenny (0.17, 0.7 s); FAST = Pocket (0.63, 0.55 s; the v27
  * bundle 0.49, 0.38 s, issue #38's same-phone re-bench, so still FAST);
  * MODERATE = Kokoro (0.87 published render, 2.1 s) and Kokoro German (0.83,
- * 3.1 s), which barely keep up on that phone. HEAVY is left for the Pocket
+ * 3.1 s; its streaming v28 0.97, 0.8 s, issue #35), which barely keep up on
+ * that phone with the screen off in the `foreground` cpuset (on the
+ * reader's top-app cores since #52, v28 renders at 0.43). HEAVY is left for the Pocket
  * clean-reference build. Re-bench before moving an engine.
  */
 enum class SpeedTier(val meterFill: Int) {
@@ -240,7 +242,7 @@ object EngineCatalog {
     //   find <extracted-dir> -type f -exec stat -c %s {} + | awk '{s+=$1} END {print s}'
     private const val KITTEN_DIRECT_INSTALLED_SIZE_BYTES: Long = 78_417_260L
     private const val KOKORO_DIRECT_INSTALLED_SIZE_BYTES: Long = 306_245_266L
-    private const val KOKORO_DE_INSTALLED_SIZE_BYTES: Long = 183_180_788L
+    private const val KOKORO_DE_INSTALLED_SIZE_BYTES: Long = 170_513_746L
     // v27 bundle: english_2026-09 weights, symbolic-cache graphs, v21's
     // voices minus marius plus the five #38 voices (cosette/jean dropped
     // since v21 — CC-BY-NC-4.0), and each voice's precomputed embedding.
@@ -385,18 +387,23 @@ object EngineCatalog {
      * override lexicon), so the bundle ships no lexicon-zh.txt or
      * openjtalk_dic. Desktop gates all green (Whisper large-v3 corpus
      * WER 0.88%, the community-rated 4.5/5 reference).
+     *
+     * From bundle v28 (issue #35) that model ships cut into Kokoro's v26
+     * streaming layout: planner-rest + textenc (Thorsten's own ALBERT with
+     * mixed int8 weights) + gen + genstats/thorsten.bin, no model.onnx and
+     * no textenc-en. An installed v25 keeps rendering whole until updated.
      */
     private val KOKORO_GERMAN: EngineDescriptor = EngineDescriptor(
         name = "kokoro-de-v1_0",
         displayName = "Kokoro German (Thorsten)",
         descriptionRes = R.string.engine_kokoro_de_desc,
-        downloadSizeBytes = 165_992_407L,
+        downloadSizeBytes = 153_045_045L,
         installedSizeBytes = KOKORO_DE_INSTALLED_SIZE_BYTES,
         isRecommended = false,
         archive = EngineArchive(
-            url = "https://github.com/maxwhipw/marmalade-tts-android-engines/releases/download/v25/kokoro-de-v1_0.tar.gz",
-            sha256 = "8ab002715bd8922ab9c14d2b1818b79a498f842b0c0e2f9a8b39ff541c06c726",
-            sizeBytes = 165_992_407L,
+            url = "https://github.com/maxwhipw/marmalade-tts-android-engines/releases/download/v28/kokoro-de-v1_0.tar.gz",
+            sha256 = "3a479a5076776376f9cc583e6c67aa28b60c964bb4ff378cdcb84df93afffe3e",
+            sizeBytes = 153_045_045L,
             archiveRoot = "kokoro-de-v1_0/",
         ),
         licenseNotice = "LICENSES/kokoro-de.md",

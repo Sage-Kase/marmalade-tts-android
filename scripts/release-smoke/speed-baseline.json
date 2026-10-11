@@ -29,30 +29,30 @@
       "measured": "2026-10-10"
     },
     "kokoro-de-v1_0:thorsten@1": {
-      "first_sound_ms": 663,
-      "render_rtf": 0.433,
+      "first_sound_ms": 335,
+      "render_rtf": 0.441,
       "longest_stall_ms": 0,
       "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
       "measured": "2026-10-10"
     },
     "kokoro-de-v1_0:thorsten@1.25": {
-      "first_sound_ms": 688,
-      "render_rtf": 0.523,
+      "first_sound_ms": 347,
+      "render_rtf": 0.549,
       "longest_stall_ms": 0,
       "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
       "measured": "2026-10-10"
     },
     "kokoro-de-v1_0:thorsten@1.5": {
-      "first_sound_ms": 664,
-      "render_rtf": 0.631,
-      "longest_stall_ms": 0,
+      "first_sound_ms": 370,
+      "render_rtf": 0.691,
+      "longest_stall_ms": 128,
       "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
       "measured": "2026-10-10"
     },
     "kokoro-de-v1_0:thorsten@2": {
-      "first_sound_ms": 663,
-      "render_rtf": 0.896,
-      "longest_stall_ms": 495,
+      "first_sound_ms": 347,
+      "render_rtf": 0.957,
+      "longest_stall_ms": 165,
       "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
       "measured": "2026-10-10"
     },
