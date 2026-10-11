@@ -118,7 +118,8 @@ class PocketChunkModeTest {
     @Test
     fun `the gate holds a slow chunk to its end and passes a fast one straight through`() {
         val slow = firstSliceRest(arMs = 50.0, decodeMs = decode6a)
-        val held = PieceGate<String>(rate = { 2f })
+        // As PocketEngine builds it: chunkRest charges the slow decode itself.
+        val held = PieceGate<String>(slowSlice = null, rate = { 2f })
         held.startPiece(chunk = true)
         assertEquals(emptyList<String>(), held.offer("s0", 480.0, nowMs = 0, aheadMs = 0.0) { slow })
         val slowAfter2 = firstSliceRest(arMs = 50.0, decodeMs = decode6a, slices = 2)
@@ -126,14 +127,14 @@ class PocketChunkModeTest {
         assertEquals(listOf("s0", "s1"), held.endPiece(nowMs = 2_000))
 
         val fast = firstSliceRest(arMs = 30.0, decodeMs = { n -> 30.0 + 5.0 * n })
-        val open = PieceGate<String>()
+        val open = PieceGate<String>(slowSlice = null)
         open.startPiece(chunk = true)
         assertEquals(listOf("f0"), open.offer("f0", 480.0, nowMs = 0, aheadMs = 0.0) { fast })
         val fastAfter2 = firstSliceRest(arMs = 30.0, decodeMs = { n -> 30.0 + 5.0 * n }, slices = 2)
         assertEquals(listOf("f1"), open.offer("f1", 480.0, nowMs = 200, aheadMs = 0.0) { fastAfter2 })
 
         // Stream mode: even the slow render's slices go at once.
-        val stream = PieceGate<String>(rate = { 2f })
+        val stream = PieceGate<String>(slowSlice = null, rate = { 2f })
         stream.startPiece(chunk = false)
         assertEquals(listOf("s0"), stream.offer("s0", 480.0, nowMs = 0, aheadMs = 0.0) { slow })
     }

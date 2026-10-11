@@ -120,6 +120,74 @@ class ChunkModeTest {
         assertEquals(920.0, holdMs(0.0, 250.0, big, margin = 1.0), 1e-9)
     }
 
+    /**
+     * Plays a piece that starts [startMs] from now, its first [bankedAudioMs] already
+     * rendered, while the rest render back to back in [rendersMs]: the longest the
+     * listener waits inside it (0: none).
+     */
+    private fun stallMs(startMs: Double, bankedAudioMs: Double, rendersMs: List<Double>, audioMs: List<Double>, rate: Double): Double {
+        var clock = startMs + bankedAudioMs / rate
+        var arrives = 0.0
+        var worst = 0.0
+        for ((render, audio) in rendersMs.zip(audioMs)) {
+            arrives += render
+            worst = maxOf(worst, arrives - clock)
+            clock = maxOf(clock, arrives) + audio / rate
+        }
+        return worst
+    }
+
+    @Test
+    fun `a piece released with the slow-slice allowance survives one slice at 1_8x its estimate`() {
+        // #57, 6a, Kokoro at 1.5x: the second sentence after its 0.5 s and 1 s slices,
+        // three 2 s slices and a short last one still to render (estimates in ms).
+        val est = listOf(770.0, 804.0, 835.0, 212.0)
+        val audio = listOf(2000.0, 2000.0, 2000.0, 90.0)
+        val rest = est.zip(audio) { r, a -> SliceEstimate(r, a) }
+        // The first 2 s slice took 1.8x its estimate, the others their estimate.
+        val actual = listOf(1.8 * est[0]) + est.drop(1)
+        // Without the allowance it goes at once, and stalls 1.8 x 770 - 1000 = 386 ms inside.
+        val plain = holdMs(0.0, 1500.0, rest, rate = 1.5f)
+        assertEquals(0.0, plain, 1e-9)
+        assertEquals(386.0, stallMs(plain, 1500.0, actual, audio, 1.5), 1e-9)
+        val held = holdMs(0.0, 1500.0, rest, rate = 1.5f, slowSlice = PieceGate.SLOW_SLICE)
+        assertTrue(held > plain)
+        assertEquals(0.0, stallMs(held, 1500.0, actual, audio, 1.5), 1e-9)
+        // Wherever the slow slice falls.
+        for (i in est.indices) {
+            val slowAt = est.mapIndexed { j, r -> if (j == i) 1.8 * r else r }
+            assertEquals("slow slice $i", 0.0, stallMs(held, 1500.0, slowAt, audio, 1.5), 1e-9)
+        }
+    }
+
+    @Test
+    fun `the slow-slice allowance is one slice's worth, not a margin on every slice`() {
+        // 2 s slices at 2x, each estimated at 900 ms: the allowance adds (2.0 - 1.1) x 900 once.
+        val rest = List(4) { SliceEstimate(900.0, 2000.0) }
+        val plain = holdMs(0.0, 1000.0, rest, rate = 2f)
+        assertEquals(810.0, holdMs(0.0, 1000.0, rest, rate = 2f, slowSlice = 2.0) - plain, 1e-9)
+        // None (null, or not above the margin) leaves the hold as it was.
+        assertEquals(plain, holdMs(0.0, 1000.0, rest, rate = 2f, slowSlice = 1.0), 1e-9)
+        // A length the engine can't bound still holds, with or without it (never NaN).
+        val unbounded = listOf(SliceEstimate(Double.POSITIVE_INFINITY, 0.0))
+        assertEquals(Double.POSITIVE_INFINITY, holdMs(0.0, 0.0, unbounded), 0.0)
+        assertEquals(Double.POSITIVE_INFINITY, holdMs(0.0, 0.0, unbounded, slowSlice = 2.0), 0.0)
+    }
+
+    @Test
+    fun `the gate holds for one slow slice by default`() {
+        // Released at once without the allowance; held with it.
+        val rest = { listOf(SliceEstimate(400.0, 1000.0), SliceEstimate(400.0, 1000.0)) }
+        val without = PieceGate<String>(slowSlice = null)
+        without.startPiece(chunk = true)
+        assertEquals(listOf("s0"), without.offer("s0", 500.0, 0, 0.0, rest))
+        val gate = PieceGate<String>()
+        gate.startPiece(chunk = true)
+        assertEquals(emptyList<String>(), gate.offer("s0", 500.0, 0, 0.0, rest))
+        // 1.1 x 400 + 0.9 x 400 - 500 = 300 ms.
+        assertEquals(300L, gate.dueAtMs)
+    }
+
     @Test
     fun `nothing left to render keeps up`() {
         assertTrue(keepsUp(0.0, 0.0, emptyList()))
@@ -139,7 +207,7 @@ class ChunkModeTest {
     @Test
     fun `chunk mode holds a piece until the rest can't run dry, then streams the rest`() {
         val released = ArrayList<Triple<Long, Int, Int>>()
-        val gate = PieceGate<String>(margin = 1.0) { ms, n, rest -> released += Triple(ms, n, rest) }
+        val gate = PieceGate<String>(margin = 1.0, slowSlice = null) { ms, n, rest -> released += Triple(ms, n, rest) }
         gate.startPiece(chunk = true)
         val rest = listOf(SliceEstimate(570.0, 500.0), SliceEstimate(1020.0, 1000.0), SliceEstimate(1700.0, 2000.0))
         assertEquals(emptyList<String>(), gate.offer("s0", 250.0, 1_000, 0.0) { rest })
@@ -189,6 +257,7 @@ class ChunkModeTest {
             scope = this,
             send = { out -> out.forEach { sent += testScheduler.currentTime to it } },
             nowMs = { testScheduler.currentTime },
+            slowSlice = null,
         )
         val job = launch {
             gate.startPiece(chunk = true)
@@ -222,7 +291,7 @@ class ChunkModeTest {
     @Test
     fun `the timed gate's end of piece wins over a pending timer`() = runTest {
         val sent = ArrayList<String>()
-        val gate = TimedPieceGate<String>(this, send = { sent += it }, nowMs = { testScheduler.currentTime })
+        val gate = TimedPieceGate<String>(this, send = { sent += it }, nowMs = { testScheduler.currentTime }, slowSlice = null)
         gate.startPiece(chunk = true)
         gate.offer("s0", 250.0, aheadMs = { 0.0 }) { listOf(SliceEstimate(5_000.0, 500.0)) }
         gate.endPiece()
@@ -236,7 +305,7 @@ class ChunkModeTest {
     @Test
     fun `at its due time the timed gate holds on while the slice in flight is late`() = runTest {
         val sent = ArrayList<String>()
-        val gate = TimedPieceGate<String>(this, send = { sent += it }, nowMs = { testScheduler.currentTime })
+        val gate = TimedPieceGate<String>(this, send = { sent += it }, nowMs = { testScheduler.currentTime }, slowSlice = null)
         gate.startPiece(chunk = true)
         // Due at ≈ 603 ms (as above), but the next slice (≤ 495 ms) never lands.
         gate.offer("s0", 250.0, aheadMs = { 0.0 }) {
@@ -256,7 +325,7 @@ class ChunkModeTest {
     @Test
     fun `a faster speed holds longer`() {
         var rate = 1f
-        val gate = PieceGate<String>(margin = 1.0, rate = { rate })
+        val gate = PieceGate<String>(margin = 1.0, slowSlice = null, rate = { rate })
         gate.startPiece(chunk = true)
         val rest = listOf(SliceEstimate(400.0, 1000.0))
         // 500 ms of audio banked at 1x covers the 400 ms render.

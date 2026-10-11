@@ -821,9 +821,10 @@ open class PocketEngine @Inject constructor(
         val playedFrameMs = frameMs / rate
         // Chunk mode (#54): the gate sits in front of the bank. Each chunk's
         // AR progress is the AR thread's, read by the decoder: a job's channel
-        // hand-off makes it at least as fresh as that job.
+        // hand-off makes it at least as fresh as that job. chunkRest already
+        // charges one slow decode per piece, so the gate adds none.
         var gateChunk = 0
-        val gate = PieceGate<SynthAudio>(rate = pace::rate) { heldMs, slices, rest ->
+        val gate = PieceGate<SynthAudio>(slowSlice = null, rate = pace::rate) { heldMs, slices, rest ->
             Log.d(PERF_TAG, "pocket chunk-mode release chunk=$gateChunk held=${heldMs}ms slices=$slices rest=$rest")
         }
         val generated = IntArray(miniChunks.size)
