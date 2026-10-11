@@ -12,11 +12,11 @@ import app.marmalade.tts.data.SettingsRepository
 import app.marmalade.tts.engine.EngineDevKnobs
 import app.marmalade.tts.engine.EngineNotInstalledException
 import app.marmalade.tts.engine.OrtRunAbort
-import app.marmalade.tts.engine.PieceGate
 import app.marmalade.tts.engine.PlaybackHorizon
 import app.marmalade.tts.engine.RenderMode
 import app.marmalade.tts.engine.SliceCost
 import app.marmalade.tts.engine.SliceEstimate
+import app.marmalade.tts.engine.TimedPieceGate
 import app.marmalade.tts.engine.SynthAudio
 import app.marmalade.tts.engine.TtsEngine
 import app.marmalade.tts.engine.abortableInference
@@ -499,16 +499,21 @@ open class KittenDirectEngine @Inject constructor(
         val mode = RenderMode.forRequest(engineName, settings, ctx.filesDir, modeRtf, playbackRate)
         mode.log(engineName)
         val rate = mode.playbackRate
-        val gate = PieceGate<SynthAudio>(mode.chunk) { heldMs, slices, rest ->
-            Log.d(PERF_TAG, "kitten chunk-mode release held=${heldMs}ms slices=$slices rest=$rest")
-        }
+        val maxSlice = if (mode.chunk) KittenStreamSlicing.CHUNK_MODE_MAX_SLICE_FRAMES else KittenStreamSlicing.MAX_SLICE_FRAMES
+        val gate = TimedPieceGate<SynthAudio>(
+            mode.chunk,
+            scope = this,
+            send = { out ->
+                for (audio in out) {
+                    send(audio)
+                    horizon.onEmitted((audio.pcm.size * 1000L / sampleRate / rate).toLong())
+                }
+            },
+            onRelease = { heldMs, slices, rest ->
+                Log.d(PERF_TAG, "kitten chunk-mode release held=${heldMs}ms slices=$slices rest=$rest")
+            },
+        )
         var firstSent = false
-        suspend fun sendAll(out: List<SynthAudio>) {
-            for (audio in out) {
-                send(audio)
-                horizon.onEmitted((audio.pcm.size * 1000L / sampleRate / rate).toLong())
-            }
-        }
         try {
             for ((idx, chunk) in chunks.withIndex()) {
                 // A cancelled stream (reader tap, Stop, skip) must stop HERE:
@@ -533,7 +538,7 @@ open class KittenDirectEngine @Inject constructor(
                     }
                     // Every piece keeps the sentence's [rowText] register.
                     gate.startPiece()
-                    renderIpa(piece.text, piece.ipa, voiceName, speed, rowText = chunk.rowText) { pcm, first, rest ->
+                    renderIpa(piece.text, piece.ipa, voiceName, speed, rowText = chunk.rowText, maxSlice = maxSlice) { pcm, first, rest ->
                         if (!firstSent) {
                             firstSent = true
                             val ttfaMs = (System.nanoTime() - streamStartNs) / 1_000_000
@@ -544,11 +549,11 @@ open class KittenDirectEngine @Inject constructor(
                         // the Narrator may resume there, never mid-piece.
                         val audio = SynthAudio(pcm = out, sampleRate = sampleRate, resumePoint = first)
                         val playedMs = out.size * 1000.0 / sampleRate / rate
-                        sendAll(gate.offer(audio, playedMs, nowMs(), horizon.remainingMs().toDouble()) {
+                        gate.offer(audio, playedMs, aheadMs = { horizon.remainingMs().toDouble() }) {
                             rest.map { SliceEstimate(sliceCost.ms(it.render.count()), it.keep.count() * FRAME_MS / rate) }
-                        })
+                        }
                     }
-                    sendAll(gate.endPiece(nowMs()))
+                    gate.endPiece()
                 }
             }
         } catch (t: Throwable) {
@@ -557,8 +562,6 @@ open class KittenDirectEngine @Inject constructor(
             throw t
         }
     }.flowOn(Dispatchers.Default)
-
-    private fun nowMs(): Long = System.nanoTime() / 1_000_000
 
     /** One planner call's worth of text: [text] and its ≤ [MAX_PHONEMES_PER_CHUNK] IPA. */
     private class IpaPiece(val text: String, val ipa: String)
@@ -618,6 +621,7 @@ open class KittenDirectEngine @Inject constructor(
         speed: Float,
         rowText: String,
         warmup: Boolean = false,
+        maxSlice: Int = KittenStreamSlicing.MAX_SLICE_FRAMES,
         emit: suspend (pcm: ShortArray, first: Boolean, rest: List<KittenStreamSlicing.Slice>) -> Unit,
     ) {
         if (ipa.isEmpty()) return
@@ -626,7 +630,7 @@ open class KittenDirectEngine @Inject constructor(
         val plan = synthLock.withLock { plan(text, ipa, inputIds, voiceName, speed, rowText) }
         val planMs = (System.nanoTime() - t0) / 1_000_000
         val slices = KittenStreamSlicing.slices(
-            plan.speech, plan.totalFrames, max = KittenStreamSlicing.MAX_SLICE_FRAMES,
+            plan.speech, plan.totalFrames, max = maxSlice,
         )
         var genMs = 0L
         for ((i, slice) in slices.withIndex()) {

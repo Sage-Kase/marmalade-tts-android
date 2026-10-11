@@ -15,11 +15,11 @@ import app.marmalade.tts.engine.EngineDevKnobs
 import app.marmalade.tts.engine.EngineNotInstalledException
 import app.marmalade.tts.engine.OrtRunAbort
 import app.marmalade.tts.engine.PlaybackHorizon
-import app.marmalade.tts.engine.PieceGate
 import app.marmalade.tts.engine.PrerollGate
 import app.marmalade.tts.engine.RenderMode
 import app.marmalade.tts.engine.SliceCost
 import app.marmalade.tts.engine.SliceEstimate
+import app.marmalade.tts.engine.TimedPieceGate
 import app.marmalade.tts.engine.abortableInference
 import app.marmalade.tts.engine.SynthAudio
 import app.marmalade.tts.engine.TtsEngine
@@ -47,6 +47,7 @@ import java.nio.channels.FileChannel
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.ProducerScope
 import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -1021,7 +1022,7 @@ open class KokoroDirectEngine @Inject constructor(
      * from the last measured streamed RTF ([DEFAULT_STREAM_RTF] before any)
      * and the request's token count, then everything goes out as rendered.
      */
-    private suspend fun SendChannel<SynthAudio>.streamSliced(
+    private suspend fun ProducerScope<SynthAudio>.streamSliced(
         text: String,
         voiceName: String,
         lang: String,
@@ -1053,10 +1054,8 @@ open class KokoroDirectEngine @Inject constructor(
         val bankMs = PrerollGate.streamBankMs(playbackRate, rtf, audioMs)
         val mode = RenderMode.forRequest(engineName, settings, ctx.filesDir, modeRtf, playbackRate)
         mode.log(engineName)
-        val gate = PieceGate<SynthAudio>(mode.chunk) { heldMs, slices, rest ->
-            Log.d(PERF_TAG, "kokoro chunk-mode release held=${heldMs}ms slices=$slices rest=$rest")
-        }
         val rate = playbackRate.coerceAtLeast(0.1f)
+        val maxSlice = if (mode.chunk) KittenStreamSlicing.CHUNK_MODE_MAX_SLICE_FRAMES else KittenStreamSlicing.MAX_SLICE_FRAMES
         Log.d(
             PERF_TAG,
             "kokoro plan chunks=${chunks.size} firstTokens=${chunks.first().tokens} " +
@@ -1076,6 +1075,14 @@ open class KokoroDirectEngine @Inject constructor(
             for (h in held) sender.send(h)
             held.clear()
         }
+        val gate = TimedPieceGate<SynthAudio>(
+            mode.chunk,
+            scope = this,
+            send = { out -> for (a in out) bankOrSend(a) },
+            onRelease = { heldMs, slices, rest ->
+                Log.d(PERF_TAG, "kokoro chunk-mode release held=${heldMs}ms slices=$slices rest=$rest")
+            },
+        )
         val queue = ArrayDeque(chunks)
         var idx = -1
         try {
@@ -1102,17 +1109,18 @@ open class KokoroDirectEngine @Inject constructor(
                     // Chunk mode (#54): the piece's slices wait in the gate until
                     // the rest of it can't run dry, then go through the bank.
                     gate.startPiece()
-                    renderSliced(piece, voiceName, lang, speed) { pcm, first, rest ->
+                    renderSliced(piece, voiceName, lang, speed, maxSlice = maxSlice) { pcm, first, rest ->
                         val audio = SynthAudio(pcm = pcm, sampleRate = sampleRate, resumePoint = first)
                         val playedMs = pcm.size * 1000.0 / sampleRate / rate
-                        // Audio the bank holds plays before this piece too.
-                        val aheadMs = horizon.remainingMs() + (if (held.isEmpty()) 0.0 else heldPlayedMs)
-                        val out = gate.offer(audio, playedMs, nowMs(), aheadMs) {
+                        gate.offer(
+                            audio, playedMs,
+                            // Audio the bank holds plays before this piece too.
+                            aheadMs = { horizon.remainingMs() + (if (held.isEmpty()) 0.0 else heldPlayedMs) },
+                        ) {
                             rest.map { SliceEstimate(sliceCost.ms(it.render.count()), it.keep.count() * FRAME_MS / rate) }
                         }
-                        for (a in out) bankOrSend(a)
                     }
-                    for (a in gate.endPiece(nowMs())) bankOrSend(a)
+                    gate.endPiece()
                 }
             }
             // The text ended before the bank filled.
@@ -1123,8 +1131,6 @@ open class KokoroDirectEngine @Inject constructor(
             throw t
         }
     }
-
-    private fun nowMs(): Long = System.nanoTime() / 1_000_000
 
     /**
      * Render one ≤ [MAX_PHONEMES_PER_CHUNK]-token piece on the streaming
@@ -1140,6 +1146,7 @@ open class KokoroDirectEngine @Inject constructor(
         lang: String,
         speed: Float,
         warmup: Boolean = false,
+        maxSlice: Int = KittenStreamSlicing.MAX_SLICE_FRAMES,
         emit: suspend (pcm: ShortArray, first: Boolean, rest: List<KittenStreamSlicing.Slice>) -> Unit,
     ) {
         if (piece.ids.isEmpty()) return
@@ -1147,7 +1154,7 @@ open class KokoroDirectEngine @Inject constructor(
         val t0 = System.nanoTime()
         val plan = synthLock.withLock { planPiece(piece.text, ids, voiceName, lang, speed, piece.styleRow) }
         val planMs = (System.nanoTime() - t0) / 1_000_000
-        val slices = KokoroStreamSlicing.slices(plan.totalFrames, plan.tailStart, max = KittenStreamSlicing.MAX_SLICE_FRAMES)
+        val slices = KokoroStreamSlicing.slices(plan.totalFrames, plan.tailStart, max = maxSlice)
         Log.d(
             PERF_TAG,
             "kokoro plan=${planMs}ms tokens=${ids.size} frames=${plan.totalFrames} tail=${plan.tailStart} " +

@@ -1,11 +1,17 @@
 package app.marmalade.tts.engine
 
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class ChunkModeTest {
 
     // -- the per-request decision ---------------------------------------------
@@ -81,6 +87,21 @@ class ChunkModeTest {
     }
 
     @Test
+    fun `the hold is exactly as long as the latest slice needs`() {
+        // Kokoro's 150-token sentence at 2x, 2 s slices: after its first slice (250 ms played
+        // banked) the second must wait 450 - 250 = 200 ms, the third 1230 - 750 = 480 ms.
+        val rest = listOf(SliceEstimate(450.0, 500.0), SliceEstimate(780.0, 1000.0), SliceEstimate(780.0, 1000.0))
+        assertEquals(480.0, holdMs(0.0, 250.0, rest, margin = 1.0), 1e-9)
+        // Audio still playing covers a hold shorter than itself...
+        assertEquals(0.0, holdMs(480.0, 250.0, rest, margin = 1.0), 1e-9)
+        // ...but not a longer one: the piece then starts when the hold ends, not before.
+        assertEquals(480.0, holdMs(300.0, 250.0, rest, margin = 1.0), 1e-9)
+        // With 4 s slices the last one needs far more banked first.
+        val big = listOf(SliceEstimate(450.0, 500.0), SliceEstimate(780.0, 1000.0), SliceEstimate(1440.0, 2000.0))
+        assertEquals(920.0, holdMs(0.0, 250.0, big, margin = 1.0), 1e-9)
+    }
+
+    @Test
     fun `nothing left to render keeps up`() {
         assertTrue(keepsUp(0.0, 0.0, emptyList()))
     }
@@ -140,5 +161,53 @@ class ChunkModeTest {
         assertEquals(emptyList<String>(), gate.offer("t0", 250.0, 30, 0.0, slow))
         assertEquals(listOf("t0"), gate.endPiece(40))
         assertEquals(listOf(20, 10), released)
+    }
+
+    @Test
+    fun `the timed gate lets a held piece go when its hold is over, not at the next slice`() = runTest {
+        val sent = ArrayList<Pair<Long, String>>()
+        val gate = TimedPieceGate<String>(
+            chunk = true,
+            scope = this,
+            send = { out -> out.forEach { sent += testScheduler.currentTime to it } },
+            nowMs = { testScheduler.currentTime },
+        )
+        val job = launch {
+            gate.startPiece()
+            // At t=0: 250 ms banked, the next slice due in 450 ms and the one after 780 ms later:
+            // hold ≈ 1.1 × 1230 - 750 = 603 ms.
+            gate.offer("s0", 250.0, aheadMs = { 0.0 }) {
+                listOf(SliceEstimate(450.0, 500.0), SliceEstimate(780.0, 1000.0))
+            }
+        }
+        runCurrent()
+        job.join()
+        assertEquals(emptyList<Pair<Long, String>>(), sent)
+        advanceTimeBy(600)
+        runCurrent()
+        assertEquals(emptyList<Pair<Long, String>>(), sent)
+        advanceTimeBy(10)
+        runCurrent()
+        val (at, slice) = sent.single()
+        assertEquals("s0", slice)
+        assertTrue("released at $at", at in 603L..604L)
+        // Released: later slices go straight out, and the piece's end has nothing left.
+        gate.offer("s1", 500.0, aheadMs = { 0.0 }) { emptyList() }
+        gate.endPiece()
+        assertEquals(listOf("s0", "s1"), sent.map { it.second })
+    }
+
+    @Test
+    fun `the timed gate's end of piece wins over a pending timer`() = runTest {
+        val sent = ArrayList<String>()
+        val gate = TimedPieceGate<String>(true, this, send = { sent += it }, nowMs = { testScheduler.currentTime })
+        gate.startPiece()
+        gate.offer("s0", 250.0, aheadMs = { 0.0 }) { listOf(SliceEstimate(5_000.0, 500.0)) }
+        gate.endPiece()
+        assertEquals(listOf("s0"), sent)
+        // The cancelled timer never sends again.
+        advanceTimeBy(10_000)
+        runCurrent()
+        assertEquals(listOf("s0"), sent)
     }
 }

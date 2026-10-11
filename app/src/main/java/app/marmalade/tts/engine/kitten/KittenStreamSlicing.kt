@@ -34,6 +34,15 @@ internal object KittenStreamSlicing {
     const val MAX_SLICE_FRAMES = 160
 
     /**
+     * Cap in chunk mode (#54, [app.marmalade.tts.engine.RenderMode]): 2 s. A
+     * piece is held until its last slice will arrive in time, and a 4 s last
+     * slice needs most of the sentence banked first: Kokoro's 150-token
+     * sentence at 2× on a 6a (render ~0.85 of playback) can start ~0.6 s
+     * sooner with 2 s slices, for one more generator call.
+     */
+    const val CHUNK_MODE_MAX_SLICE_FRAMES = 80
+
+    /**
      * The speech-bearing frames `[start, end)` of a render, with the same
      * lead/tail rule as [KittenTrim.trim] (keep 2 lead frames and 3 frames of
      * the trailing pause group), so streaming never renders the trimmed pad.
