@@ -4,7 +4,9 @@
   EngineBenchService: the silent on-device engine benchmark (issue #1, B1).
   OnnxBenchService: silent timing of any ONNX/ORT file (issue #12, X1).
   DevStateService: sets the onboarding flag and the device probe (issue #19).
-  All exported so `adb shell am start-foreground-service` can reach them, but
+  SettingsLinkProbeActivity: logs and opens the Settings links (issue #53);
+  usage in its KDoc.
+  All exported so `adb shell am start[-foreground-service]` can reach them, but
   guarded by android.permission.DUMP — a signature|privileged permission the
   adb shell holds and no installed app can.
 -->
@@ -37,5 +39,10 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Developer-only state setter in debug builds; never shipped." />
         </service>
+        <activity
+            android:name="app.marmalade.tts.devbench.SettingsLinkProbeActivity"
+            android:exported="true"
+            android:permission="android.permission.DUMP"
+            android:theme="@android:style/Theme.NoDisplay" />
     </application>
 </manifest>
