@@ -1078,7 +1078,10 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   `VitsPhonemeIds.splitClauses` turns a spaced dash into a `;` clause (what
   Piper trained on). espeak-de 1.52 phonemizes "aneinander" with a literal
   `1` (its de_list entry); a `GermanOverrides` MARMALADE entry covers it
-  (#46). A hyphenated compound ("aneinander-geklebt") still gets the `1`.
+  (#46). Since #48 `EspeakPhonemizer.stripDigits` drops every ASCII digit
+  from raw espeak IPA for all engines (espeak spells numbers out, so a digit
+  there is dictionary notation): the hyphenated "aneinander-geklebt" and a
+  lone Cyrillic letter on an English voice ("л" → `ˈɛl1`) lose theirs too.
 - Clause punctuation (#46): `espeak_jni.c` re-injects the LAST mark of
   each clause that only spaces/closing quotes follow, so marks espeak
   reads through ("3.5", "10–20") don't replace the terminator. espeak's

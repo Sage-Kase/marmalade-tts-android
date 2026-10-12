@@ -171,6 +171,11 @@ This project follows [Semantic Versioning](https://semver.org/).
   only to a Kokoro voice of that language, and Kokoro has no German voice,
   so German stayed on the English voice. German now goes to Thorsten when
   Kokoro German is installed, the same choice reader mode and shares make.
+- **No stray digits reach the voices from espeak**: espeak's dictionaries
+  leave a few digits in their pronunciations, for example in the German
+  "aneinander-geklebt" or in a lone Cyrillic letter such as "л" in English
+  text. Marmalade now removes them for every engine; no voice has a sound
+  for them.
 - **The buttons that open Android's settings land on the right page on
   every supported Android version**: "Open system TTS settings" in setup
   and "Set as system TTS engine" in Settings open Text-to-speech output,
