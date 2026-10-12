@@ -48,11 +48,14 @@ and its own sessions, not here.
 - **Planning docs stay local.** HANDOFF.md, `*-PLAN.md`, labs and design
   notes are gitignored; never add them to the tracked tree.
 - **All public text needs Max's sign-off in final form**: fastlane
-  metadata, README, NOTICE/LICENSES/PRIVACY, in-app copy. **Except the
-  CHANGELOG** (Max, 2026-10-10: "You don't need to ask me about changelog
-  as long as no sensitive info is released"): write it factually, check it
-  for personal, infrastructure and security details, and commit it without
-  a sign-off card. The GitHub push itself still needs his all-clear.
+  metadata, README, PRIVACY, in-app copy, and any prose in
+  NOTICE/LICENSES. **Except the CHANGELOG** (Max, 2026-10-10: "You don't
+  need to ask me about changelog as long as no sensitive info is
+  released") **and factual licence entries** (NOTICE rows, LICENSES/ source
+  lists, CREDITS lines; global CLAUDE.md, Max 2026-09-26): write them
+  factually, check them for personal, infrastructure and security details,
+  and commit them without a sign-off card. The GitHub push itself still
+  needs his all-clear.
 - **New user-visible strings go in all 8 locales** (`values`, `-es`,
   `-fr`, `-hi`, `-it`, `-ja`, `-pt-rBR`, `-zh-rCN`).
 - **All in-app playback goes through `MarmaladeSynthService`.** Android
