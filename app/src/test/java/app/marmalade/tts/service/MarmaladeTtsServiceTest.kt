@@ -984,25 +984,42 @@ class MarmaladeTtsServiceTest {
     }
 
     @Test
-    fun onSynthesizeText_namedVoiceIsNeverRerouted() {
+    fun onSynthesizeText_anEchoOfTheAliasVoiceIsStillRerouted() {
+        // Android fills voiceName in for any client that calls setLanguage,
+        // from onGetDefaultVoiceNameFor: the primary's own voice. That is
+        // the alias speaking, not a pick, so its "auto" still reroutes (#60;
+        // before, every ordinary app kept the Spanish on Kitten).
         installKittenPrimary(phonemizationLanguage = "auto")
         fakeKokoroDirectEngine.nextPcm = ShortArray(1024)
-        fakeEngine.nextPcm = ShortArray(1024)
 
-        // A caller that names a voice has out-specified everything. The
-        // named voice happens to be the primary's, so the alias bundle
-        // (including "auto") still applies — the phonemizer follows the
-        // detected language, but the voice cannot move even though a
-        // Spanish Kokoro voice is installed.
         val request = newRequestWithVoice(
             "La descarga ha terminado y el archivo está listo para usar.",
             "kitten-direct-v0_8:Bella",
         )
         service.onSynthesizeText(request, FakeSynthesisCallback())
 
+        assertEquals(0, fakeEngine.calls.size)
+        assertEquals("kokoro-direct-v1_0:ef_dora", fakeKokoroDirectEngine.calls.single().second)
+    }
+
+    @Test
+    fun onSynthesizeText_aDeliberatelyPickedVoiceIsNeverRerouted() {
+        installKittenPrimary(phonemizationLanguage = "auto")
+        fakeKokoroDirectEngine.nextPcm = ShortArray(1024)
+        fakeEngine.nextPcm = ShortArray(1024)
+
+        // Another voice than the alias's: the caller chose it, so it speaks
+        // as itself, with no alias language, even though a Spanish Kokoro
+        // voice is installed.
+        val request = newRequestWithVoice(
+            "La descarga ha terminado y el archivo está listo para usar.",
+            "kitten-direct-v0_8:Leo",
+        )
+        service.onSynthesizeText(request, FakeSynthesisCallback())
+
         assertEquals(0, fakeKokoroDirectEngine.calls.size)
-        assertEquals("kitten-direct-v0_8:Bella", fakeEngine.calls.single().second)
-        assertEquals("es", fakeEngine.languages.single())
+        assertEquals("kitten-direct-v0_8:Leo", fakeEngine.calls.single().second)
+        assertNull(fakeEngine.languages.single())
     }
 
     @Test

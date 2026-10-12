@@ -171,6 +171,12 @@ This project follows [Semantic Versioning](https://semver.org/).
   only to a Kokoro voice of that language, and Kokoro has no German voice,
   so German stayed on the English voice. German now goes to Thorsten when
   Kokoro German is installed, the same choice reader mode and shares make.
+- **System text-to-speech's language switch works for ordinary apps**: an
+  alias with language detection on moved other languages to a voice of
+  that language only for apps that set neither a voice nor a language.
+  Android fills in the default voice for every app that sets a language,
+  which is most of them, and that blocked the switch. Only an app that
+  picks a different voice on purpose now keeps it.
 - **No stray digits reach the voices from espeak**: espeak's dictionaries
   leave a few digits in their pronunciations, for example in the German
   "aneinander-geklebt" or in a lone Cyrillic letter such as "л" in English

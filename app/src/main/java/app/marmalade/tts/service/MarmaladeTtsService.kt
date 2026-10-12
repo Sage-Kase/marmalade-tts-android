@@ -1005,6 +1005,9 @@ class MarmaladeTtsService : TextToSpeechService() {
      *   the voice stands and Kitten phonemizes the utterance in its own
      *   detected language (accented, per Max 2026-08-08), while Pocket —
      *   which has no espeak in its path — speaks English.
+     * - A voice the caller picked on purpose is never rerouted: it arrives
+     *   with no language, so it never opts in. A voice name that echoes the
+     *   alias's own (Android's auto-fill) does not stop the reroute.
      * - The **request's** language no longer picks a voice or a language.
      *   It survives solely as the fallback for when detection abstains —
      *   too little text, or two languages too close to call.
@@ -1053,11 +1056,13 @@ class MarmaladeTtsService : TextToSpeechService() {
         if (language == null || language == TtsLocales.BASELINE_LANGUAGE) {
             return selfRendered
         }
-        val requested = request.voiceName?.takeIf { it.isNotBlank() }
-        if (requested != null && onIsValidVoiceName(requested) == TextToSpeech.SUCCESS) {
-            // A caller-named voice is never rerouted.
-            return selfRendered
-        }
+        // No check of request.voiceName here: a caller's deliberate pick
+        // never reaches this point (resolveSynthParams gives it no
+        // phonemization language, so isAuto is false above). A named voice
+        // that does is the alias's: Android fills voiceName in for every
+        // client that calls setLanguage, from onGetDefaultVoiceNameFor (the
+        // primary's voice; seen on the emulator, #60), and checking it
+        // blocked this reroute for ordinary apps.
         // The reader's "installed voice of that language" step
         // (VoiceForLanguage.installedVoiceFor): Kokoro first, any other
         // on-device engine that speaks it next (German → Kokoro German,

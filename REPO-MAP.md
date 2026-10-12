@@ -1174,7 +1174,10 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   (`MarmaladeTtsService`) keeps its own per-utterance rerouting, only for
   an auto-detect Kitten/Pocket alias and only to an installed voice
   (`resolveUtteranceLanguage` → `VoiceForLanguage.installedVoiceFor`, the
-  reader's step: Kokoro first, then e.g. Kokoro German, never cloud; #60)
+  reader's step: Kokoro first, then e.g. Kokoro German, never cloud; #60).
+  `request.voiceName` doesn't block it: Android fills it in from
+  `onGetDefaultVoiceNameFor` for any client that calls `setLanguage`
+  (emulator-verified), and a deliberate pick never carries "auto"
 
 ### Navigation
 - `ui/AppRoot.kt` — Scaffold + NavigationBar (5 tabs) + NavHost.
