@@ -264,6 +264,17 @@ Java_app_marmalade_tts_phonemizer_EspeakPhonemizer_nativePhonemize(
                     isSentenceEnd = 0;  // softer pause than `.!?`
                 }
                 isPunct = 1;
+            } else if (charLen == 3 && b == 0xE0 && b2 == 0xA5 &&
+                       (b3 == 0xA4 ||    // U+0964 danda
+                        b3 == 0xA5)) {   // U+0965 double danda
+                // Hindi's full stop. The vocab has no token for it, so the
+                // clause gets the "." Kokoro's Hindi voices pause on (#48).
+                if (!prevWasPunct) {
+                    punctBytes = ".";
+                    punctLen = 1;
+                    isSentenceEnd = 1;
+                }
+                isPunct = 1;
             } else if (b == ' ' || b == '\t' || b == '\n' || b == '\r' ||
                        b == '"' || b == '\'' || b == ')' || b == ']' || b == '}' ||
                        (charLen == 2 && b == 0xC2 &&
