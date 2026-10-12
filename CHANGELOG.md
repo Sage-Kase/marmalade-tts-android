@@ -166,6 +166,11 @@ This project follows [Semantic Versioning](https://semver.org/).
   stays on, or moves to, a German voice such as Thorsten. With no German
   voice installed, Kokoro voices that detect each sentence's language now
   read German sentences with German pronunciation rather than English.
+- **System text-to-speech hands German to Kokoro German**: an alias on a
+  Kitten or Pocket voice with language detection on sent other languages
+  only to a Kokoro voice of that language, and Kokoro has no German voice,
+  so German stayed on the English voice. German now goes to Thorsten when
+  Kokoro German is installed, the same choice reader mode and shares make.
 - **The buttons that open Android's settings land on the right page on
   every supported Android version**: "Open system TTS settings" in setup
   and "Set as system TTS engine" in Settings open Text-to-speech output,

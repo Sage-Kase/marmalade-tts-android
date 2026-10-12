@@ -3,6 +3,7 @@ package app.marmalade.tts.lang
 import app.marmalade.tts.data.CloudApiVoiceCatalog
 import app.marmalade.tts.data.KittenDirectVoiceCatalog
 import app.marmalade.tts.data.KokoroDirectVoiceCatalog
+import app.marmalade.tts.data.KokoroGermanVoiceCatalog
 import app.marmalade.tts.data.db.VoiceAlias
 import app.marmalade.tts.data.db.VoiceMeta
 import app.marmalade.tts.lang.VoiceDecision.Reason
@@ -253,6 +254,25 @@ class VoiceForLanguageTest {
         val decision = choose("zh", alias("id-cloud-heart", cloudHeart), cloudHeart, pickable = listOf(xiaobei))
 
         assertEquals(VoiceChoice.Installed(xiaobei.id, kokoro), decision.voice)
+    }
+
+    @Test
+    fun `German finds the Kokoro German voice, the one shared with system TTS`() {
+        // #59 made the detector return de; the reader and system TTS (#60)
+        // both reach Thorsten through installedVoiceFor.
+        val thorsten = KokoroGermanVoiceCatalog.voices.single()
+        val decision = choose("de", heartAlias, heart, pickable = listOf(heart, dora, thorsten))
+
+        assertEquals(VoiceChoice.Installed(thorsten.id, KokoroGermanVoiceCatalog.ENGINE), decision.voice)
+        assertEquals(thorsten, VoiceForLanguage.installedVoiceFor("de", listOf(heart, dora, thorsten)))
+    }
+
+    @Test
+    fun `installedVoiceFor never returns a cloud voice`() {
+        val cloudDora = dora.copy(id = "cloud-api:p:m:ef_dora", engine = CloudApiVoiceCatalog.ENGINE)
+
+        assertNull(VoiceForLanguage.installedVoiceFor("es", listOf(heart, cloudDora)))
+        assertEquals(dora, VoiceForLanguage.installedVoiceFor("es", listOf(cloudDora, dora)))
     }
 
     // -- Log line ----------------------------------------------------------------

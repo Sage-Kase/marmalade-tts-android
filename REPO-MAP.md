@@ -1168,7 +1168,10 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   reader (`LanguageVoiceSelector`: other on-device alias → installed on-device voice
   → primary), logged as `D/ShareVoice`. Explicit-voice callers (Speak
   screen, previews) and the reader are untouched; system TTS
-  (`MarmaladeTtsService`) keeps its own per-utterance rerouting
+  (`MarmaladeTtsService`) keeps its own per-utterance rerouting, only for
+  an auto-detect Kitten/Pocket alias and only to an installed voice
+  (`resolveUtteranceLanguage` → `VoiceForLanguage.installedVoiceFor`, the
+  reader's step: Kokoro first, then e.g. Kokoro German, never cloud; #60)
 
 ### Navigation
 - `ui/AppRoot.kt` — Scaffold + NavigationBar (5 tabs) + NavHost.
