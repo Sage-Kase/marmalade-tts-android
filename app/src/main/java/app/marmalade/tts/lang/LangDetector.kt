@@ -14,9 +14,12 @@ import java.util.Base64
  *  1. Script check. Kana → `ja`, Han without kana → `zh`, Devanagari →
  *     `hi`. Only when the non-Latin script is at least as common as Latin
  *     letters, so "Play 東京 for me" stays English.
- *  2. Char-trigram naive Bayes over the five Latin languages Kokoro
- *     speaks (`en es fr it pt`), from the trained table in
- *     `assets/langdetect.tab`.
+ *  2. Char-trigram naive Bayes over the six Latin-script languages a
+ *     shipped voice speaks (`en es fr it pt de`), from the trained table
+ *     in `assets/langdetect.tab`. German joined in #59 so a German article
+ *     reaches the German voice instead of reading as English; the table
+ *     was retrained from public-domain Project Gutenberg books (NOTICE.md
+ *     records the source).
  *
  * Returns null when it doesn't know — too little text, or two languages
  * too close to call. Callers fall back rather than guess.
@@ -80,8 +83,8 @@ class LangDetector(
     /**
      * Language of [text], or null when the guess would be noise.
      *
-     * One of `en es fr it pt ja zh hi`, i.e. the languages Marmalade can
-     * actually phonemize.
+     * One of `en es fr it pt de ja zh hi`, i.e. the languages a Marmalade
+     * voice speaks.
      */
     fun detect(text: String): String? {
         var kana = 0
@@ -221,7 +224,9 @@ class LangDetector(
          * the closest pair it has to separate). Measured against the
          * retrained table, 2.0 is 100% accurate on decided 25–200-char
          * held-out sentences and 99.95% across the full 40–200 band, at
-         * a 0.3% abstain rate.
+         * a 0.3% abstain rate. Re-measured on the six-language table
+         * (#59, German added): still 100% at 2.0, 99.96% / 0.2% abstain
+         * across 40–200 chars.
          */
         const val MIN_MARGIN = 2.0
 
@@ -299,10 +304,8 @@ class LangDetector(
             "pt" -> "pt-br"
             "zh" -> "en-us"
             // Partial-support tier (Max, 2026-09-20): the multilingual Kokoro
-            // voices phonemize these accented. The trigram table can't yet
-            // detect them from text (it's lockstep with the CLI), so this
-            // only fires for an explicitly chosen language — but the map
-            // stays total so a future detector addition needs no edit here.
+            // voices phonemize these accented. German is detected from text
+            // (#59); Bulgarian only fires for an explicitly chosen language.
             "de" -> "de"
             "bg" -> "bg"
             else -> null

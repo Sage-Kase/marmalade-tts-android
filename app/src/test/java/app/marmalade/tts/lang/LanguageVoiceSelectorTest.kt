@@ -2,6 +2,7 @@ package app.marmalade.tts.lang
 
 import app.marmalade.tts.data.InstalledVoiceAssets
 import app.marmalade.tts.data.KokoroDirectVoiceCatalog
+import app.marmalade.tts.data.KokoroGermanVoiceCatalog
 import app.marmalade.tts.data.db.VoiceAlias
 import app.marmalade.tts.ui.screen.FakeAliasDao
 import app.marmalade.tts.ui.screen.FakeDao
@@ -24,6 +25,22 @@ class LanguageVoiceSelectorTest {
 
     private val chinese = "这是一个关于果酱的故事。我们今天去市场买了很多橙子，他们说这个应用可以读出文章。"
     private val english = "This is a story about marmalade, and the oranges we bought at the market today."
+
+    /** An encyclopedia-style opening, English names and all — what the reader gets (#59). */
+    private val german = "Bremen ist eine Hansestadt im Nordwesten Deutschlands und liegt an der Weser. " +
+        "Die Altstadt mit dem Rathaus und dem Roland gehört seit 2004 zum Weltkulturerbe der UNESCO. " +
+        "Bekannt ist die Stadt auch durch das Märchen von den Bremer Stadtmusikanten, " +
+        "das die Brüder Grimm im Jahr 1819 veröffentlichten."
+    private val thorsten = VoiceAlias(
+        id = "id-thorsten",
+        name = "Thorsten",
+        engine = KokoroGermanVoiceCatalog.ENGINE,
+        voiceId = KokoroGermanVoiceCatalog.DEFAULT_VOICE_ID,
+        speed = 1.0f,
+        effectPreset = "NONE",
+        createdAt = 3,
+    )
+    private val bothEngines = InstalledVoiceAssets(engines = setOf(kokoro, KokoroGermanVoiceCatalog.ENGINE))
 
     @Test
     fun `a shared Chinese text on an English primary moves to an installed Chinese voice`() = runBlocking {
@@ -66,6 +83,38 @@ class LanguageVoiceSelectorTest {
         assertTrue(selector(heart).select(text, "share", "ShareVoice") is VoiceChoice.Installed)
     }
 
+    @Test
+    fun `a German article on a German primary stays on it`() = runBlocking {
+        assertEquals(VoiceChoice.Primary, selector(thorsten, heart, assets = bothEngines).select(german, "article", "ReaderVoice"))
+    }
+
+    @Test
+    fun `a German article on an English primary moves to the installed German voice`() = runBlocking {
+        val choice = selector(heart, assets = bothEngines).select(german, "article", "ReaderVoice")
+
+        assertEquals(VoiceChoice.Installed(KokoroGermanVoiceCatalog.DEFAULT_VOICE_ID, KokoroGermanVoiceCatalog.ENGINE), choice)
+    }
+
+    @Test
+    fun `a German article on an English primary moves to a German alias first`() = runBlocking {
+        val choice = selector(heart, thorsten, assets = bothEngines).select(german, "article", "ReaderVoice")
+
+        assertEquals(VoiceChoice.Alias(thorsten.id, thorsten.voiceId, thorsten.engine, 1.0f), choice)
+    }
+
+    @Test
+    fun `an English article on a German primary moves to an English voice`() = runBlocking {
+        val choice = selector(thorsten, heart, assets = bothEngines).select(english.repeat(3), "article", "ReaderVoice")
+
+        assertEquals(VoiceChoice.Alias(heart.id, heart.voiceId, kokoro, 1.0f), choice)
+    }
+
+    /** Detection abstains: the German voice keeps reading, it is never swapped for an English default. */
+    @Test
+    fun `text the detector can't place stays on a German primary`() = runBlocking {
+        assertEquals(VoiceChoice.Primary, selector(thorsten, heart, assets = bothEngines).select("OK 42", "article", "ReaderVoice"))
+    }
+
     // -- Helpers -------------------------------------------------------------------
 
     private fun selector(
@@ -79,7 +128,7 @@ class LanguageVoiceSelectorTest {
             detector = LangDetector(File("src/main/assets/langdetect.tab").readLines(), systemCjk = null),
             settings = settings,
             aliasDao = FakeAliasDao(initial = listOf(primary) + others),
-            voiceDao = FakeDao(KokoroDirectVoiceCatalog.voices),
+            voiceDao = FakeDao(KokoroDirectVoiceCatalog.voices + KokoroGermanVoiceCatalog.voices),
             probeAssets = { assets },
         )
     }
