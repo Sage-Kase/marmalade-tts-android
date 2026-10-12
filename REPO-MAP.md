@@ -58,9 +58,10 @@ debug-only hook is needed. The rc package's engine bundles are installed
 once through its own UI (not debuggable, so nothing can be copied in).
 Unit tests can't catch what it catches: v1.1.0's German died on ICU regex
 (#22) while every JVM test passed. Kokoro's accented de/bg rows send that
-request language with a Kokoro voice. Kokoro honours it only when
-`LangDetector` abstains on the text, and it reads most German prose as en or
-fr, so those sentences are picked (and checked) to make it abstain. Not
+request language with a Kokoro voice. Kokoro phonemizes in the language
+`LangDetector` finds and honours the request only when it abstains, so those
+sentences are checked to detect as that language (German, since #59) or to
+make it abstain (Cyrillic). Not
 covered: developer-only engines (system TTS never offers them). Gotcha: a
 client that sets no rate gets the phone's system speech rate
 (`settings get secure tts_default_rate`; 1.82× on the 6a) in
@@ -1210,7 +1211,10 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   over the shared `lang/VoiceForLanguage.kt` + `lang/LanguageVoiceSelector.kt`,
   2026-09-28): once per article, before the first block, the reader
   detects the article's language (`LangDetector` over the first ~2000
-  chars) and, if the primary alias's voice doesn't speak it
+  chars: en es fr it pt de by char trigrams, ja zh hi by script; German
+  joined in #59, the table's provenance is `LICENSES/langdetect.md` and it is
+  trained by the CLI repo's `tools/langdetect-train/`, so the two ship the
+  same table) and, if the primary alias's voice doesn't speak it
   (`VoiceMeta.languageCode`, language subtag only; a multilingual cloud
   voice — OpenAI-style, stored as `en-US` as a placeholder — counts as
   speaking everything, `CloudApiVoiceCatalog.hasKnownLanguage`), reads it in another
@@ -1219,7 +1223,8 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   pickable voice of that language (`VoiceChoice.Installed`, dry, 1.0x), else the
   primary as before. **Never a cloud voice or cloud alias** (Max's privacy
   rule): text reaches a provider only through a cloud primary. Undetected language keeps the
-  primary. A rebind keeps the article's voice; logged as `D/ReaderVoice`.
+  primary — never an English default, so a German primary keeps reading text
+  the detector can't place (#59). A rebind keeps the article's voice; logged as `D/ReaderVoice`.
   The reader UI shows no voice name. The reading speed (`ReaderSpeedSheet`) is
   session-only and an **absolute override** of the reading alias's speed,
   not a factor on it: each new article starts at that alias's own speed
@@ -1564,7 +1569,8 @@ write Marmalade code.
   engine loaded" toggle removal)
 - `PRIVACY.md`, `SECURITY.md` — what the app does and doesn't access
 - `LICENSES/kitten-direct.md`, `LICENSES/kokoro-direct.md`,
-  `LICENSES/pocket-tts.md`, `LICENSES/runtime-libraries.md` —
+  `LICENSES/pocket-tts.md`, `LICENSES/runtime-libraries.md`,
+  `LICENSES/langdetect.md` (the language-detection table's training books) —
   per-component licenses (Apache-2.0 models; espeak-ng GPL-3.0-or-later,
   compiled from source into the APK, which makes the distributed APK a
   GPL combined work while source files stay MIT)

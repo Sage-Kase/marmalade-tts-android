@@ -140,6 +140,10 @@ Full detail, including the MIT notice for the weights:
   bundled `lexicon-zh.txt` carries a CC-BY-SA share-alike lineage —
   attributed here and in [`LICENSES/kokoro-direct.md`](LICENSES/kokoro-direct.md).
 
+- **Project Gutenberg** — the public-domain books the language detector's
+  trigram table is trained on, listed in
+  [`LICENSES/langdetect.md`](LICENSES/langdetect.md).
+
 ## Reference implementations & research
 
 - **NekoSpeak** — independent reverse-engineering of the Pocket TTS

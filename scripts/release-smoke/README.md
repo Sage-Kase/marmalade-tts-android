@@ -39,10 +39,11 @@ device shows: JNI, missing assets, classes R8 stripped.
    Kokoro's accented tier (German and Bulgarian, `partialLanguageCodes` in
    `EngineCatalog`) has no voice of its own. The gate reaches it the way a
    client does: a Kokoro voice plus that request language (`deu`, `bul`).
-   Kokoro uses the request language only when its language detector abstains
-   on the text, so those rows' `accented:<code>` sentences must make it abstain.
-   The gate checks that with the app's own `langdetect.tab` and fails the row
-   if not. Most German prose reads as English or French to the detector.
+   Kokoro phonemizes in the language its detector finds and uses the request
+   language only when the detector abstains, so those rows' `accented:<code>`
+   sentences must be detected as that language or make it abstain. The gate
+   checks that with the app's own `langdetect.tab` and fails the row if not.
+   German is detected (since #59); Cyrillic always abstains.
 6. A row passes when audio came out (samples, a plausible length for the
    sentence, not silence), the voice it asked for spoke it at the rate it
    asked for (below, "Which voice spoke"), and the app's process logged no

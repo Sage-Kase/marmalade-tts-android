@@ -89,6 +89,43 @@ class LangDetectorTest {
         "Não acredito no tamanho da fila que tinha hoje de manhã no correio.",
     )
 
+    /**
+     * German (#59). The five-language table read every one of these as
+     * English (or abstained), which moved German articles off a German
+     * voice; a battery in the same registers as the others, plus the
+     * encyclopedia prose the reader actually gets.
+     */
+    @Test
+    fun detectsGerman() = assertAll(
+        "de",
+        "Ihr Download ist abgeschlossen und die Datei kann geöffnet werden.",
+        "Kannst du heute Abend noch vorbeikommen oder soll ich ohne dich essen?",
+        "Der Energiesparmodus ist aktiv und schränkt Hintergrundaktivitäten ein.",
+        "Das Treffen wurde auf Donnerstagnachmittag um halb drei verschoben.",
+        "Bitte prüfen Sie das angehängte Dokument und melden Sie sich, falls etwas fehlt.",
+        "Ich kann kaum glauben, wie lang die Schlange heute Morgen bei der Post war.",
+        "Die Stadt liegt am Ufer des Rheins und hat rund 80.000 Einwohner.",
+        "Nach dem Zweiten Weltkrieg wurde die Universität im Jahr 1946 wiedereröffnet.",
+    )
+
+    @Test
+    fun germanWithEnglishLoanwordsStaysGerman() = assertAll(
+        // German prose is full of English names and loanwords; the
+        // sentence's own grammar must still win.
+        "de",
+        "Die Band veröffentlichte 1991 ihr Album Nevermind, das weltweit Erfolg hatte.",
+        "Das Smartphone unterstützt Bluetooth, WLAN und Fast Charging.",
+        "Er sagte nur „Thank you very much“ und ging dann nach Hause zurück.",
+    )
+
+    @Test
+    fun englishAboutGermanyStaysEnglish() = assertAll(
+        "en",
+        "The German word Kindergarten was borrowed into English in the nineteenth century.",
+        "Angela Merkel was Chancellor of Germany from 2005 to 2021.",
+        "We took the train from Berlin Hauptbahnhof to Munich on Sunday morning.",
+    )
+
     // -- stage 1: scripts ---------------------------------------------------
 
     @Test
@@ -255,10 +292,9 @@ class LangDetectorTest {
     @Test
     fun partialTierLanguagesMapToTheirOwnEspeakVoice() {
         // German + Bulgarian are the partial-support tier (Max, 2026-09-20):
-        // an explicit choice maps straight to that espeak voice, ignoring the
-        // voice's own region the same way the other non-English languages do.
-        // The trigram table can't yet detect them from text, so this only
-        // fires for an explicit language, but the map stays total.
+        // a detected German or an explicit choice maps straight to that espeak
+        // voice, ignoring the voice's own region the same way the other
+        // non-English languages do. Bulgarian is never detected from text.
         assertEquals("de", LangDetector.espeakCodeFor("de", "en-us"))
         assertEquals("de", LangDetector.espeakCodeFor("de", "ja"))
         assertEquals("bg", LangDetector.espeakCodeFor("bg", "en-gb"))
@@ -302,6 +338,7 @@ class LangDetectorTest {
         assertAll("es", "buenos días", "¿cómo estás?", "hasta mañana")
         assertAll("it", "grazie mille", "va bene così", "arrivederci amici")
         assertAll("pt", "muito obrigado", "até amanhã", "bom dia pessoal")
+        assertAll("de", "guten Morgen", "vielen Dank", "wie geht es dir?")
     }
 
     @Test

@@ -160,6 +160,12 @@ This project follows [Semantic Versioning](https://semver.org/).
   used Sky now use Heart.
 
 ### Fixed
+- **German text is recognised as German**: Marmalade's language detection
+  now knows German. A German article in reader mode, or German text shared
+  to Marmalade, was taken for English and read by an English voice; it now
+  stays on, or moves to, a German voice such as Thorsten. With no German
+  voice installed, Kokoro voices that detect each sentence's language now
+  read German sentences with German pronunciation rather than English.
 - **The buttons that open Android's settings land on the right page on
   every supported Android version**: "Open system TTS settings" in setup
   and "Set as system TTS engine" in Settings open Text-to-speech output,

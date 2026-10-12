@@ -98,6 +98,7 @@ folder.
 | Component | Role | Where it ships | License |
 |---|---|---|---|
 | Marmalade app code | The app | APK (source) | **MIT** |
+| Language-detection table (`assets/langdetect.tab`) | Picks the language of each piece of text | APK | **MIT** (Marmalade's own statistics, trained on public-domain Project Gutenberg books — see [`LICENSES/langdetect.md`](LICENSES/langdetect.md)) |
 | espeak-ng | Phonemizer (English/multi) | APK (library and full `espeak-ng-data`, both built from source); Kitten engine bundles and Kokoro bundles up to v23 also carry a copy of `espeak-ng-data` | **GPL-3.0-or-later** |
 | Unicode Character Database (via espeak-ng's ucd-tools) | Unicode character tables compiled into espeak-ng | APK (compiled in) | Unicode-DFS-2016 |
 | ONNX Runtime Mobile | Inference runtime | APK | MIT |
