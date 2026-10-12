@@ -58,9 +58,10 @@ debug-only hook is needed. The rc package's engine bundles are installed
 once through its own UI (not debuggable, so nothing can be copied in).
 Unit tests can't catch what it catches: v1.1.0's German died on ICU regex
 (#22) while every JVM test passed. Kokoro's accented de/bg rows send that
-request language with a Kokoro voice. Kokoro honours it only when
-`LangDetector` abstains on the text, and it reads most German prose as en or
-fr, so those sentences are picked (and checked) to make it abstain. Not
+request language with a Kokoro voice. Kokoro phonemizes in the language
+`LangDetector` finds and honours the request only when it abstains, so those
+sentences are checked to detect as that language (German, since #59) or to
+make it abstain (Cyrillic). Not
 covered: developer-only engines (system TTS never offers them). Gotcha: a
 client that sets no rate gets the phone's system speech rate
 (`settings get secure tts_default_rate`; 1.82× on the 6a) in

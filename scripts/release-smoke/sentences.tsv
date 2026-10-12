@@ -7,8 +7,8 @@
 # German or Bulgarian): the gate sends that request language with a Kokoro
 # voice. Kokoro phonemizes in the language its detector finds and only falls
 # back to the request language when the detector abstains, so these lines
-# must make it abstain (the gate checks, with the app's own table). Most
-# German prose reads as English or French to it; Cyrillic always abstains.
+# must be detected as that language or make it abstain (the gate checks, with
+# the app's own table). German is detected (#59); Cyrillic always abstains.
 en	Good morning. The sun is out today, and there is a light breeze.
 es	Buenos días. Hoy hace sol y sopla una brisa suave.
 fr	Bonjour. Aujourd'hui, il fait beau et le vent est léger.

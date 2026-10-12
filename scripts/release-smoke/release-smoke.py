@@ -299,8 +299,9 @@ class LangDetector:
     """The app's utterance language detector (lang/LangDetector.kt), reading the
     same langdetect.tab. A Kokoro voice phonemizes in the DETECTED language and
     only falls back to the request language when detection abstains, so an
-    accented row's sentence must make it abstain or the row never reaches the
-    accented tier. Script stage reduced to "kana, Han or Devanagari wins"."""
+    accented row's sentence must be detected as that language (German, since
+    #59) or make it abstain (Bulgarian), or the row never reaches the accented
+    tier. Script stage reduced to "kana, Han or Devanagari wins"."""
 
     MIN_TRIGRAMS, SHORT_TRIGRAMS, MIN_MARGIN, SHORT_MARGIN = 8, 24, 2.0, 8.0
 
@@ -463,9 +464,10 @@ def smoke_stage(phone: Phone, pkg: str, rows: list[Row], sentences: dict[str, st
                 row.reasons.append(f"no ISO 639-2 code for {row.request_lang} in ISO3")
                 continue
             seen = detector.detect(text)
-            if seen is not None:
+            if seen is not None and seen != row.request_lang:
                 row.reasons.append(f"the app's language detector reads the `{key}` line as {seen}, so the "
-                                   f"row would never reach the accented tier: pick a line it abstains on")
+                                   f"row would never reach the accented tier: pick a line it reads as "
+                                   f"{row.request_lang} or abstains on")
                 continue
             extra["lang"] = ISO3[row.request_lang]
         tag = re.sub(r"[^\w.-]", "_", f"{i:02d}-{row.voice}" + (f"-{row.request_lang}" if row.request_lang else ""))
