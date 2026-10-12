@@ -125,7 +125,8 @@ class EspeakPhonemizer(
      * espeak's language-switch flags are removed here, for every caller:
      * a French sentence with an English loanword comes back as
      * `(en)ˈʌpdeɪt(fr)`, and no acoustic model has a phoneme for the
-     * flag's letters — Kitten encoded them as real vocab.
+     * flag's letters — Kitten encoded them as real vocab. So are ASCII
+     * digits ([stripDigits], #48).
      *
      * Spanish text first goes through [EsTextFixups] (old spelling's
      * standalone "á" otherwise reads as "a acentuada").
@@ -136,11 +137,13 @@ class EspeakPhonemizer(
             return ""
         }
         val input = if (voice.startsWith("es")) EsTextFixups.apply(text) else text
-        val raw = stripLanguageFlags(
-            synchronized(nativeLock) {
-                applyVoiceLocked(voice)
-                nativePhonemize(input, tie) ?: ""
-            },
+        val raw = stripDigits(
+            stripLanguageFlags(
+                synchronized(nativeLock) {
+                    applyVoiceLocked(voice)
+                    nativePhonemize(input, tie) ?: ""
+                },
+            ),
         )
         // espeak's English LTS gets some common informal words wrong
         // ("yeah" → /jɛh/); see EnPhonemeFixups. The replacement differs
@@ -237,6 +240,17 @@ class EspeakPhonemizer(
 
         /** Remove espeak language-switch flags; see [LANG_SWITCH_FLAG]. */
         internal fun stripLanguageFlags(ipa: String): String = LANG_SWITCH_FLAG.replace(ipa, "")
+
+        /**
+         * Remove ASCII digits from raw espeak IPA (#48). espeak spells numbers
+         * out, so a digit in its output is dictionary notation passed through
+         * literally: German "aneinander-geklebt" → `ˌan1a^ɪnˈandɜ…` (de_list
+         * `an1aIn'and3`), a lone Cyrillic letter on an English voice ("л") →
+         * `ˈɛl1`. No model has a phoneme for them. Runs after
+         * [stripLanguageFlags], whose pattern allows digits.
+         */
+        internal fun stripDigits(ipa: String): String =
+            if (ipa.none { it in '0'..'9' }) ipa else ipa.filterNot { it in '0'..'9' }
 
         @Volatile private var libsLoaded: Boolean = false
 

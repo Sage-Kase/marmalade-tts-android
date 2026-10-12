@@ -11,6 +11,7 @@ import app.marmalade.tts.audio.EffectBlock
 import app.marmalade.tts.audio.EffectResolver
 import app.marmalade.tts.data.KittenDirectVoiceCatalog
 import app.marmalade.tts.data.KokoroDirectVoiceCatalog
+import app.marmalade.tts.data.KokoroGermanVoiceCatalog
 import app.marmalade.tts.data.SettingsRepository
 import app.marmalade.tts.data.VitsVoiceCatalog
 import app.marmalade.tts.data.db.VoiceMeta
@@ -915,6 +916,56 @@ class MarmaladeTtsServiceTest {
         assertEquals("es", fakeKokoroDirectEngine.languages.single())
     }
 
+    /**
+     * Kokoro German (Thorsten) installed beside the three engines setUp
+     * wires, its voice row in the DAO. Returns its fake.
+     */
+    private fun installKokoroGerman(): FakeKokoroGermanEngine {
+        val ctx: Context = ApplicationProvider.getApplicationContext()
+        val german = FakeKokoroGermanEngine(ctx, fakeSettings)
+        setField(
+            service,
+            "engines",
+            EngineRegistry(listOf(fakeKokoroDirectEngine, german, fakeEngine, fakeVits)),
+        )
+        kotlinx.coroutines.runBlocking { fakeDao.upsertAll(KokoroGermanVoiceCatalog.voices) }
+        return german
+    }
+
+    private val germanText =
+        "Der Download ist abgeschlossen und die Datei ist jetzt bereit zur Verwendung."
+
+    @Test
+    fun onSynthesizeText_autoAliasReroutesGermanToKokoroGerman() {
+        // #60: the reroute used to look only at Kokoro (multilingual)
+        // voices, which have no German, so German stayed on accented
+        // Kitten even with Thorsten installed.
+        installKittenPrimary(phonemizationLanguage = "auto")
+        val german = installKokoroGerman()
+        german.nextPcm = ShortArray(1024)
+
+        service.onSynthesizeText(SynthesisRequest(germanText, Bundle()), FakeSynthesisCallback())
+
+        assertEquals(0, fakeEngine.calls.size)
+        assertEquals(0, fakeKokoroDirectEngine.calls.size)
+        assertEquals(KokoroGermanVoiceCatalog.DEFAULT_VOICE_ID, german.calls.single().second)
+        // Kokoro German phonemizes German whatever it is told: null means
+        // the engine's own default.
+        assertNull(german.languages.single())
+    }
+
+    @Test
+    fun onSynthesizeText_autoAliasKeepsGermanOnKittenWithoutKokoroGerman() {
+        installKittenPrimary(phonemizationLanguage = "auto")
+        fakeEngine.nextPcm = ShortArray(1024)
+
+        service.onSynthesizeText(SynthesisRequest(germanText, Bundle()), FakeSynthesisCallback())
+
+        assertEquals(0, fakeKokoroDirectEngine.calls.size)
+        assertEquals("kitten-direct-v0_8:Bella", fakeEngine.calls.single().second)
+        assertEquals("de", fakeEngine.languages.single())
+    }
+
     @Test
     fun onSynthesizeText_autoAliasEnglishTextStaysOnKitten() {
         // The common case: an English utterance on an auto-detect Kitten
@@ -933,25 +984,42 @@ class MarmaladeTtsServiceTest {
     }
 
     @Test
-    fun onSynthesizeText_namedVoiceIsNeverRerouted() {
+    fun onSynthesizeText_anEchoOfTheAliasVoiceIsStillRerouted() {
+        // Android fills voiceName in for any client that calls setLanguage,
+        // from onGetDefaultVoiceNameFor: the primary's own voice. That is
+        // the alias speaking, not a pick, so its "auto" still reroutes (#60;
+        // before, every ordinary app kept the Spanish on Kitten).
         installKittenPrimary(phonemizationLanguage = "auto")
         fakeKokoroDirectEngine.nextPcm = ShortArray(1024)
-        fakeEngine.nextPcm = ShortArray(1024)
 
-        // A caller that names a voice has out-specified everything. The
-        // named voice happens to be the primary's, so the alias bundle
-        // (including "auto") still applies — the phonemizer follows the
-        // detected language, but the voice cannot move even though a
-        // Spanish Kokoro voice is installed.
         val request = newRequestWithVoice(
             "La descarga ha terminado y el archivo está listo para usar.",
             "kitten-direct-v0_8:Bella",
         )
         service.onSynthesizeText(request, FakeSynthesisCallback())
 
+        assertEquals(0, fakeEngine.calls.size)
+        assertEquals("kokoro-direct-v1_0:ef_dora", fakeKokoroDirectEngine.calls.single().second)
+    }
+
+    @Test
+    fun onSynthesizeText_aDeliberatelyPickedVoiceIsNeverRerouted() {
+        installKittenPrimary(phonemizationLanguage = "auto")
+        fakeKokoroDirectEngine.nextPcm = ShortArray(1024)
+        fakeEngine.nextPcm = ShortArray(1024)
+
+        // Another voice than the alias's: the caller chose it, so it speaks
+        // as itself, with no alias language, even though a Spanish Kokoro
+        // voice is installed.
+        val request = newRequestWithVoice(
+            "La descarga ha terminado y el archivo está listo para usar.",
+            "kitten-direct-v0_8:Leo",
+        )
+        service.onSynthesizeText(request, FakeSynthesisCallback())
+
         assertEquals(0, fakeKokoroDirectEngine.calls.size)
-        assertEquals("kitten-direct-v0_8:Bella", fakeEngine.calls.single().second)
-        assertEquals("es", fakeEngine.languages.single())
+        assertEquals("kitten-direct-v0_8:Leo", fakeEngine.calls.single().second)
+        assertNull(fakeEngine.languages.single())
     }
 
     @Test
@@ -1483,7 +1551,7 @@ internal class FakeKittenDirectEngine(
 // solely to enable this test double — same reasoning as KittenDirectEngine.
 // ---------------------------------------------------------------------------
 
-internal class FakeKokoroDirectEngine(
+internal open class FakeKokoroDirectEngine(
     ctx: Context,
     settings: SettingsRepository,
 ) : KokoroDirectEngine(ctx, settings, fakeSharedEspeakData()) {
@@ -1551,6 +1619,14 @@ internal class FakeKokoroDirectEngine(
         emit(SynthAudio(pcm = nextPcm, sampleRate = sampleRate))
         failAfterFirstChunk?.let { throw it }
     }
+}
+
+/** The Kokoro fake under Kokoro German's name (Thorsten, #60). */
+internal class FakeKokoroGermanEngine(
+    ctx: Context,
+    settings: SettingsRepository,
+) : FakeKokoroDirectEngine(ctx, settings) {
+    override val engineName: String = KokoroGermanVoiceCatalog.ENGINE
 }
 
 // ---------------------------------------------------------------------------

@@ -35,6 +35,7 @@ import app.marmalade.tts.engine.SynthAudio
 import app.marmalade.tts.engine.TtsEngine
 import app.marmalade.tts.lang.LangDetector
 import app.marmalade.tts.lang.UtteranceLanguage
+import app.marmalade.tts.lang.VoiceForLanguage
 import app.marmalade.tts.preprocessing.EmojiProsody
 import app.marmalade.tts.preprocessing.Emotion
 import app.marmalade.tts.preprocessing.Preprocessor
@@ -999,10 +1000,14 @@ class MarmaladeTtsService : TextToSpeechService() {
      * - On Kitten and Pocket a null column is left completely alone — no
      *   detection, no reroute. The alias has to opt in.
      * - Having opted in, a non-English utterance on one of them prefers
-     *   an installed Kokoro voice of that language; with none installed
+     *   an installed on-device voice of that language, Kokoro first (the
+     *   reader's rule, so German reaches Kokoro German); with none installed
      *   the voice stands and Kitten phonemizes the utterance in its own
      *   detected language (accented, per Max 2026-08-08), while Pocket —
      *   which has no espeak in its path — speaks English.
+     * - A voice the caller picked on purpose is never rerouted: it arrives
+     *   with no language, so it never opts in. A voice name that echoes the
+     *   alias's own (Android's auto-fill) does not stop the reroute.
      * - The **request's** language no longer picks a voice or a language.
      *   It survives solely as the fallback for when detection abstains —
      *   too little text, or two languages too close to call.
@@ -1043,7 +1048,7 @@ class MarmaladeTtsService : TextToSpeechService() {
         }
 
         // Kitten / Pocket carrying the literal "auto". A non-English
-        // utterance prefers an installed Kokoro voice of that language —
+        // utterance prefers an installed voice of that language —
         // a model that was trained on it beats an accent. With none
         // installed the voice stands and renders it itself (Max,
         // 2026-08-08: Kitten's accented non-English is "not good but not
@@ -1051,23 +1056,21 @@ class MarmaladeTtsService : TextToSpeechService() {
         if (language == null || language == TtsLocales.BASELINE_LANGUAGE) {
             return selfRendered
         }
-        val requested = request.voiceName?.takeIf { it.isNotBlank() }
-        if (requested != null && onIsValidVoiceName(requested) == TextToSpeech.SUCCESS) {
-            // A caller-named voice is never rerouted.
-            return selfRendered
-        }
-        // Kokoro only: rerouting to another English-only engine's voice
-        // would change who is speaking and fix nothing. Region
-        // deliberately null — detection knows the language, not the
-        // country, and the request's country describes a locale we are no
-        // longer routing by.
-        val kokoroVoices = installedVoices().filter {
-            it.engine == KokoroDirectVoiceCatalog.ENGINE
-        }
-        val voice = TtsLocales.defaultVoiceFor(language, null, kokoroVoices)
+        // No check of request.voiceName here: a caller's deliberate pick
+        // never reaches this point (resolveSynthParams gives it no
+        // phonemization language, so isAuto is false above). A named voice
+        // that does is the alias's: Android fills voiceName in for every
+        // client that calls setLanguage, from onGetDefaultVoiceNameFor (the
+        // primary's voice; seen on the emulator, #60), and checking it
+        // blocked this reroute for ordinary apps.
+        // The reader's "installed voice of that language" step
+        // (VoiceForLanguage.installedVoiceFor): Kokoro first, any other
+        // on-device engine that speaks it next (German → Kokoro German,
+        // #60), never a cloud voice. An English-only voice can't match a
+        // non-English language, so this never swaps one accent for another.
+        val voice = VoiceForLanguage.installedVoiceFor(language, installedVoices())
             ?: return selfRendered
-        val voiceEspeak =
-            UtteranceLanguage.espeakFor(KokoroDirectVoiceCatalog.ENGINE, voice.id, language)
+        val voiceEspeak = UtteranceLanguage.espeakFor(voice.engine, voice.id, language)
         Log.d(
             TAG,
             "auto language: detected=$language on ${params.voiceId} → " +

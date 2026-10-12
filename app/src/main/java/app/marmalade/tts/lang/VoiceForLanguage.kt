@@ -38,8 +38,9 @@ import app.marmalade.tts.service.TtsLocales
 //   the text to a provider happens only when the user made that cloud alias
 //   their primary. Callers: reader/LanguageAwareReaderVoicePicker and
 //   MarmaladeSynthService's share route, both through LanguageVoiceSelector.
-//   System TTS (MarmaladeTtsService) has its own per-utterance rerouting and
-//   doesn't use this.
+//   System TTS (MarmaladeTtsService) decides per utterance and only for an
+//   auto-detect alias, but its reroute is the same "installed voice" step
+//   (installedVoiceFor), so German on a Kitten alias reaches Thorsten (#60).
 // -----------------------------------------------------------------------------
 
 /** The voice a text is spoken in. */
@@ -166,7 +167,7 @@ object VoiceForLanguage {
             )
         }
 
-        TtsLocales.defaultVoiceFor(language, null, onDevice)?.let { voice ->
+        installedVoiceFor(language, onDevice)?.let { voice ->
             return VoiceDecision(
                 voice = VoiceChoice.Installed(voiceId = voice.id, engine = voice.engine),
                 language = language,
@@ -175,6 +176,15 @@ object VoiceForLanguage {
         }
         return keep(VoiceDecision.Reason.NoVoiceForLanguage)
     }
+
+    /**
+     * The on-device voice among [voices] that speaks [language], or null:
+     * Kokoro first, then catalog order ([TtsLocales.defaultVoiceFor]). Region
+     * is deliberately not asked for: detection knows the language, not the
+     * country. Never a cloud voice (the privacy rule above).
+     */
+    fun installedVoiceFor(language: String, voices: List<VoiceMeta>): VoiceMeta? =
+        TtsLocales.defaultVoiceFor(language, null, voices.filter { it.engine != CloudApiVoiceCatalog.ENGINE })
 
     /**
      * The one log line for [decision] about a [subject] (`article`, `share`),

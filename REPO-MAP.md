@@ -1078,7 +1078,10 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   `VitsPhonemeIds.splitClauses` turns a spaced dash into a `;` clause (what
   Piper trained on). espeak-de 1.52 phonemizes "aneinander" with a literal
   `1` (its de_list entry); a `GermanOverrides` MARMALADE entry covers it
-  (#46). A hyphenated compound ("aneinander-geklebt") still gets the `1`.
+  (#46). Since #48 `EspeakPhonemizer.stripDigits` drops every ASCII digit
+  from raw espeak IPA for all engines (espeak spells numbers out, so a digit
+  there is dictionary notation): the hyphenated "aneinander-geklebt" and a
+  lone Cyrillic letter on an English voice ("л" → `ˈɛl1`) lose theirs too.
 - Clause punctuation (#46): `espeak_jni.c` re-injects the LAST mark of
   each clause that only spaces/closing quotes follow, so marks espeak
   reads through ("3.5", "10–20") don't replace the terminator. espeak's
@@ -1168,7 +1171,13 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   reader (`LanguageVoiceSelector`: other on-device alias → installed on-device voice
   → primary), logged as `D/ShareVoice`. Explicit-voice callers (Speak
   screen, previews) and the reader are untouched; system TTS
-  (`MarmaladeTtsService`) keeps its own per-utterance rerouting
+  (`MarmaladeTtsService`) keeps its own per-utterance rerouting, only for
+  an auto-detect Kitten/Pocket alias and only to an installed voice
+  (`resolveUtteranceLanguage` → `VoiceForLanguage.installedVoiceFor`, the
+  reader's step: Kokoro first, then e.g. Kokoro German, never cloud; #60).
+  `request.voiceName` doesn't block it: Android fills it in from
+  `onGetDefaultVoiceNameFor` for any client that calls `setLanguage`
+  (emulator-verified), and a deliberate pick never carries "auto"
 
 ### Navigation
 - `ui/AppRoot.kt` — Scaffold + NavigationBar (5 tabs) + NavHost.
