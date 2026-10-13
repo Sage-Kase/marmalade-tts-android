@@ -165,7 +165,7 @@
     <string name="language_kk">कज़ाख़</string>
     <string name="language_nb">नॉर्वेजियन (बोकमाल)</string>
 
-    <!-- आवाज़ पैक की ऑडियो गुणवत्ता (PackQuality) -->
+    <!-- आवाज़ पैक की ऑडियो गुणवत्ता (QualityGrade) -->
     <string name="pack_quality_excellent">उत्कृष्ट</string>
     <string name="pack_quality_good">अच्छी</string>
     <string name="pack_quality_basic">सामान्य</string>

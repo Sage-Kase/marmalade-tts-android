@@ -165,7 +165,7 @@
     <string name="language_kk">Kazajo</string>
     <string name="language_nb">Noruego (bokmål)</string>
 
-    <!-- Calidad de audio de los paquetes de voces (PackQuality) -->
+    <!-- Calidad de audio de los paquetes de voces (QualityGrade) -->
     <string name="pack_quality_excellent">Excelente</string>
     <string name="pack_quality_good">Buena</string>
     <string name="pack_quality_basic">Básica</string>

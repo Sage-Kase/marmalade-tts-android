@@ -164,7 +164,7 @@
     <string name="language_kk">哈萨克语</string>
     <string name="language_nb">挪威语（书面挪威语）</string>
 
-    <!-- 语音包的音质 (PackQuality) -->
+    <!-- 语音包的音质 (QualityGrade) -->
     <string name="pack_quality_excellent">优秀</string>
     <string name="pack_quality_good">良好</string>
     <string name="pack_quality_basic">一般</string>

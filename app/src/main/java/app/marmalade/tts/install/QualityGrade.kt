@@ -31,7 +31,7 @@ package app.marmalade.tts.install
  *                     intentional: the user has already learned that a short
  *                     hot bar is a cost.
  */
-enum class PackQuality(val meterFill: Int) {
+enum class QualityGrade(val meterFill: Int) {
     /** Studio-clean source audio, no audible artefacts. */
     EXCELLENT(4),
 

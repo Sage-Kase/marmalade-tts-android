@@ -67,9 +67,9 @@ import app.marmalade.tts.install.VoicePackRow
 import app.marmalade.tts.install.VoicePackSummary
 import app.marmalade.tts.install.isUsableOnDisk
 import app.marmalade.tts.preprocessing.PreprocessingRules
-import app.marmalade.tts.ui.components.PackQualityMeter
+import app.marmalade.tts.ui.components.QualityMeter
 import app.marmalade.tts.ui.components.languageDisplayName
-import app.marmalade.tts.ui.components.packQualityLabelRes
+import app.marmalade.tts.ui.components.qualityGradeLabelRes
 import app.marmalade.tts.ui.onboarding.formatBytes
 
 // -----------------------------------------------------------------------------
@@ -365,10 +365,10 @@ private fun VoicePackRowView(
                 )
                 Spacer(Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    PackQualityMeter(quality = row.pack.quality)
+                    QualityMeter(quality = row.pack.quality)
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        text = stringResource(packQualityLabelRes(row.pack.quality)),
+                        text = stringResource(qualityGradeLabelRes(row.pack.quality)),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

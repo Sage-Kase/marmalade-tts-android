@@ -165,7 +165,7 @@
     <string name="language_kk">Cazaque</string>
     <string name="language_nb">Norueguês (bokmål)</string>
 
-    <!-- Qualidade de áudio dos pacotes de vozes (PackQuality) -->
+    <!-- Qualidade de áudio dos pacotes de vozes (QualityGrade) -->
     <string name="pack_quality_excellent">Excelente</string>
     <string name="pack_quality_good">Boa</string>
     <string name="pack_quality_basic">Básica</string>

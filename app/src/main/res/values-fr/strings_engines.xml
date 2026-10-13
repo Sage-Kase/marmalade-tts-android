@@ -165,7 +165,7 @@
     <string name="language_kk">Kazakh</string>
     <string name="language_nb">Norvégien (bokmål)</string>
 
-    <!-- Qualité audio des packs de voix (PackQuality) -->
+    <!-- Qualité audio des packs de voix (QualityGrade) -->
     <string name="pack_quality_excellent">Excellente</string>
     <string name="pack_quality_good">Bonne</string>
     <string name="pack_quality_basic">Correcte</string>

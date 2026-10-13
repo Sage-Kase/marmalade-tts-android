@@ -164,7 +164,7 @@
     <string name="language_kk">カザフ語</string>
     <string name="language_nb">ノルウェー語（ブークモール）</string>
 
-    <!-- 音声パックの音質 (PackQuality) -->
+    <!-- 音声パックの音質 (QualityGrade) -->
     <string name="pack_quality_excellent">非常に良い</string>
     <string name="pack_quality_good">良い</string>
     <string name="pack_quality_basic">標準</string>

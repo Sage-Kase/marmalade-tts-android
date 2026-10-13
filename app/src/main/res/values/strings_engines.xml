@@ -50,7 +50,7 @@
     <string name="language_kk">Kazakh</string>
     <string name="language_nb">Norwegian (Bokmål)</string>
 
-    <!-- Voice-pack audio-quality grades (PackQuality). Linear scale, shown
+    <!-- Voice-pack audio-quality grades (QualityGrade). Linear scale, shown
          wherever a pack or one of its voices is offered. "Rough recording"
          says plainly that the source audio is noisy — we ship the pack anyway
          because a rough voice beats no voice, so the label must not soften. -->

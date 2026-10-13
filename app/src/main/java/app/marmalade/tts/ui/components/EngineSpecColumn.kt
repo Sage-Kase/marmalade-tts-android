@@ -42,7 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.marmalade.tts.R
 import app.marmalade.tts.install.EngineDescriptor
-import app.marmalade.tts.install.PackQuality
+import app.marmalade.tts.install.QualityGrade
 import app.marmalade.tts.install.QualityTier
 import app.marmalade.tts.install.SpeedTier
 
@@ -304,14 +304,14 @@ fun SpeedMeter(
  * [SpeedMeter]: the user has already learned that a short hot bar is a cost, so
  * a rough-sounding pack reads as one at a glance without having to parse the
  * word beside it. Unlike the engine's [QualityTier] — which is non-linear on
- * purpose — [PackQuality] is a rank, which is what makes a meter honest here.
+ * purpose — [QualityGrade] is a rank, which is what makes a meter honest here.
  */
 @Composable
-fun PackQualityMeter(
-    quality: PackQuality,
+fun QualityMeter(
+    quality: QualityGrade,
     modifier: Modifier = Modifier,
 ) {
-    val label = stringResource(R.string.pack_quality_cd, stringResource(packQualityLabelRes(quality)))
+    val label = stringResource(R.string.pack_quality_cd, stringResource(qualityGradeLabelRes(quality)))
     SegmentMeter(
         fill = quality.meterFill,
         modifier = modifier.semantics { contentDescription = label },
@@ -380,11 +380,11 @@ fun qualityTierLabelRes(tier: QualityTier): Int = when (tier) {
 
 /** Short user-facing word for a voice pack's audio-quality grade. */
 @StringRes
-fun packQualityLabelRes(quality: PackQuality): Int = when (quality) {
-    PackQuality.EXCELLENT -> R.string.pack_quality_excellent
-    PackQuality.GOOD -> R.string.pack_quality_good
-    PackQuality.BASIC -> R.string.pack_quality_basic
-    PackQuality.ROUGH -> R.string.pack_quality_rough
+fun qualityGradeLabelRes(quality: QualityGrade): Int = when (quality) {
+    QualityGrade.EXCELLENT -> R.string.pack_quality_excellent
+    QualityGrade.GOOD -> R.string.pack_quality_good
+    QualityGrade.BASIC -> R.string.pack_quality_basic
+    QualityGrade.ROUGH -> R.string.pack_quality_rough
 }
 
 /**
