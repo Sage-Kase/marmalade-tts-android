@@ -22,7 +22,9 @@ import app.marmalade.tts.ui.screen.FakeSettings
 import app.marmalade.tts.util.MainDispatcherRule
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -464,6 +466,87 @@ class OnboardingViewModelTest {
         assertEquals(setOf(KITTEN, KOKORO), vm.selectedEngineIds.value)
     }
 
+    // -- the engine step waits for the phone check (#76) --------------------
+
+    @Test
+    fun whileCheckingTheListIsHiddenAndInstallDoesNothing() = runTest {
+        val installer = RecordingInstaller(behaviour = { Result.success(Unit) })
+        val vm = newViewModel(installer = installer, deviceProbe = NeverAnswers())
+        vm.next()
+
+        vm.installSelected()
+
+        assertFalse("still checking", vm.probeDone.value)
+        assertEquals(OnboardingStep.EnginePick, vm.step.value)
+        assertTrue("no installs while checking", installer.installCalls.isEmpty())
+    }
+
+    @Test
+    fun aVerdictFinishesTheCheckSortedAndTicked() = runTest {
+        val vm = newViewModel(deviceProbe = FakeDeviceProbe(FAST_PHONE))
+
+        vm.probeDone.first { it }
+
+        assertEquals(POCKET, vm.recommendation.value?.recommended)
+        assertEquals(POCKET, vm.engines.value.first().descriptor.name)
+        assertEquals(setOf(KITTEN, POCKET), vm.selectedEngineIds.value)
+    }
+
+    @Test
+    fun noVerdictStillFinishesTheCheckWithTheStaticList() = runTest {
+        // No benchmark and no CPU score: recommend() returns null.
+        val vm = newViewModel(deviceProbe = FakeDeviceProbe(DeviceProbe(null, null)))
+
+        vm.probeDone.first { it }
+
+        assertNull(vm.recommendation.value)
+        assertStaticList(vm)
+    }
+
+    @Test
+    fun aThrowingProbeStillFinishesTheCheckWithTheStaticList() = runTest {
+        val vm = newViewModel(
+            deviceProbe = object : DeviceProbeSource {
+                override suspend fun probe(): DeviceProbe = throw IllegalStateException("ORT init")
+            },
+        )
+
+        vm.probeDone.first { it }
+
+        assertNull(vm.recommendation.value)
+        assertStaticList(vm)
+    }
+
+    @Test
+    fun aCheckPastTheCapShowsTheStaticListAndALateVerdictTicksNothing() = runTest {
+        val probe = CompletableDeferred<DeviceProbe>()
+        val vm = newViewModel(
+            deviceProbe = object : DeviceProbeSource {
+                override suspend fun probe(): DeviceProbe = probe.await()
+            },
+        )
+
+        advanceTimeBy(PROBE_WAIT_MS - 1)
+        assertFalse("still inside the cap", vm.probeDone.value)
+        advanceTimeBy(2)
+        assertTrue("the cap ends the wait", vm.probeDone.value)
+        assertNull(vm.recommendation.value)
+        assertStaticList(vm)
+
+        // The verdict lands while the list is visible: it re-sorts and
+        // relabels (the screen scrolls to the top) but ticks nothing.
+        probe.complete(FAST_PHONE)
+        vm.recommendation.first { it != null }
+        assertEquals(POCKET, vm.engines.value.first().descriptor.name)
+        assertEquals(setOf(KITTEN), vm.selectedEngineIds.value)
+    }
+
+    private fun assertStaticList(vm: OnboardingViewModel) {
+        assertEquals(CATALOG_CARDS, vm.engines.value.map { it.descriptor.name })
+        assertEquals(listOf(KITTEN), vm.engines.value.filter { it.showsRecommended }.map { it.descriptor.name })
+        assertEquals(setOf(KITTEN), vm.selectedEngineIds.value)
+    }
+
     @Test
     fun onlyTheBakedEngineIsMarkedBuiltIn() = runTest {
         val vm = newViewModel()
@@ -573,6 +656,11 @@ class OnboardingViewModelTest {
 /** Canned [DeviceProbeSource] — the real one needs an ORT session + sysfs. */
 private class FakeDeviceProbe(private val result: DeviceProbe) : DeviceProbeSource {
     override suspend fun probe(): DeviceProbe = result
+}
+
+/** A probe still running: the check never finishes inside the test. */
+private class NeverAnswers : DeviceProbeSource {
+    override suspend fun probe(): DeviceProbe = awaitCancellation()
 }
 
 /**

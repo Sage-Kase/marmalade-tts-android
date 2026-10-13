@@ -1310,6 +1310,13 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   order (#63). The verdict also ticks the recommended engine to install,
   unless the user already toggled a card; the built-in Kitten always stays
   in the selection (its install step waits for the offline seed).
+  The step shows only a spinner ("Checking your phone…") and disables
+  Install until `probeDone` (#76): set when the check gives a verdict, no
+  verdict (`recommend` returned null) or throws, or after `PROBE_WAIT_MS`
+  (20 s from onboarding's start, seed wait included; the real check is a
+  few seconds, see its KDoc). Past the cap the static list shows; a late
+  verdict still re-sorts and relabels it but ticks nothing, and the list
+  scrolls back to the top whenever its order changes.
   `finish()` flips the onboarded flag. A failed install
   row keeps the installer's own `Failed` (localized via
   `installFailureText`) and offers Retry + "Remove download".
