@@ -19,7 +19,7 @@ import app.marmalade.tts.data.VitsVoiceCatalog
 //                                       │
 //                                       ▼
 //              OnboardingViewModel.engines ──► Recommended / "May be slow"
-//                                              labels (card order is fixed)
+//                                              labels; Recommended card first
 // -----------------------------------------------------------------------------
 
 /** How well one engine is expected to run on this device. */
@@ -35,9 +35,8 @@ enum class EngineFit {
 }
 
 /**
- * Per-engine fit for this device. Fits move labels only — card order is
- * always the catalog's (Max, 2026-08-08: the verdict moves the pill, not
- * the cards).
+ * Per-engine fit for this device. Setup lists the Recommended engine first,
+ * the rest in catalog order (issue #63).
  */
 data class EngineRecommendation(
     val fits: Map<String, EngineFit>,

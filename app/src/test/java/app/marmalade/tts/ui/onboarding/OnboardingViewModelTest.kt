@@ -356,12 +356,13 @@ class OnboardingViewModelTest {
         assertTrue("aliasCreated should flip to true after save", vm.aliasCreated.first { it })
     }
 
-    // -- device-driven card labels (order is always the catalog's) ---------
+    // -- device-driven card labels; the Recommended card first (#63) ------
 
     @Test
     fun cardsStartInCatalogOrderWhileTheProbeIsPending() = runTest {
         // Catalog order (Kitten, Kokoro, Pocket) with the static
-        // isRecommended flag is what the step shows before the probe lands.
+        // isRecommended flag is what the step shows before the probe lands:
+        // the flagged card is Kitten, already first.
         val vm = newViewModel()
 
         assertEquals(
@@ -374,18 +375,22 @@ class OnboardingViewModelTest {
     }
 
     @Test
-    fun fastDeviceLabelsPocketWithoutMovingTheCards() = runTest {
+    fun fastDeviceListsPocketFirstWithThePill() = runTest {
         val vm = newViewModel(deviceProbe = FakeDeviceProbe(FAST_PHONE))
 
         val cards = vm.engines.first { cards -> cards.any { it.fit != null } }
 
-        // The verdict moves the pill, never the cards: catalog order holds.
-        assertEquals(CATALOG_CARDS, cards.map { it.descriptor.name })
+        // Issue #63: the Recommended card leads, the rest keep catalog order.
+        assertEquals(
+            listOf(POCKET) + (CATALOG_CARDS - POCKET),
+            cards.map { it.descriptor.name },
+        )
         // Issue #19: Pocket, on both flavors since #29.
         assertEquals(
             listOf(POCKET),
-            cards.filter { it.fit == EngineFit.RECOMMENDED }.map { it.descriptor.name },
+            cards.filter { it.showsRecommended }.map { it.descriptor.name },
         )
+        assertEquals(EngineFit.RECOMMENDED, cards.first().fit)
         assertEquals(EngineFit.FINE, cards.first { it.descriptor.name == KITTEN }.fit)
     }
 
@@ -414,7 +419,9 @@ class OnboardingViewModelTest {
 
         val cards = vm.engines.first { cards -> cards.any { it.fit != null } }
 
+        // Kitten is both recommended and first in the catalog: nothing moves.
         assertEquals(CATALOG_CARDS, cards.map { it.descriptor.name })
+        assertEquals(listOf(KITTEN), cards.filter { it.showsRecommended }.map { it.descriptor.name })
         assertEquals(EngineFit.RECOMMENDED, cards.first { it.descriptor.name == KITTEN }.fit)
         assertEquals(EngineFit.MAY_BE_SLOW, cards.first { it.descriptor.name == KOKORO }.fit)
         assertEquals(EngineFit.MAY_BE_SLOW, cards.first { it.descriptor.name == POCKET }.fit)

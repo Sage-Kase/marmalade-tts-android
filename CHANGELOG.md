@@ -52,6 +52,9 @@ This project follows [Semantic Versioning](https://semver.org/).
   speed warning no longer shows for Kokoro at normal speed (it starts just
   above 1.25×), and setup recommends Pocket on somewhat slower phones than
   before.
+- **Setup lists the recommended engine first**: the engine marked
+  Recommended for your phone now leads the setup list, and the rest keep
+  their usual order.
 - **Pocket voices sound steadier by default**: Pocket now speaks at
   Kyutai's recommended setting, near the Steady end of the slider, with
   fewer slips. To get the livelier sound of earlier versions, move an
