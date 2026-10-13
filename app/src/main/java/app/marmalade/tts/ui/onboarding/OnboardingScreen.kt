@@ -62,6 +62,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -456,10 +457,18 @@ private fun EngineCard(
         // The permanently-ticked built-in card keeps the plain container:
         // the selected tint means "you chose this", and Kitten isn't a
         // choice (Max, 2026-08-08 — the loud terracotta card read as an
-        // error state in dark mode).
+        // error state in dark mode). Light mode tints deeper than the plain
+        // card (Orange 200 over Orange 100): its secondaryContainer is the page
+        // colour, which made a ticked card look like the odd one out (Max,
+        // 2026-10-13: "Stronger tint").
         colors = if (isSelected && !isBuiltIn) {
+            val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
             CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                containerColor = if (isDark) {
+                    MaterialTheme.colorScheme.secondaryContainer
+                } else {
+                    MaterialTheme.colorScheme.primaryContainer
+                },
             )
         } else {
             CardDefaults.cardColors()

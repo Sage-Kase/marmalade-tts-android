@@ -195,6 +195,9 @@ This project follows [Semantic Versioning](https://semver.org/).
   used Sky now use Heart.
 
 ### Fixed
+- **Setup in light mode**: a ticked engine card now has a deeper tint than
+  the others. It used to turn the same colour as the page, so the engine you
+  picked looked like the odd one out.
 - **The reader follows a new primary alias**: an article already open in
   the reader kept the voice it started with after you made another alias
   primary, so coming back to it (or sharing the same link again) still
