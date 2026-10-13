@@ -25,6 +25,11 @@ This project follows [Semantic Versioning](https://semver.org/).
   They appear once Pocket is updated on the Engines screen.
 
 ### Changed
+- **Reader contents open from the side**: the reader's table of contents
+  now slides in from the right edge of the screen (the left in
+  right-to-left languages) instead of rising from the bottom, opens on the
+  section being read, and closes with a tap outside it, a swipe back or
+  Back.
 - **No more stutter when a voice can't keep up**: when an engine can't
   render as fast as it speaks at the chosen speed (a slower phone, or a
   high speed), Marmalade now plays each sentence or clause whole once

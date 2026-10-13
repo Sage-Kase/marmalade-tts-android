@@ -1218,7 +1218,12 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   (`ReaderAutoScroll`) except after a user drag, and never while
   TalkBack's touch exploration is on (watched live via
   `AccessibilityManager`) — it would steal accessibility focus; then only
-  a ToC pick scrolls. **Voice per article** (`reader/ReaderVoicePicker.kt`
+  a ToC pick scrolls. The contents (`ui/reader/ReaderToc.kt`, #66) are a
+  Material modal drawer from the END edge, wrapping the reader's Scaffold:
+  `ModalNavigationDrawer` only opens from the start, so it runs in the mirrored
+  `LocalLayoutDirection` and the drawer and page get the real one back. Swipe
+  opening is off (`gesturesEnabled = isOpen`); scrim tap, swipe, a pick or Back
+  close it. **Voice per article** (`reader/ReaderVoicePicker.kt`
   over the shared `lang/VoiceForLanguage.kt` + `lang/LanguageVoiceSelector.kt`,
   2026-09-28): once per article, before the first block, the reader
   detects the article's language (`LangDetector` over the first ~2000

@@ -1,26 +1,32 @@
 package app.marmalade.tts.ui.reader
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DrawerState
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import app.marmalade.tts.R
 import app.marmalade.tts.reader.ArticleBlock
@@ -88,65 +94,97 @@ const val MIN_TOC_HEADINGS = 2
 /** Indent per heading level. Two levels deep is already the practical maximum. */
 private val TOC_INDENT = 16.dp
 
-/** Keeps a long article's contents from taking over the whole screen. */
-private val TOC_MAX_HEIGHT = 420.dp
-
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * The contents as a drawer from the END edge (#66; was a bottom sheet) — the
+ * right on a left-to-right layout, the left on a right-to-left one —
+ * wrapping the reader's [content]. Opened by the top bar's contents button;
+ * closed by a pick, a tap on the scrim, a swipe back toward the edge, or Back.
+ * Swiping does not open it: the page scrolls, and the edge is the system's
+ * back gesture.
+ *
+ * Material's [ModalNavigationDrawer] only opens from the start edge, so it
+ * runs in the mirrored layout direction and both the drawer and the reader
+ * get the real one back.
+ */
 @Composable
-fun ReaderTocSheet(
+fun ReaderTocDrawer(
+    drawerState: DrawerState,
     entries: List<TocEntry>,
     currentBlockIndex: Int?,
     onEntryTapped: (Int) -> Unit,
-    onDismiss: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    val direction = LocalLayoutDirection.current
+    val mirrored = if (direction == LayoutDirection.Ltr) LayoutDirection.Rtl else LayoutDirection.Ltr
+    CompositionLocalProvider(LocalLayoutDirection provides mirrored) {
+        ModalNavigationDrawer(
+            drawerState = drawerState,
+            gesturesEnabled = drawerState.isOpen,
+            drawerContent = {
+                CompositionLocalProvider(LocalLayoutDirection provides direction) {
+                    // Rounded on the side facing the page; no status-bar
+                    // inset: AppRoot's Scaffold already sits below it.
+                    ModalDrawerSheet(
+                        drawerShape = RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp),
+                        windowInsets = WindowInsets(0),
+                    ) {
+                        TocList(entries, currentBlockIndex, onEntryTapped)
+                    }
+                }
+            },
+        ) {
+            CompositionLocalProvider(LocalLayoutDirection provides direction, content = content)
+        }
+    }
+}
+
+@Composable
+private fun TocList(
+    entries: List<TocEntry>,
+    currentBlockIndex: Int?,
+    onEntryTapped: (Int) -> Unit,
 ) {
     val current = currentTocEntry(entries, currentBlockIndex)
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(),
-    ) {
-        Column(
+    val readFromHere = stringResource(R.string.reader_read_from_here)
+    // Opens on the section being read, a little of the one before showing.
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = (entries.indexOf(current) - 1).coerceAtLeast(0),
+    )
+    Column(modifier = Modifier.fillMaxHeight().navigationBarsPadding()) {
+        Text(
+            text = stringResource(R.string.reader_toc_title),
+            style = MaterialTheme.typography.titleLarge,
             modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(bottom = 24.dp),
+                .padding(start = 28.dp, end = 28.dp, top = 20.dp, bottom = 12.dp)
+                .semantics { heading() },
+        )
+        LazyColumn(
+            state = listState,
+            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 12.dp),
         ) {
-            Text(
-                text = stringResource(R.string.reader_toc_title),
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier
-                    .padding(start = 24.dp, end = 24.dp, bottom = 8.dp)
-                    .semantics { heading() },
-            )
-            LazyColumn(modifier = Modifier.heightIn(max = TOC_MAX_HEIGHT)) {
-                items(entries, key = { it.blockIndex }) { entry ->
-                    val isCurrent = entry.blockIndex == current?.blockIndex
-                    Text(
-                        text = entry.text,
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
-                        color = if (isCurrent) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurface
+            items(entries, key = { it.blockIndex }) { entry ->
+                val isCurrent = entry.blockIndex == current?.blockIndex
+                NavigationDrawerItem(
+                    label = {
+                        Text(
+                            text = entry.text,
+                            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    },
+                    // `selected` also tells TalkBack which section is being read.
+                    selected = isCurrent,
+                    onClick = { onEntryTapped(entry.blockIndex) },
+                    modifier = Modifier
+                        .padding(start = TOC_INDENT * entry.depth)
+                        .semantics {
+                            onClick(label = readFromHere) {
+                                onEntryTapped(entry.blockIndex)
+                                true
+                            }
                         },
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        // Bold + primary is visual only; `selected` tells
-                        // TalkBack which section is being read.
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(
-                                onClickLabel = stringResource(R.string.reader_read_from_here),
-                            ) { onEntryTapped(entry.blockIndex) }
-                            .semantics { selected = isCurrent }
-                            .padding(
-                                start = 24.dp + TOC_INDENT * entry.depth,
-                                end = 24.dp,
-                                top = 12.dp,
-                                bottom = 12.dp,
-                            ),
-                    )
-                }
+                )
             }
         }
     }
