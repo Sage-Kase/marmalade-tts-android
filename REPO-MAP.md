@@ -1086,7 +1086,9 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   each clause that only spaces/closing quotes follow, so marks espeak
   reads through ("3.5", "10–20") don't replace the terminator. espeak's
   cursor runs one character past each clause (its lookahead, carried
-  into the next call), which the shim drops before scanning.
+  into the next call), which the shim drops before scanning. A Hindi danda
+  (`।` U+0964, `॥` U+0965) has no vocab token, so the shim injects `.` for
+  it (#48).
   `tools/espeak-shim-check/run.sh` compiles the real shim on the host
   against `app/build/espeak-hostgen` and prints its IPA over a fixed
   9-language sentence set; diff two runs to see what a shim change does.
