@@ -317,7 +317,7 @@ class EngineCatalogTest {
                 licenseSummaryRes = R.string.engine_kitten_license,
                 taglineRes = R.string.engine_kitten_tagline,
                 speedTier = SpeedTier.FAST,
-                qualityTier = QualityTier.NATURAL,
+                quality = QualityGrade.GOOD,
                 languageCodes = listOf("en"),
             )
             throw AssertionError("expected IllegalArgumentException for empty archive url")
@@ -345,7 +345,7 @@ class EngineCatalogTest {
                 licenseSummaryRes = R.string.engine_kitten_license,
                 taglineRes = R.string.engine_kitten_tagline,
                 speedTier = SpeedTier.FAST,
-                qualityTier = QualityTier.NATURAL,
+                quality = QualityGrade.GOOD,
                 languageCodes = listOf("en"),
             )
             throw AssertionError("expected IllegalArgumentException for zero archive size")
@@ -415,6 +415,27 @@ class EngineCatalogTest {
         assertEquals(SpeedTier.MODERATE, EngineCatalog.byName("kokoro-de-v1_0")!!.speedTier)
         assertEquals(SpeedTier.FASTEST, EngineCatalog.byName("vits-marmalade-v1")!!.speedTier)
         assertEquals(SpeedTier.FAST, EngineCatalog.byName("pocket-tts-en-v2026_04")!!.speedTier)
+    }
+
+    @Test
+    fun everyEngineCarriesMaxsQualityGrade() {
+        // DO NOT edit these to make a test pass. They are Max's listening
+        // grades (2026-10-13, issue #78); changing one means he listened
+        // again. Keyed on every catalog engine, so a new engine fails here
+        // until Max grades it. The developer twin shares Pocket's grade.
+        val expected = mapOf(
+            "pocket-tts-en-v2026_04" to QualityGrade.EXCELLENT,
+            "pocket-tts-en-v2026_04-dev" to QualityGrade.EXCELLENT,
+            "kokoro-direct-v1_0" to QualityGrade.EXCELLENT,
+            "kokoro-de-v1_0" to QualityGrade.EXCELLENT,
+            "kitten-direct-v0_8" to QualityGrade.GOOD,
+            "vits-marmalade-v1" to QualityGrade.BASIC,
+        )
+        assertEquals(expected, EngineCatalog.all.associate { it.name to it.quality })
+        // Pocket and Kokoro fill the meter; Kitten is one below, VITS two.
+        assertEquals(4, QualityGrade.EXCELLENT.meterFill)
+        assertEquals(3, EngineCatalog.byName("kitten-direct-v0_8")!!.quality.meterFill)
+        assertEquals(2, EngineCatalog.byName("vits-marmalade-v1")!!.quality.meterFill)
     }
 
     @Test

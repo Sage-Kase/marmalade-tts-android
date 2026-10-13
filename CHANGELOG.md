@@ -33,6 +33,11 @@ This project follows [Semantic Versioning](https://semver.org/).
   They appear once Pocket is updated on the Engines screen.
 
 ### Changed
+- **Engine quality is a meter**: in setup and on the Engines tab, each
+  engine's quality now shows as a four-segment meter like its speed,
+  instead of a word. Pocket and Kokoro fill all four segments, Kitten
+  three and VITS two. TalkBack reads the grade (for example "Audio
+  quality: Excellent").
 - **Reader contents open from the side**: the reader's table of contents
   now slides in from the right edge of the screen (the left in
   right-to-left languages) instead of rising from the bottom, opens on the

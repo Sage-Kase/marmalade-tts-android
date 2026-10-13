@@ -43,7 +43,6 @@ import androidx.compose.ui.unit.dp
 import app.marmalade.tts.R
 import app.marmalade.tts.install.EngineDescriptor
 import app.marmalade.tts.install.QualityGrade
-import app.marmalade.tts.install.QualityTier
 import app.marmalade.tts.install.SpeedTier
 
 // -----------------------------------------------------------------------------
@@ -52,8 +51,8 @@ import app.marmalade.tts.install.SpeedTier
 // The fixed right-hand stat column that both the onboarding engine picker
 // (OnboardingScreen) and the Engines tab (EnginesScreen) hang off their card.
 // It stacks Speed / Quality / Languages so the three engines compare
-// axis-to-axis straight down the list. Speed is the hero: a tier word plus a
-// three-segment meter.
+// axis-to-axis straight down the list. Speed and Quality are both bare
+// four-segment meters, their word carried for TalkBack only.
 //
 // Colour: the four-segment meter is a traffic light keyed to fill count —
 // green (4) → light green (3) → amber (2) → red (1) — so a fuller bar is both
@@ -93,7 +92,10 @@ fun EngineSpecColumn(
             )
         }
         SpecRow(label = stringResource(R.string.engine_spec_quality)) {
-            SpecValueText(text = stringResource(qualityTierLabelRes(engine.qualityTier)))
+            QualityMeter(
+                quality = engine.quality,
+                modifier = Modifier.padding(top = 2.dp),
+            )
         }
         SpecRow(label = stringResource(R.string.engine_spec_languages)) {
             EngineLanguagesValue(
@@ -298,13 +300,13 @@ fun SpeedMeter(
 }
 
 /**
- * The same four-segment meter for a voice pack's audio-quality grade.
+ * The same four-segment meter for an engine's or a voice pack's quality grade.
  *
  * Deliberately the identical gauge (and the identical fill-count colouring) as
  * [SpeedMeter]: the user has already learned that a short hot bar is a cost, so
  * a rough-sounding pack reads as one at a glance without having to parse the
- * word beside it. Unlike the engine's [QualityTier] — which is non-linear on
- * purpose — [QualityGrade] is a rank, which is what makes a meter honest here.
+ * word beside it. [QualityGrade] is a rank, which is what makes a meter honest
+ * here. TalkBack reads the grade word ("Audio quality: Excellent").
  */
 @Composable
 fun QualityMeter(
@@ -348,7 +350,7 @@ private fun SegmentMeter(
 
 /**
  * Traffic-light fill colour keyed to how many meter segments are lit — shared by
- * the speed meter and the pack-quality meter: a fuller,
+ * the speed meter and the quality meter: a fuller,
  * faster bar is cooler (green) and a shorter, heavier one is hotter (red). Both
  * greens and the amber shift a step between the two tiers so 4 vs 3 stays
  * readable. Shades are picked per mode so the meter is legible on both the cream
@@ -371,14 +373,7 @@ fun speedTierLabelRes(tier: SpeedTier): Int = when (tier) {
     SpeedTier.HEAVY -> R.string.engine_speed_heavy
 }
 
-@StringRes
-fun qualityTierLabelRes(tier: QualityTier): Int = when (tier) {
-    QualityTier.NATURAL -> R.string.engine_quality_natural
-    QualityTier.BEST_OVERALL -> R.string.engine_quality_best
-    QualityTier.MOST_EXPRESSIVE -> R.string.engine_quality_expressive
-}
-
-/** Short user-facing word for a voice pack's audio-quality grade. */
+/** Short user-facing word for an engine's or a voice pack's quality grade. */
 @StringRes
 fun qualityGradeLabelRes(quality: QualityGrade): Int = when (quality) {
     QualityGrade.EXCELLENT -> R.string.pack_quality_excellent
