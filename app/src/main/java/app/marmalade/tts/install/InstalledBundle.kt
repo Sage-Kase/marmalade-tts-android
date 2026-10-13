@@ -19,7 +19,7 @@ data class InstalledBundle(
     val installedSha256: String?,
     val catalog: EngineArchive,
 ) {
-    val isCurrent: Boolean get() = installedSha256 == catalog.sha256
+    val isCurrent: Boolean get() = catalog.holdsSameFiles(installedSha256)
 
     /**
      * One logcat line under [LOG_TAG]; the release gate parses it

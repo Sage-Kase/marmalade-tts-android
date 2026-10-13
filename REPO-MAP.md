@@ -128,7 +128,7 @@ app/src/main/
     data/             Room DB + DataStore Prefs + voice catalogs
     di/               Hilt DI graph (single AppModule)
     engine/           SherpaEngine base + Kitten/Kokoro subclasses
-    install/          EngineCatalog + EngineInstaller (HTTP + tar.bz2)
+    install/          EngineCatalog + EngineInstaller (HTTP + tar.gz/tar.bz2)
     preprocessing/    Text rules + emoji prosody + ProsodyApplier
     service/          TTS service, foreground synth, helpers
     ui/               Compose screens, ViewModels, navigation, theme
@@ -374,6 +374,17 @@ When investigating **{concern}**, start at **{files}**:
   is the one-line switch that would retire `azelma`/`eponine`/`fantine` the
   same way. The installer's Pocket layout check requires a WAV per offered
   voice only (per engine: the clean twin checks its own list).
+- **Bundle containers** (#65): publish bundles as tar.gz. The installer
+  reads tar.gz and tar.bz2 (by magic bytes), but bzip2 goes through
+  commons-compress's pure-Java decoder: Pocket's 225 MB unpacked in 15 s as
+  tar.bz2 and 1.8 s as tar.gz on chocolate's emulator, the rest of the
+  install (sha256, swap, layout check) under 0.3 s. Every install logs one
+  line, `EngineInstaller: Installed <engine> from <file>: fetch+sha256 … ms,
+  unpack … ms, swap … ms, check … ms`. To repack a bundle in another
+  container without changing its files, list the old archive's sha256 in
+  `EngineArchive.sameContentAs`: an install from it stays current (no
+  update prompt, `current` in the EngineBundle line). `InstallMetaTest`
+  covers the meta check under Robolectric (plain JVM tests stub org.json).
 - **Pocket voices missing from an older download** (#44): a v21 install
   has five of v27's ten voices and stays usable (Outdated) until updated.
   `engine/pocket/PocketVoiceFiles.kt` decides per voice (`voices/<k>.wav`

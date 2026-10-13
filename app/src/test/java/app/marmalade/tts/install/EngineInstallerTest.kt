@@ -14,6 +14,7 @@ import kotlinx.coroutines.test.runTest
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry
 import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream
+import java.util.zip.GZIPOutputStream
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -951,7 +952,7 @@ class EngineInstallerTest {
         // Wrapper directory name used by the production Kitten Direct archive.
         // The installer strips this prefix during extraction; the test
         // archives mirror the same layout.
-        private const val ARCHIVE_ROOT = "kitten-direct-v0_8/"
+        internal const val ARCHIVE_ROOT = "kitten-direct-v0_8/"
 
         // The 8 KittenDirect voices (lowercased displayNames) the installer's
         // verifyKittenDirectLayout requires under voices/.
@@ -964,7 +965,7 @@ class EngineInstallerTest {
          * style and norm tables, plus the legacy phonemizer tree real bundles
          * still carry (ignored by the check).
          */
-        private val KITTEN_LAYOUT: Map<String, ByteArray> = buildMap {
+        internal val KITTEN_LAYOUT: Map<String, ByteArray> = buildMap {
             // 1.1 MB each so they clear the 1 MB MIN_MODEL_BYTES floor. Bytes
             // don't matter — the installer only checks the archive's sha, not
             // the graphs' contents.
@@ -1077,7 +1078,8 @@ internal class FailingAfterStream(
 }
 
 /**
- * Build a tar.bz2 archive in-memory from a {entry-name -> bytes} map.
+ * Build a tar.bz2 archive (tar.gz with [gzip]) in-memory from a
+ * {entry-name -> bytes} map.
  *
  * If [archiveRootName] is non-empty, every entry name is prefixed with
  * it — mirrors the production bundle's `kitten-direct-v0_8/` wrapper
@@ -1086,10 +1088,11 @@ internal class FailingAfterStream(
 internal fun buildArchive(
     files: Map<String, ByteArray>,
     archiveRootName: String,
+    gzip: Boolean = false,
 ): ByteArray {
     val out = ByteArrayOutputStream()
-    BZip2CompressorOutputStream(out).use { bzOut ->
-        TarArchiveOutputStream(bzOut).use { tarOut ->
+    (if (gzip) GZIPOutputStream(out) else BZip2CompressorOutputStream(out)).use { compOut ->
+        TarArchiveOutputStream(compOut).use { tarOut ->
             tarOut.setLongFileMode(TarArchiveOutputStream.LONGFILE_POSIX)
             for ((name, bytes) in files) {
                 val entryName = if (archiveRootName.isNotEmpty()) {

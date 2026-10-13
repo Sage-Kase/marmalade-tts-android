@@ -267,7 +267,8 @@ object UrlHttpFetcher : HttpFetcher {
 //     │
 //     ├── _state["kitten"].value = Extracting
 //     │
-//     ├── Open archive.tmp → BZip2CompressorInputStream → TarArchiveInputStream:
+//     ├── Open archive.tmp → GZIPInputStream (or BZip2CompressorInputStream,
+//     │   picked by magic bytes) → TarArchiveInputStream:
 //     │      ├── for each entry:
 //     │      │     ├── strip archive.archiveRoot prefix
 //     │      │     ├── canonical-path check (zip-slip protection)
@@ -504,7 +505,7 @@ open class EngineInstaller @Inject constructor(
     /**
      * Install [engineName] from the catalog.
      *
-     * Downloads the engine's single tar.bz2 archive, verifies its SHA-256,
+     * Downloads the engine's single tar.gz (or tar.bz2) archive, verifies its SHA-256,
      * decompresses + untars it into the engine directory. Reports progress
      * through [onProgress] and updates the per-engine state flow.
      *
@@ -928,6 +929,7 @@ open class EngineInstaller @Inject constructor(
             )
 
             Log.d(TAG, "Downloading ${archive.url} → ${archiveTmp.absolutePath}")
+            val startedAt = System.nanoTime()
             val fetchedSha = downloadArchive(archive.url, archiveTmp, totalBytes) { fetched ->
                 val update = InstallState.Downloading(
                     bytesFetched = fetched,
@@ -946,6 +948,8 @@ open class EngineInstaller @Inject constructor(
                 )
             }
 
+            val fetchedAt = System.nanoTime()
+
             // 3. Extract. Emit byte-level progress against the catalog's
             // declared installed size — the UI shows a determinate bar for
             // the unpack phase instead of a stuck indeterminate spinner.
@@ -960,6 +964,8 @@ open class EngineInstaller @Inject constructor(
                     totalBytes = totalUnpackedBytes,
                 )
             }
+
+            val extractedAt = System.nanoTime()
 
             // 4. Delete the archive scratch file — it's served its purpose.
             archiveTmp.delete()
@@ -993,6 +999,7 @@ open class EngineInstaller @Inject constructor(
             // and surface InstallState.Outdated. Written AFTER the atomic
             // rename so a partial install never leaves a stale meta behind.
             writeInstallMeta(finalDir, archive)
+            val swappedAt = System.nanoTime()
 
             // 7. Post-install sanity check. The archive sha already proved
             // the bytes are correct, so this just confirms the extraction
@@ -1009,6 +1016,17 @@ open class EngineInstaller @Inject constructor(
                 )
             }
 
+            // One line per install, so a slow "finishing" phase can be
+            // pinned on the right step from logcat (#65).
+            val ms = { from: Long, to: Long -> (to - from) / 1_000_000L }
+            Log.i(
+                TAG,
+                "Installed $label from ${archive.url.substringAfterLast('/')}: " +
+                    "fetch+sha256 ${ms(startedAt, fetchedAt)} ms, " +
+                    "unpack ${ms(fetchedAt, extractedAt)} ms, " +
+                    "swap ${ms(extractedAt, swappedAt)} ms, " +
+                    "check ${ms(swappedAt, System.nanoTime())} ms",
+            )
             sf.value = InstallState.Installed
             Result.success(Unit)
         } catch (t: Throwable) {
@@ -1397,7 +1415,7 @@ open class EngineInstaller @Inject constructor(
     }
 
     /**
-     * Extract a tar.bz2 [archiveFile] into [destDir]. Strips the leading
+     * Extract a tar.gz or tar.bz2 [archiveFile] into [destDir]. Strips the leading
      * [archiveRoot] prefix from each entry path (so an archive containing
      * `kitten-nano-en-v0_1-fp16/model.fp16.onnx` produces
      * `${destDir}/model.fp16.onnx`).
@@ -1770,8 +1788,8 @@ open class EngineInstaller @Inject constructor(
 
     /**
      * Compare the on-disk install meta to the current catalog entry. Returns
-     * an [InstallState.Outdated] when the recorded `archive_sha256` differs
-     * from the catalog's. Returns `null` when the install matches (caller
+     * an [InstallState.Outdated] when the recorded `archive_sha256` is neither
+     * the catalog's nor one of its [EngineArchive.sameContentAs]. Returns `null` when the install matches (caller
      * proceeds with the structural layout check).
      *
      * If the meta file is missing entirely (pre-v0.3.0-alpha.7 install with
@@ -1798,7 +1816,7 @@ open class EngineInstaller @Inject constructor(
         val recorded = runCatching {
             org.json.JSONObject(metaFile.readText()).getString("archive_sha256")
         }.getOrNull()
-        if (recorded == null || recorded != expected) {
+        if (!archive.holdsSameFiles(recorded)) {
             return InstallState.Outdated(installedSha256 = recorded, expectedSha256 = expected)
         }
         return null
