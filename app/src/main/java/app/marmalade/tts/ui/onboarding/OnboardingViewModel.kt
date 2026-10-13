@@ -51,7 +51,7 @@ import kotlinx.coroutines.launch
 //     ├── engines        ◄────── OnboardingViewModel.engines
 //     │                              ▲
 //     │                              │ EngineCatalog.visibleTo(false),
-//     │                              │ catalog order, labelled by
+//     │                              │ Recommended first, labelled by
 //     │                              │ EngineRecommender.recommend(
 //     │                              │     DeviceProbeSource.probe())
 //     ├── selectedIds    ◄────── OnboardingViewModel.selectedEngineIds
@@ -173,7 +173,11 @@ data class EngineCardState(
     val isSelected: Boolean,
     val fit: EngineFit? = null,
     val isBuiltIn: Boolean = false,
-)
+) {
+    /** The card wears the Recommended pill: this device's verdict, else the catalog's flag. */
+    val showsRecommended: Boolean
+        get() = if (fit == null) descriptor.isRecommended else fit == EngineFit.RECOMMENDED
+}
 
 /**
  * ViewModel for the onboarding flow.
@@ -240,10 +244,12 @@ class OnboardingViewModel @Inject constructor(
      *
      * Labels come from [_recommendation] once it lands; before that the
      * catalog's static `isRecommended` flag stands in, so the step is
-     * usable the instant it opens. The order is ALWAYS the catalog's —
-     * cards never jump around when the probe answers (Max, 2026-08-08:
-     * the verdict moves the pill, not the cards; built-in Kitten stays
-     * on top).
+     * usable the instant it opens. The card wearing the Recommended pill
+     * comes first, the rest keep the catalog's order (issue #63, Max
+     * 2026-10-12: "Recommended engine should be boosted to the top";
+     * before that the pill moved and the cards never did). Before the
+     * probe answers that is the built-in Kitten, already first, so a
+     * card only moves when the verdict lands on another engine.
      */
     val engines: StateFlow<List<EngineCardState>> =
         combine(_recommendation, _selectedEngineIds, ::cardsFor)
@@ -264,7 +270,7 @@ class OnboardingViewModel @Inject constructor(
                 fit = recommendation?.fits?.get(d.name),
                 isBuiltIn = d.name == KittenDirectVoiceCatalog.ENGINE,
             )
-        }
+        }.sortedByDescending { it.showsRecommended } // stable: the rest keep catalog order
     }
 
     // Kick the capability probe off as soon as onboarding starts, so the

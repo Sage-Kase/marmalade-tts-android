@@ -349,14 +349,20 @@ private fun EnginePickStep(
                 .weight(1f),
         ) {
             items(items = cards, key = { it.descriptor.name }) { card ->
-                EngineCard(
-                    engine = card.descriptor,
-                    isSelected = selectedIds.contains(card.descriptor.name),
-                    fit = card.fit,
-                    isBuiltIn = card.isBuiltIn,
-                    onToggle = { onToggle(card.descriptor.name) },
-                )
-                Spacer(Modifier.height(12.dp))
+                // The Recommended card moves to the top when the probe
+                // answers (#63); animateItem slides it there instead of
+                // the list snapping.
+                Column(Modifier.animateItem()) {
+                    EngineCard(
+                        engine = card.descriptor,
+                        isSelected = selectedIds.contains(card.descriptor.name),
+                        fit = card.fit,
+                        showsRecommended = card.showsRecommended,
+                        isBuiltIn = card.isBuiltIn,
+                        onToggle = { onToggle(card.descriptor.name) },
+                    )
+                    Spacer(Modifier.height(12.dp))
+                }
             }
         }
 
@@ -405,13 +411,15 @@ private fun EnginePickStep(
  * download size would both be lies.
  *
  * [fit] is this device's measured verdict; null means the probe hasn't
- * answered and the card falls back to the catalog's static flag.
+ * answered. [showsRecommended] ([EngineCardState.showsRecommended]) then
+ * falls back to the catalog's static flag.
  */
 @Composable
 private fun EngineCard(
     engine: EngineDescriptor,
     isSelected: Boolean,
     fit: EngineFit?,
+    showsRecommended: Boolean,
     isBuiltIn: Boolean,
     onToggle: () -> Unit,
 ) {
@@ -480,9 +488,7 @@ private fun EngineCard(
                 // the top-right corner variant, 2026-08-08), on its own line
                 // so a long engine name can never crush it
                 // (recommended-badge-lab R1).
-                val showRecommended =
-                    if (fit == null) engine.isRecommended else fit == EngineFit.RECOMMENDED
-                if (showRecommended) {
+                if (showsRecommended) {
                     Spacer(Modifier.height(4.dp))
                     RecommendedTag()
                 } else if (fit == EngineFit.MAY_BE_SLOW) {

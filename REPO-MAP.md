@@ -1259,7 +1259,10 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   flag from `SettingsRepository`; drives `MainActivity` decisions.
 - `ui/onboarding/OnboardingScreen.kt` + `OnboardingViewModel.kt` —
   5-step flow: Welcome → EnginePick → Installing → CreateAlias →
-  SystemDefault. `finish()` flips the onboarded flag. A failed install
+  SystemDefault. EnginePick lists the card wearing the Recommended pill
+  first (`EngineCardState.showsRecommended`: the probe's fit, else the
+  catalog flag, i.e. Kitten until the probe answers), the rest in catalog
+  order (#63). `finish()` flips the onboarded flag. A failed install
   row keeps the installer's own `Failed` (localized via
   `installFailureText`) and offers Retry + "Remove download".
 - `MainActivity.kt` — decides between `OnboardingScreen` and `AppRoot`
