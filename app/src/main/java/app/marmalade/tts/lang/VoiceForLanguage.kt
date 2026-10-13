@@ -12,7 +12,8 @@ import app.marmalade.tts.service.TtsLocales
 //   The reader and plain-text shares normally speak in the primary alias. That
 //   alias's voice may not speak the text's language, though: an English Kokoro
 //   voice handed Chinese phonemizes it as Chinese but speaks it with the
-//   English speaker. So once per article (reader) or per shared text (share):
+//   English speaker. So once per article (reader; again when the primary alias
+//   changes, #66) or per shared text (share):
 //
 //     text language (LangDetector)
 //       │   unknown → primary alias (the old behaviour)
