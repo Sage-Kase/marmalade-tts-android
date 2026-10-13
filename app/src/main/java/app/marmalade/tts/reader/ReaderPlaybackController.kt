@@ -1,5 +1,8 @@
 package app.marmalade.tts.reader
 
+import app.marmalade.tts.data.SettingsRepository
+import app.marmalade.tts.data.db.VoiceAlias
+import app.marmalade.tts.data.db.VoiceAliasDao
 import app.marmalade.tts.lang.VoiceChoice
 import app.marmalade.tts.playback.ArticleView
 import app.marmalade.tts.playback.FailureKind
@@ -14,11 +17,18 @@ import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 // -----------------------------------------------------------------------------
 //   Who owns reader playback
@@ -41,6 +51,12 @@ import kotlinx.coroutines.flow.stateIn
 //   Design point 7 (the back action returns to the sharing app while the
 //   article keeps being read) holds because nothing here depends on the
 //   screen: the Narrator plays on after the ViewModel is gone.
+//
+//   The voice (#66): picked once when the article opens, and picked again
+//   whenever the primary alias changes — switched, or its voice, speed or
+//   effect edited — so a held article never keeps reading in the old primary.
+//   Once the user picks an alias in the reader itself ([pickAlias]), that
+//   pick wins for the rest of this article and the primary no longer moves it.
 // -----------------------------------------------------------------------------
 
 /** Coarse transport state — everything the reader UI needs to draw itself. */
@@ -87,11 +103,13 @@ data class ReaderPlaybackState(
      */
     val startingSpeed: Float = 1.0f,
     /**
-     * The voice this article is read in, chosen once when it was opened (see
-     * lang/VoiceForLanguage.kt) and kept for the whole article so it never changes
-     * voice mid-read.
+     * The voice this article is read in: chosen when it was opened (see
+     * lang/VoiceForLanguage.kt), chosen again when the primary alias changes,
+     * or the alias the user picked in the reader ([voicePicked]).
      */
     val voice: VoiceChoice = VoiceChoice.Primary,
+    /** The user picked [voice] in the reader; the primary alias no longer moves it. */
+    val voicePicked: Boolean = false,
     /**
      * Why playback last stopped on its own — a failed synthesis, a missing
      * engine, audio focus refused, or a host service that wouldn't start
@@ -110,21 +128,43 @@ data class ReaderPlaybackState(
 class ReaderPlaybackController internal constructor(
     private val narrator: NarratorControl,
     private val host: PlaybackHost,
-    scope: CoroutineScope,
+    private val scope: CoroutineScope,
+    /**
+     * The primary alias, or null for none. Every change after the first value
+     * picks the held article's voice again (#66).
+     */
+    primary: Flow<VoiceAlias?> = emptyFlow(),
+    /** The voice an article is read in, and the session speed that voice starts at. */
+    private val pickVoice: suspend (ReaderArticle) -> Pair<VoiceChoice, Float> = { VoiceChoice.Primary to 1.0f },
 ) {
 
     @Inject
-    constructor(narrator: NarratorControl, host: PlaybackHost) : this(
+    constructor(
+        narrator: NarratorControl,
+        host: PlaybackHost,
+        picker: ReaderVoicePicker,
+        settings: SettingsRepository,
+        aliasDao: VoiceAliasDao,
+    ) : this(
         narrator = narrator,
         host = host,
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+        primary = combine(settings.primaryAliasId, aliasDao.getAll()) { id, aliases ->
+            aliases.firstOrNull { it.id == id }
+        },
+        pickVoice = { article ->
+            val voice = picker.voiceFor(article)
+            voice to readerStartingSpeed(voice) { settings.primaryAliasId.first()?.let { aliasDao.findById(it) } }
+        },
     )
 
-    /** The article the reader holds, the voice it was opened in, and its starting speed. */
+    /** The article the reader holds, the voice it is read in, and its starting speed. */
     private data class Held(
         val article: ReaderArticle? = null,
         val voice: VoiceChoice = VoiceChoice.Primary,
         val startingSpeed: Float = 1.0f,
+        /** The user picked [voice] in the reader ([pickAlias]). */
+        val voicePicked: Boolean = false,
         /** The host service refused to start for this article's last play — see [startHost]. */
         val refused: Boolean = false,
     )
@@ -134,6 +174,18 @@ class ReaderPlaybackController internal constructor(
     val state: StateFlow<ReaderPlaybackState> =
         combine(narrator.state, held, ::project)
             .stateIn(scope, SharingStarted.Eagerly, current())
+
+    init {
+        // Only what can change the voice counts: renaming the primary or
+        // setting its fallback must not restart the block being read.
+        scope.launch {
+            primary
+                .map { it?.copy(name = "", createdAt = 0, fallbackAliasId = null) }
+                .distinctUntilChanged()
+                .drop(1)
+                .collect { onPrimaryChanged() }
+        }
+    }
 
     /**
      * Load [article] for reading in [voice], its session speed starting at
@@ -165,6 +217,21 @@ class ReaderPlaybackController internal constructor(
      * not hit the network again.
      */
     fun article(key: String): ReaderArticle? = held.value.article?.takeIf { it.url == key }
+
+    /**
+     * Read the held article in [alias] from now on — the user's pick in the
+     * reader, at that alias's own speed (unless they picked another speed).
+     * It holds for the rest of this article: a later primary change no longer
+     * moves it. The block being read restarts in the new voice.
+     */
+    fun pickAlias(alias: VoiceAlias) {
+        val h = held.value
+        val article = h.article ?: return
+        val voice = VoiceChoice.Alias(alias.id, alias.voiceId, alias.engine, alias.speed)
+        val speed = roundedSpeed(alias.speed)
+        held.value = h.copy(voice = voice, startingSpeed = speed, voicePicked = true)
+        narrator.setArticleVoice(article.url, voice, speed)
+    }
 
     /** Play, resume, or (after the end) start the article again. */
     fun play() {
@@ -233,6 +300,18 @@ class ReaderPlaybackController internal constructor(
 
     private fun blockCount(): Int = held.value.article?.blocks?.size ?: 0
 
+    /** The primary alias changed: pick the held article's voice again, unless the user picked one. */
+    private suspend fun onPrimaryChanged() {
+        val article = held.value.article ?: return
+        if (held.value.voicePicked) return
+        val (voice, speed) = pickVoice(article)
+        // The pick suspends: the article may have changed, or the user picked, meanwhile.
+        val h = held.value
+        if (h.article?.url != article.url || h.voicePicked) return
+        held.value = h.copy(voice = voice, startingSpeed = speed)
+        narrator.setArticleVoice(article.url, voice, speed)
+    }
+
     /** The projection of what is known right now, for decisions made before [state] catches up. */
     private fun current(): ReaderPlaybackState = project(narrator.state.value, held.value)
 
@@ -265,6 +344,7 @@ class ReaderPlaybackController internal constructor(
                 speed = view?.speed ?: held.startingSpeed,
                 startingSpeed = view?.startingSpeed ?: held.startingSpeed,
                 voice = held.voice,
+                voicePicked = held.voicePicked,
             )
             if (held.refused) return base.copy(lastError = FailureKind.HOST_REFUSED)
             return when (val s = view?.status ?: Status.Idle) {

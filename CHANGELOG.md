@@ -160,6 +160,12 @@ This project follows [Semantic Versioning](https://semver.org/).
   used Sky now use Heart.
 
 ### Fixed
+- **The reader follows a new primary alias**: an article already open in
+  the reader kept the voice it started with after you made another alias
+  primary, so coming back to it (or sharing the same link again) still
+  read in the old voice. Changing the primary alias, or its voice, speed
+  or effect, now moves the open article to it: the paragraph being read
+  starts again in the new voice.
 - **German text is recognised as German**: Marmalade's language detection
   now knows German. A German article in reader mode, or German text shared
   to Marmalade, was taken for English and read by an English voice; it now

@@ -23,11 +23,11 @@ import app.marmalade.tts.reader.ReaderPlaybackController
 import app.marmalade.tts.reader.ReaderPlaybackState
 import app.marmalade.tts.lang.VoiceChoice
 import app.marmalade.tts.reader.ReaderVoicePicker
+import app.marmalade.tts.reader.readerStartingSpeed
 import app.marmalade.tts.service.ArticleLoadHold
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.net.URL
 import javax.inject.Inject
-import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -435,29 +435,9 @@ class ReaderViewModel @Inject constructor(
         }
     }
 
-    /**
-     * The speed the reader starts an article at: the own speed of the alias
-     * it is read in, so reading begins exactly as fast as that voice is tuned
-     * to speak. For the primary that is the same primary-alias lookup as
-     * [app.marmalade.tts.service.TtsRouter.resolveAlias] with no caller
-     * package, read directly rather than from [primaryAlias], whose first
-     * value may still be the placeholder when a fast load gets here. 1.0 when
-     * there is no primary alias, and for an installed voice no alias uses.
-     *
-     * Rounded to hundredths: the alias slider stores values like 1.1000001f,
-     * which would otherwise match no chip and label the extra chip with
-     * float noise. The difference is far below anything audible.
-     */
-    private suspend fun startingSpeed(voice: VoiceChoice): Float {
-        val speed = when (voice) {
-            VoiceChoice.Primary -> settings.primaryAliasId.first()
-                ?.let { aliasDao.findById(it) }
-                ?.speed
-            is VoiceChoice.Alias -> voice.speed
-            is VoiceChoice.Installed -> null
-        } ?: return 1.0f
-        return (speed * 100).roundToInt() / 100f
-    }
+    /** [readerStartingSpeed], the primary read directly: [primaryAlias] may still be its placeholder. */
+    private suspend fun startingSpeed(voice: VoiceChoice): Float =
+        readerStartingSpeed(voice) { settings.primaryAliasId.first()?.let { aliasDao.findById(it) } }
 
     companion object {
         /**

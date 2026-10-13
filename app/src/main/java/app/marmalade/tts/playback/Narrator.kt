@@ -157,6 +157,9 @@ class Narrator(
     override fun next() { inbox.trySend(Msg.Next) }
     override fun previous() { inbox.trySend(Msg.Previous) }
     override fun setSpeed(speed: Float) { inbox.trySend(Msg.Speed(clampSpeed(speed))) }
+    override fun setArticleVoice(key: String, voice: app.marmalade.tts.lang.VoiceChoice, startingSpeed: Float) {
+        inbox.trySend(Msg.ArticleVoice(key, voice, clampSpeed(startingSpeed)))
+    }
     override fun stop() { inbox.trySend(Msg.Stop) }
     override fun cancelOneShot(id: Long) { inbox.trySend(Msg.CancelOneShot(id)) }
 
@@ -190,6 +193,11 @@ class Narrator(
         data object Next : Msg
         data object Previous : Msg
         data class Speed(val speed: Float) : Msg
+        data class ArticleVoice(
+            val key: String,
+            val voice: app.marmalade.tts.lang.VoiceChoice,
+            val startingSpeed: Float,
+        ) : Msg
         data object Stop : Msg
         data class OneShot(val id: Long, val request: OneShotRequest, val outcome: CompletableDeferred<Outcome>) : Msg
         data class CancelOneShot(val id: Long) : Msg
@@ -240,10 +248,11 @@ class Narrator(
         val id: Long,
         val kind: Kind,
         texts: List<String>,
-        val target: ResolveTarget,
+        /** An article's changes with [NarratorControl.setArticleVoice]. */
+        var target: ResolveTarget,
         /** Null for a one-shot that takes its voice's own speed, until resolved. */
         var speed: Float?,
-        val startingSpeed: Float,
+        var startingSpeed: Float,
     ) {
         val segs: List<Seg> = texts.map(::Seg)
         var voice: ResolvedVoice? = null
@@ -328,6 +337,7 @@ class Narrator(
             Msg.Next -> article?.let(::nextNow)
             Msg.Previous -> article?.let(::previousNow)
             is Msg.Speed -> article?.let { setSpeedNow(it, msg.speed) }
+            is Msg.ArticleVoice -> article?.let { articleVoiceNow(it, msg) }
             Msg.Stop -> stopAll()
             is Msg.OneShot -> oneShotNow(msg)
             is Msg.CancelOneShot -> oneShots.firstOrNull { it.id == msg.id }?.let {
@@ -527,6 +537,41 @@ class Narrator(
         if (s.begun) output.submit(OutputCommand.SetTempo(s.track, s.id, speed))
         // A render in flight re-decides chunk mode for its next piece (#54).
         s.liveTempo.value = s.tempo
+    }
+
+    /**
+     * The article's voice changed (#66): forget the resolved voice and every
+     * chunk rendered in it, and restart the listener's block in the new one.
+     * Its heard audio goes too — an instant Back must not replay the old voice.
+     */
+    private fun articleVoiceNow(s: Session, msg: Msg.ArticleVoice) {
+        if ((s.kind as Kind.Article).key != msg.key) return
+        val old = s.target as ResolveTarget.Article
+        s.target = old.copy(choice = msg.voice)
+        cancelJobs(s)
+        if (s.begun) flushTrack(s)
+        s.epoch++
+        s.voice = null
+        s.begun = false
+        s.ended = false
+        s.heardChunk = null
+        s.heardStartAt = null
+        s.pausedInSegmentMs = 0
+        s.writeSeg = s.cursor
+        s.writeChunk = 0
+        s.dropPcm()
+        releaseResidency(s)
+        // A speed the user picked stays; one they never touched follows the new voice.
+        if (s.speed == s.startingSpeed) s.speed = msg.startingSpeed
+        s.startingSpeed = msg.startingSpeed
+        s.liveTempo.value = s.tempo
+        log("voice change session=${s.id} -> ${msg.voice} seg=${s.cursor} epoch=${s.epoch} speed=${s.tempo}")
+        if (s.wantsAudio) {
+            s.status = Status.Buffering
+            s.startGranted = false
+        }
+        // Paused too, so preparing carries on (as after any pause but Navigation).
+        if (s.active) resolve(s)
     }
 
     private fun oneShotNow(msg: Msg.OneShot) {

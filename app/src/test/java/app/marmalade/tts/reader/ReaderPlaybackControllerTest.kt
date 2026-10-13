@@ -1,6 +1,7 @@
 package app.marmalade.tts.reader
 
 import android.support.v4.media.session.PlaybackStateCompat
+import app.marmalade.tts.data.db.VoiceAlias
 import app.marmalade.tts.lang.VoiceChoice
 import app.marmalade.tts.playback.FailureKind
 import app.marmalade.tts.playback.FocusChange
@@ -17,6 +18,7 @@ import app.marmalade.tts.playback.Status
 import app.marmalade.tts.playback.Track
 import app.marmalade.tts.service.PlaybackHost
 import app.marmalade.tts.service.ServiceUi
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -44,6 +46,11 @@ class ReaderPlaybackControllerTest {
     private lateinit var controller: ReaderPlaybackController
     private var hostAllowed = true
     private var hostStarts = 0
+
+    /** The primary alias the controller follows, and what a pick returns (#66). */
+    private val primary = MutableStateFlow<VoiceAlias?>(alias("adam", NarratorHarness.ENGINE))
+    private var picked: Pair<VoiceChoice, Float> = VoiceChoice.Primary to 1.0f
+    private var picks = 0
 
     private val state: ReaderPlaybackState get() = controller.state.value
     private val id: Long get() = h.narrator.articleId()!!
@@ -1007,6 +1014,114 @@ class ReaderPlaybackControllerTest {
         done()
     }
 
+    // -- Following the primary alias (#66) ----------------------------------------
+
+    private val jennyVoice = NarratorHarness.voice(NarratorHarness.VITS_ENGINE, "${NarratorHarness.VITS_ENGINE}:jenny")
+
+    /** Max's report: switching the primary to VITS left the reader on Kokoro Adam. */
+    @Test
+    fun `a primary change reads the held article in the new primary`() = runTest {
+        playing()
+        h.runUntil { heard(1) != null }
+
+        h.articleVoice = jennyVoice
+        primary.value = alias("jenny", NarratorHarness.VITS_ENGINE)
+        h.settle()
+        val t = h.now()
+
+        assertEquals(1, picks)
+        assertEquals(listOf<VoiceChoice>(VoiceChoice.Primary, VoiceChoice.Primary), articleVoices())
+        assertEquals(ReaderPlaybackStatus.Playing, state.status)
+        h.runUntil(what = "block 1 again") { heard(1, after = t) != null }
+        assertTrue(h.vits.rendersOf(blocks[1]).isNotEmpty())
+        assertEquals(1, state.currentIndex)
+        done()
+    }
+
+    @Test
+    fun `a paused article takes the new primary and plays it on Play`() = runTest {
+        playing()
+        h.runUntil { heard(1) != null }
+        controller.pause()
+        h.settle()
+
+        h.articleVoice = jennyVoice
+        primary.value = alias("jenny", NarratorHarness.VITS_ENGINE)
+        h.run(1_000)
+        assertEquals(ReaderPlaybackStatus.Paused, state.status)
+        assertTrue(h.output.timeline.none { it.atMs > h.now() - 900 && it.audibleMs > 0 })
+
+        val t = h.now()
+        controller.play()
+        h.runUntil { heard(1, after = t) != null }
+        assertTrue(h.vits.rendersOf(blocks[1]).isNotEmpty())
+        done()
+    }
+
+    @Test
+    fun `an alias picked in the reader outlasts a primary change`() = runTest {
+        playing()
+        h.runUntil { heard(0) != null }
+
+        val jenny = alias("jenny", NarratorHarness.VITS_ENGINE, speed = 1.2f)
+        controller.pickAlias(jenny)
+        h.settle()
+        val chosen = VoiceChoice.Alias(jenny.id, jenny.voiceId, jenny.engine, 1.2f)
+        assertEquals(chosen, state.voice)
+        assertTrue(state.voicePicked)
+        assertEquals(1.2f, state.speed, 0f)
+        assertEquals(chosen, articleVoices().last())
+
+        primary.value = alias("bella", NarratorHarness.ENGINE)
+        h.settle()
+        assertEquals(0, picks)
+        assertEquals(2, articleVoices().size)
+        assertEquals(chosen, state.voice)
+        done()
+    }
+
+    @Test
+    fun `renaming the primary does not restart the block`() = runTest {
+        playing()
+        h.runUntil { heard(0) != null }
+
+        primary.value = primary.value!!.copy(name = "adam two")
+        h.settle()
+
+        assertEquals(0, picks)
+        assertEquals(1, articleVoices().size)
+        done()
+    }
+
+    @Test
+    fun `the session speed follows the new primary unless the user picked one`() = runTest {
+        playing()
+        picked = VoiceChoice.Primary to 1.3f
+        primary.value = alias("fast", NarratorHarness.ENGINE, speed = 1.3f)
+        h.settle()
+        assertEquals(1.3f, state.speed, 0f)
+        assertEquals(1.3f, state.startingSpeed, 0f)
+
+        controller.setSpeed(1.5f)
+        picked = VoiceChoice.Primary to 0.9f
+        primary.value = alias("slow", NarratorHarness.ENGINE, speed = 0.9f)
+        h.settle()
+        assertEquals(1.5f, state.speed, 0f)
+        assertEquals(0.9f, state.startingSpeed, 0f)
+        done()
+    }
+
+    @Test
+    fun `a primary change with no article held does nothing`() = runTest {
+        rig()
+        primary.value = alias("jenny", NarratorHarness.VITS_ENGINE)
+        h.settle()
+
+        assertEquals(0, picks)
+        assertEquals(0, h.resolutions)
+        done()
+    }
+
     // -- Helpers -----------------------------------------------------------------------
 
     private companion object {
@@ -1024,6 +1139,11 @@ class ReaderPlaybackControllerTest {
                 hostAllowed
             },
             scope = backgroundScope,
+            primary = primary,
+            pickVoice = {
+                picks++
+                picked
+            },
         )
     }
 
@@ -1044,6 +1164,16 @@ class ReaderPlaybackControllerTest {
         h.checkInvariants()
         h.narrator.close()
     }
+
+    private fun alias(name: String, engine: String, speed: Float = 1.0f) = VoiceAlias(
+        id = "id-$name",
+        name = name,
+        engine = engine,
+        voiceId = "$engine:$name",
+        speed = speed,
+        effectPreset = "NONE",
+        createdAt = 0,
+    )
 
     /** An article whose typed blocks are plain paragraphs of [texts]. */
     private fun article(key: String, texts: List<String>) = ReaderArticle(

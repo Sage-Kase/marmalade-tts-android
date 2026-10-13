@@ -1236,6 +1236,17 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   rule): text reaches a provider only through a cloud primary. Undetected language keeps the
   primary — never an English default, so a German primary keeps reading text
   the detector can't place (#59). A rebind keeps the article's voice; logged as `D/ReaderVoice`.
+  **The voice follows the primary alias (#66):** the Narrator resolves an
+  article's voice once per session, so before #66 a held article (re-shared,
+  reopened from the notification) kept reading in the old primary forever.
+  `ReaderPlaybackController` now watches the primary alias row (rename and
+  fallback edits ignored) and on a change re-runs the pick and calls
+  `NarratorControl.setArticleVoice`, which drops every rendered chunk, re-resolves
+  and restarts the listener's block in the new voice (playing keeps playing,
+  paused stays paused; logged `D/Narrator: voice change`). A session speed the
+  user never touched follows the new alias's speed. An alias the user picks in
+  the reader (`pickAlias`, `ReaderPlaybackState.voicePicked`) wins for the rest
+  of that article.
   The reader UI shows no voice name. The reading speed (`ReaderSpeedSheet`) is
   session-only and an **absolute override** of the reading alias's speed,
   not a factor on it: each new article starts at that alias's own speed
