@@ -278,8 +278,8 @@ class ReaderViewModel @Inject constructor(
     private val deviceProbeState = MutableStateFlow<DeviceProbe?>(null)
 
     /**
-     * Whether to show the speed-up performance warning for the current chip
-     * selection. The chip is the absolute speed the service synthesises at
+     * Whether to show the speed-up performance warning for the reading speed
+     * (the dial's slider, once released). It is the absolute speed played at
      * (it replaces the alias's own speed), so the warning fires when it
      * outruns the engine's measured (or, cold, predicted) RTF. See
      * [SpeedPerfWarning].

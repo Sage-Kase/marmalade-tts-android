@@ -1,36 +1,34 @@
-package app.marmalade.tts.ui.reader
+package app.marmalade.tts.ui.components
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * The alias dial's speed chips. Reading starts at the reading alias's own
- * speed, which need not be one of the curated chips — the current speed must
- * still show as a selected chip.
+ * The speed slider's stops (#71): the 0.1× grid, plus the reader's alias speed
+ * when that is off the grid, so sliding back to it can end an override.
  */
-class ReaderDialSheetTest {
+class SpeedSliderTest {
 
     @Test
-    fun `a curated speed shows just the curated chips`() {
-        assertEquals(listOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f), readerSpeedChoices(1.25f, starting = 1.0f))
+    fun `a drag snaps to the nearest tenth`() {
+        assertEquals(1.3f, snapSpeed(1.27f, extraStop = null))
+        assertEquals(0.5f, snapSpeed(0.51f, extraStop = null))
+        assertEquals(2.0f, snapSpeed(1.98f, extraStop = null))
     }
 
     @Test
-    fun `a non-standard alias speed gets its own chip in sorted position`() {
-        assertEquals(listOf(0.75f, 1.0f, 1.1f, 1.25f, 1.5f, 2.0f), readerSpeedChoices(1.1f, starting = 1.1f))
-    }
-
-    /**
-     * After picking 1.5× the alias's own 1.1× must still be offered — it used
-     * to vanish with the selection, leaving no way back to it.
-     */
-    @Test
-    fun `the alias's own speed stays after picking another`() {
-        assertEquals(listOf(0.75f, 1.0f, 1.1f, 1.25f, 1.5f, 2.0f), readerSpeedChoices(1.5f, starting = 1.1f))
+    fun `float noise lands on the exact speed`() {
+        assertEquals(1.1f, snapSpeed(1.1000001f, extraStop = 1.1f))
     }
 
     @Test
-    fun `a speed outside the curated range lands at the matching end`() {
-        assertEquals(listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f), readerSpeedChoices(0.5f, starting = 0.5f))
+    fun `an alias speed off the grid is a stop of its own`() {
+        assertEquals(1.25f, snapSpeed(1.24f, extraStop = 1.25f))
+        assertEquals(1.3f, snapSpeed(1.29f, extraStop = 1.25f))
+    }
+
+    @Test
+    fun `an alias speed outside the slider's range adds no stop`() {
+        assertEquals(2.0f, snapSpeed(2.0f, extraStop = 2.5f))
     }
 }

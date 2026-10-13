@@ -91,6 +91,7 @@ import app.marmalade.tts.data.VoicePath
 import app.marmalade.tts.data.db.VoiceMeta
 import app.marmalade.tts.lang.LangDetector
 import app.marmalade.tts.install.EngineCatalog
+import app.marmalade.tts.ui.components.SpeedSlider
 import kotlin.math.roundToInt
 
 // -----------------------------------------------------------------------------
@@ -731,17 +732,12 @@ private fun AliasEditorSheet(
                     text = stringResource(R.string.alias_speed_label, speedText),
                     style = MaterialTheme.typography.bodyMedium,
                 )
-                Slider(
+                // Shared with the reader's alias dial (#71).
+                SpeedSlider(
                     value = state.speed,
                     onValueChange = onSpeedChange,
-                    valueRange = VoiceAlias.MIN_SPEED..VoiceAlias.MAX_SPEED,
-                    // 15 steps between 0.5 and 2.0 = 0.1x increments
-                    // (Slider's `steps` excludes the endpoints).
-                    steps = 14,
-                    modifier = Modifier.semantics {
-                        contentDescription = speedLabel
-                        stateDescription = speedText
-                    },
+                    label = speedLabel,
+                    valueText = speedText,
                 )
                 // Time-stretched playback can outrun the slower engines'
                 // rendering — the adaptive pre-roll covers most of it, but the
@@ -752,7 +748,7 @@ private fun AliasEditorSheet(
                 // AliasViewModel.showSpeedWarning. The reader sheet mirrors it.
                 if (showSpeedWarning) {
                     // The ⚠️ lead is composed here, not baked into the string,
-                    // which the reader's speed sheet shares.
+                    // which the reader's alias dial shares.
                     Text(
                         text = "⚠️ " + stringResource(R.string.alias_speed_perf_warning),
                         style = MaterialTheme.typography.bodySmall,
