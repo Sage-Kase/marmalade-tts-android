@@ -307,9 +307,11 @@ SOFTWARE.
   > the dataset is your own. No further restrictions apply.
 
 - **Attribution obligation carried by this pack:** the in-app voice name is
-  **"Jenny (Dioco)"** (never plain "Jenny" or a curated rename) — a licence
-  term, satisfied by the pack's mandated `displayName` plus this notice and
-  the [`../CREDITS.md`](../CREDITS.md) block.
+  **"Jenny (Dioco, VITS)"**: it keeps "Jenny (Dioco)" (never plain "Jenny" or
+  a curated rename), and the ", VITS" suffix tells it from Pocket's Jenny
+  voice, made from the same dataset (issue #64). A licence term, satisfied
+  by the pack's `displayName` plus this notice and the
+  [`../CREDITS.md`](../CREDITS.md) block.
 - **Notice:** jenny-tts-dataset © Jenny / dioco-group
   (https://github.com/dioco-group/jenny-tts-dataset).
 

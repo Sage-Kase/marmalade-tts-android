@@ -64,6 +64,10 @@ This project follows [Semantic Versioning](https://semver.org/).
 - **Setup lists the recommended engine first**: the engine marked
   Recommended for your phone now leads the setup list and is ticked to
   install, and the rest keep their usual order.
+- **The two Jenny voices have names that tell them apart**: the VITS
+  Marmalade voice is now "Jenny (Dioco, VITS)" and Pocket's is "Jenny
+  (Dioco)", whose credit line now reads "Dioco". Aliases using either keep
+  working. Voice search names an on-device engine once instead of twice.
 - **Pocket voices sound steadier by default**: Pocket now speaks at
   Kyutai's recommended setting, near the Steady end of the slider, with
   fewer slips. To get the livelier sound of earlier versions, move an

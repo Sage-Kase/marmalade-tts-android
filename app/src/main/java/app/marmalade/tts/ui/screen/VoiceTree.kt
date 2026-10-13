@@ -167,7 +167,12 @@ fun searchVoiceTree(tree: List<VoiceSource>, query: String): List<VoiceSearchHit
                         model.name.lowercase().contains(q) ||
                         source.name.lowercase().contains(q)
                 }
-                .map { VoiceSearchHit(it, "${source.name} › ${model.name}") }
+                // An on-device engine is its own model: name it once (#64),
+                // as VoicePath.collapsed does.
+                .map {
+                    val path = if (model.name == source.name) source.name else "${source.name} › ${model.name}"
+                    VoiceSearchHit(it, path)
+                }
         }
     }
 }

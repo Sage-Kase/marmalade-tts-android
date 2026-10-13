@@ -399,7 +399,9 @@ When investigating **{concern}**, start at **{files}**:
   rita, stephen, ramone (CC0 Kyutai Unmute donors `3973`,
   `spanish-limaperu`, `thepolishdane`, `floyd2026`; the published
   `voice-donations/<donor>.wav`, unchanged) and jenny (Jenny (Dioco)
-  dataset, custom licence: the name must stay "Jenny"; a 17 s reference:
+  dataset, custom licence: the name must keep "Jenny", and "Jenny (Dioco)"
+  where practical; shown as "Jenny (Dioco)", the VITS pack's as "Jenny
+  (Dioco, VITS)" (#64); a 17 s reference:
   three whole recipe clips, `~/coding/scratch/pocket-v27-38/src/mkref-jenny.sh`;
   #30's 26 s `refs/jenny.wav` OOM-killed the emulator on first use, see
   the encoder-memory note below). Adding a voice = WAV in the bundle's

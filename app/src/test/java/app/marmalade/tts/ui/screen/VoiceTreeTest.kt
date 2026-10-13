@@ -223,6 +223,16 @@ class VoiceTreeTest {
     }
 
     @Test
+    fun `an on-device search hit names its engine once`() {
+        val tree = buildVoiceTree(listOf(localVoice("Bella")), localPaths)
+
+        val hit = searchVoiceTree(tree, "bella").single()
+
+        // #64: "Kitten Nano › Kitten Nano" read as noise next to the name.
+        assertEquals(tree.single().name, hit.path)
+    }
+
+    @Test
     fun `blank search matches nothing rather than everything`() {
         val tree = buildVoiceTree(listOf(localVoice("Bella")), localPaths)
 

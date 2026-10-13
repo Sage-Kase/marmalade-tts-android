@@ -93,6 +93,7 @@ class VoicePathResolver @Inject constructor(
             // falling back to the raw key for a pack the build no longer ships.
             VitsVoiceCatalog.ENGINE ->
                 VoicePackCatalog.voiceByKey(engineName, voiceKey)?.displayName ?: voiceKey
+            PocketVoiceCatalog.ENGINE -> PocketVoiceCatalog.displayNameFor(voiceKey)
             else -> BuildTypeEngines.voiceLabel(engineName, voiceKey)
                 ?: voiceKey.replaceFirstChar { it.uppercase() }
         }

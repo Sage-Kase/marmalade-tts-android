@@ -62,8 +62,8 @@ class PocketVoiceCatalogTest {
             Triple("rita", "Rita", "female"),
             Triple("stephen", "Stephen", "male"),
             Triple("ramone", "Ramone", "male"),
-            // The Jenny (Dioco) licence requires this exact name.
-            Triple("jenny", "Jenny", "female"),
+            // The Jenny (Dioco) licence: "Jenny", and "Jenny (Dioco)" where practical.
+            Triple("jenny", "Jenny (Dioco)", "female"),
         )) {
             assertEquals(name, byKey.getValue(key).displayName)
             assertEquals(gender, byKey.getValue(key).gender)

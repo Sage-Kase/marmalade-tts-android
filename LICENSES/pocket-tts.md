@@ -116,8 +116,9 @@ were added in v27 (issue #38):
   > things like claim the dataset is your own. No further restrictions
   > apply.
 
-  The app names the voice "Jenny" and credits it "Jenny (Dioco)" under
-  its name in the voice pickers.
+  The app names the voice "Jenny (Dioco)" (the VITS pack's voice from the
+  same dataset is "Jenny (Dioco, VITS)"), with the credit line "Dioco"
+  under it in the voice pickers.
 
 From v27 the bundle also ships `voice_cache/<voice>.emb` for each voice:
 the voice's reference WAV run through the bundle's own Mimi encoder
