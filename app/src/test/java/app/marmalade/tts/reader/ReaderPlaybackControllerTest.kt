@@ -1181,6 +1181,24 @@ class ReaderPlaybackControllerTest {
         done()
     }
 
+    /** Head review of #67: the alias's own chip ends an override that already shows that speed. */
+    @Test
+    fun `picking the speed an override already equals ends it`() = runTest {
+        playing()
+        controller.setSpeed(1.5f)
+        h.settle()
+        controller.pickAlias(alias("jenny", NarratorHarness.VITS_ENGINE, speed = 1.5f))
+        h.settle()
+        assertEquals(1.5f, state.speed, 0f)
+
+        controller.setSpeed(1.5f)
+        h.settle()
+        controller.pickAlias(alias("bella", NarratorHarness.ENGINE, speed = 0.9f))
+        h.settle()
+        assertEquals(0.9f, state.speed, 0f)
+        done()
+    }
+
     @Test
     fun `an override outlasts a primary change too`() = runTest {
         playing()

@@ -71,7 +71,10 @@ interface NarratorControl {
      */
     fun previous()
 
-    /** The article session's speed, clamped to [MIN_SPEED]..[MAX_SPEED]; applied live, no re-render. */
+    /**
+     * The article session's speed, clamped to [MIN_SPEED]..[MAX_SPEED]; applied live, no re-render.
+     * The speed it already has changes nothing but whether it is an override (#67).
+     */
     fun setSpeed(speed: Float)
 
     /**

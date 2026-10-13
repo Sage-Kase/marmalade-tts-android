@@ -537,9 +537,12 @@ class Narrator(
     }
 
     private fun setSpeedNow(s: Session, speed: Float) {
+        s.speedOverride = speed != s.startingSpeed
+        // The speed it already has: only the override can change — the voice's
+        // own speed picked again ends one that happened to equal it (#67).
+        if (speed == s.speed) return
         val old = s.tempo
         s.speed = speed
-        s.speedOverride = speed != s.startingSpeed
         log("speed $old→$speed")
         if (s.begun) output.submit(OutputCommand.SetTempo(s.track, s.id, speed))
         // A render in flight re-decides chunk mode for its next piece (#54).

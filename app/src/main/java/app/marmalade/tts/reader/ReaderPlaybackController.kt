@@ -298,9 +298,9 @@ class ReaderPlaybackController internal constructor(
      * alias's own speed again ends it, so the next alias brings its speed (#67).
      */
     fun setSpeed(speed: Float) {
-        val clamped = speed.coerceIn(NarratorControl.MIN_SPEED, NarratorControl.MAX_SPEED)
-        if (clamped == current().speed) return
-        narrator.setSpeed(clamped)
+        // Sent even when unchanged: re-picking the speed it already has can end
+        // an override (#67); the Narrator changes nothing else then.
+        narrator.setSpeed(speed.coerceIn(NarratorControl.MIN_SPEED, NarratorControl.MAX_SPEED))
     }
 
     /**
