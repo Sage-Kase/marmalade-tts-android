@@ -93,22 +93,6 @@ enum class SpeedTier(val meterFill: Int) {
 }
 
 /**
- * How an engine's output quality is framed on the card. Deliberately NOT a
- * linear ranking — each engine leads on a different strength, so Pocket is
- * "most expressive" and Kitten "natural", never "worst".
- */
-enum class QualityTier {
-    /** Kitten — good, natural. */
-    NATURAL,
-
-    /** Kokoro — best all-round quality + widest language coverage. */
-    BEST_OVERALL,
-
-    /** Pocket — most expressive, characterful English. */
-    MOST_EXPRESSIVE,
-}
-
-/**
  * Description of a downloadable engine bundle.
  *
  * Static metadata only — no I/O. The installer + UI both consume this; it
@@ -155,8 +139,10 @@ enum class QualityTier {
  *                             card.
  * @property speedTier         Relative synthesis-speed tier — the hero axis
  *                             on the engine-select card.
- * @property qualityTier       How this engine's output quality is framed (a
- *                             strength, not a ranking).
+ * @property quality           How good this engine sounds, on the same linear
+ *                             [QualityGrade] scale as the voice packs. A
+ *                             listening judgement owned by Max; agents never
+ *                             change it (pinned by EngineCatalogTest).
  * @property languageCodes     BCP-47 codes this engine can speak. Size 1 →
  *                             the card shows the single language's name; size
  *                             > 1 → it shows "<n> languages" with an info
@@ -177,7 +163,7 @@ data class EngineDescriptor(
     @StringRes val licenseSummaryRes: Int,
     @StringRes val taglineRes: Int,
     val speedTier: SpeedTier,
-    val qualityTier: QualityTier,
+    val quality: QualityGrade,
     val languageCodes: List<String>,
     /**
      * Languages this engine can *phonemize* but has no trained voice for —
@@ -302,7 +288,7 @@ object EngineCatalog {
         licenseSummaryRes = R.string.engine_kitten_license,
         taglineRes = R.string.engine_kitten_tagline,
         speedTier = SpeedTier.FASTEST,
-        qualityTier = QualityTier.NATURAL,
+        quality = QualityGrade.GOOD,
         languageCodes = listOf("en"),
     )
 
@@ -367,7 +353,7 @@ object EngineCatalog {
         licenseSummaryRes = R.string.engine_kokoro_license,
         taglineRes = R.string.engine_kokoro_tagline,
         speedTier = SpeedTier.MODERATE,
-        qualityTier = QualityTier.BEST_OVERALL,
+        quality = QualityGrade.EXCELLENT,
         // The nine distinct locales KokoroDirectVoiceCatalog exposes. American
         // and British English count separately, which is why it's 9 and not 8.
         // Ordered for the info dialog: English (US/UK), then Spanish, French,
@@ -420,9 +406,9 @@ object EngineCatalog {
         licenseSummaryRes = R.string.engine_kokoro_de_license,
         taglineRes = R.string.engine_kokoro_de_tagline,
         speedTier = SpeedTier.MODERATE,
-        // Same quality framing as the base Kokoro — the German fine-tune
-        // gates at the community-rated reference (WER 0.88%).
-        qualityTier = QualityTier.BEST_OVERALL,
+        // Same grade as the base Kokoro — the German fine-tune gates at the
+        // community-rated reference (WER 0.88%).
+        quality = QualityGrade.EXCELLENT,
         // One native, trained German voice — no partial-support tier.
         languageCodes = listOf("de-DE"),
     )
@@ -500,7 +486,7 @@ object EngineCatalog {
         licenseSummaryRes = R.string.engine_pocket_license,
         taglineRes = R.string.engine_pocket_tagline,
         speedTier = SpeedTier.FAST,
-        qualityTier = QualityTier.MOST_EXPRESSIVE,
+        quality = QualityGrade.EXCELLENT,
         languageCodes = listOf("en"),
     )
 
@@ -535,7 +521,7 @@ object EngineCatalog {
         licenseSummaryRes = R.string.engine_pocket_dev_license,
         taglineRes = R.string.engine_pocket_dev_tagline,
         speedTier = SpeedTier.HEAVY,
-        qualityTier = QualityTier.MOST_EXPRESSIVE,
+        quality = QualityGrade.EXCELLENT,
         languageCodes = listOf("en"),
         fdroidOnly = true,
     )
@@ -581,10 +567,14 @@ object EngineCatalog {
             // The default pack (Jenny (Dioco)) is a single-speaker medium VITS
             // graph at 22.05 kHz, ~58 MB on the wire — heavier than an x_low
             // build but still far lighter than Kokoro's multi-lang model, and a
-            // single graph. FASTEST/NATURAL stand: Max ships Jenny precisely
-            // because it stays real-time on very slow devices.
+            // single graph. FASTEST stands: Max ships Jenny precisely because it
+            // stays real-time on very slow devices.
             speedTier = SpeedTier.FASTEST,
-            qualityTier = QualityTier.NATURAL,
+            // Max's grade for the engine (2026-10-13), two below Pocket and
+            // Kokoro. It may differ from the Jenny pack's own grade: the card
+            // compares engines with each other, while a pack grade ranks the
+            // packs that share this one VITS graph.
+            quality = QualityGrade.BASIC,
             // The distinct locales the card advertises: the RELEASED packs only,
             // so the spec column matches what an ordinary user can actually
             // install (English for v1.1). Developer mode reaches the staged

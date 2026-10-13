@@ -50,7 +50,7 @@ import app.marmalade.tts.data.db.VoiceMeta
 import app.marmalade.tts.data.latencyKeyFor
 import app.marmalade.tts.install.EngineCatalog
 import app.marmalade.tts.ui.components.languageDisplayName
-import app.marmalade.tts.ui.components.packQualityLabelRes
+import app.marmalade.tts.ui.components.qualityGradeLabelRes
 
 // -----------------------------------------------------------------------------
 // Data flow
@@ -491,7 +491,7 @@ private fun supportingText(voice: VoiceMeta): String {
         languageDisplayName(voice.languageCode),
     )
     val quality = VitsVoiceCatalog.packVoiceOf(voice.id)?.quality ?: return base
-    return "$base · ${stringResource(packQualityLabelRes(quality))}"
+    return "$base · ${stringResource(qualityGradeLabelRes(quality))}"
 }
 
 /**

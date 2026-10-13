@@ -44,6 +44,10 @@ its entry here in the same change.
   e.g. the English "Jenny (Dioco)" pack. Code: `VoicePack` in
   `install/VoicePackCatalog.kt`. Unreleased packs (`released = false`) appear
   only in developer mode, and never in the Play build.
+- **Quality grade.** How good an engine or a voice pack sounds, on one ranked
+  scale: Excellent, Good, Basic, Rough. Shown as a four-segment meter like
+  speed; TalkBack reads the word. Grades are Max's listening judgement and
+  agents never change them. Code: `QualityGrade` in `install/QualityGrade.kt`.
 
 ## Builds and distribution
 

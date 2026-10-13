@@ -62,7 +62,7 @@ import app.marmalade.tts.data.VoiceCredit
  *                         the result sounds. See [quality].
  * @property quality       User-facing audio-quality grade, shown wherever the
  *                         pack or one of its voices is offered. A listening
- *                         judgement owned by Max — see [PackQuality]; agents
+ *                         judgement owned by Max — see [QualityGrade]; agents
  *                         must not change a pack's grade.
  * @property sampleRate    The checkpoint's `audio.sample_rate`, copied here
  *                         for the catalog's `VoiceMeta` row (the picker and
@@ -111,7 +111,7 @@ data class VoicePack(
     val languageCode: String,
     val displayName: String,
     val qualityTier: String,
-    val quality: PackQuality,
+    val quality: QualityGrade,
     val sampleRate: Int,
     val gender: String?,
     val archive: EngineArchive,
@@ -231,7 +231,7 @@ data class PackVoice(
     val languageCode: String,
     val sampleRate: Int,
     val gender: String?,
-    val quality: PackQuality,
+    val quality: QualityGrade,
 )
 
 /**
@@ -247,7 +247,7 @@ data class PackVoice(
  * audited in the `PROVENANCE.md` shipped inside each tarball and summarised in
  * `LICENSES/vits-marmalade.md`.
  *
- * **The [PackQuality] grades in here are provisional** until Max's ear-lab
+ * **The [QualityGrade] grades in here are provisional** until Max's ear-lab
  * pass recalibrates them, and they are his to set either way: they are a
  * listening judgement about the source audio, not something derivable from the
  * checkpoint metadata. Never "fix" a grade to match a pack's [qualityTier].
@@ -309,7 +309,7 @@ object VoicePackCatalog {
         qualityTier = "medium",
         // All four Talrómur speakers were recorded in the same studio session
         // and grade the same, so the grade lives in the shared helper.
-        quality = PackQuality.GOOD,
+        quality = QualityGrade.GOOD,
         sampleRate = 22_050,
         gender = gender,
         archive = packArchive(packId, sha256, sizeBytes),
@@ -364,7 +364,7 @@ object VoicePackCatalog {
         qualityTier = "x_low",
         // The `x_low` checkpoint at 16 kHz: intelligible, plainly thinner than
         // the medium Ukrainian pack that shipped alongside it.
-        quality = PackQuality.BASIC,
+        quality = QualityGrade.BASIC,
         sampleRate = 16_000,
         // The upstream corpus documents no gender for this speaker.
         gender = null,
@@ -439,7 +439,7 @@ object VoicePackCatalog {
         languageCode = "sv-SE",
         displayName = "NST (Swedish)",
         qualityTier = "medium",
-        quality = PackQuality.GOOD,
+        quality = QualityGrade.GOOD,
         sampleRate = 22_050,
         gender = null,
         archive = packArchive(
@@ -475,7 +475,7 @@ object VoicePackCatalog {
         languageCode = "kk-KZ",
         displayName = "Kazakh (ISSAI)",
         qualityTier = "high",
-        quality = PackQuality.GOOD,
+        quality = QualityGrade.GOOD,
         sampleRate = 22_050,
         gender = null,
         archive = packArchive(
@@ -529,7 +529,7 @@ object VoicePackCatalog {
         // Ships anyway: Max's call is that something beats nothing for a
         // language with no cleanly-licensed alternative, as long as the label
         // says plainly what it is.
-        quality = PackQuality.ROUGH,
+        quality = QualityGrade.ROUGH,
         sampleRate = 22_050,
         gender = null,
         archive = packArchive(
@@ -577,7 +577,7 @@ object VoicePackCatalog {
         languageCode = "uk-UA",
         displayName = "Ukrainian (ukrainian_tts)",
         qualityTier = "medium",
-        quality = PackQuality.GOOD,
+        quality = QualityGrade.GOOD,
         sampleRate = 22_050,
         gender = null,
         archive = packArchive(
@@ -627,7 +627,7 @@ object VoicePackCatalog {
         languageCode = "en-GB",
         displayName = "Jenny (Dioco, VITS)",
         qualityTier = "medium",
-        quality = PackQuality.GOOD,
+        quality = QualityGrade.GOOD,
         sampleRate = 22_050,
         gender = "female",
         archive = packArchive(

@@ -139,9 +139,6 @@
     <string name="engine_speed_fast">तेज़</string>
     <string name="engine_speed_moderate">मध्यम</string>
     <string name="engine_speed_heavy">भारी</string>
-    <string name="engine_quality_natural">स्वाभाविक</string>
-    <string name="engine_quality_best">कुल मिलाकर सर्वश्रेष्ठ</string>
-    <string name="engine_quality_expressive">सर्वाधिक अभिव्यंजक</string>
     <string name="engine_languages_see_all">सभी %1$d देखें</string>
     <string name="engine_languages_info_cd">समर्थित भाषाएँ दिखाएँ</string>
     <string name="engine_languages_dialog_title">समर्थित भाषाएँ</string>
@@ -165,7 +162,7 @@
     <string name="language_kk">कज़ाख़</string>
     <string name="language_nb">नॉर्वेजियन (बोकमाल)</string>
 
-    <!-- आवाज़ पैक की ऑडियो गुणवत्ता (PackQuality) -->
+    <!-- आवाज़ पैक की ऑडियो गुणवत्ता (QualityGrade) -->
     <string name="pack_quality_excellent">उत्कृष्ट</string>
     <string name="pack_quality_good">अच्छी</string>
     <string name="pack_quality_basic">सामान्य</string>

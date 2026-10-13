@@ -21,9 +21,6 @@
     <string name="engine_speed_fast">Fast</string>
     <string name="engine_speed_moderate">Moderate</string>
     <string name="engine_speed_heavy">Heavy</string>
-    <string name="engine_quality_natural">Natural</string>
-    <string name="engine_quality_best">Best overall</string>
-    <string name="engine_quality_expressive">Most expressive</string>
     <!-- Tappable spec value for a multi-language engine; sits under the "LANGUAGES"
          overline, so the noun is supplied by the label above (%1$d = language count). -->
     <string name="engine_languages_see_all">See all %1$d</string>
@@ -50,8 +47,10 @@
     <string name="language_kk">Kazakh</string>
     <string name="language_nb">Norwegian (Bokmål)</string>
 
-    <!-- Voice-pack audio-quality grades (PackQuality). Linear scale, shown
-         wherever a pack or one of its voices is offered. "Rough recording"
+    <!-- Audio-quality grades (QualityGrade) for voice packs and engines. Linear
+         scale, shown wherever a pack or one of its voices is offered; the
+         engine cards show only the meter, and TalkBack reads the grade through
+         pack_quality_cd. "Rough recording"
          says plainly that the source audio is noisy — we ship the pack anyway
          because a rough voice beats no voice, so the label must not soften. -->
     <string name="pack_quality_excellent">Excellent</string>

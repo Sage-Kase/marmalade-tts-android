@@ -1069,6 +1069,10 @@ and `MarmaladeSynthService` is its foreground host. System TTS
 - `install/EngineCatalog.kt` `SpeedTier` — the card's 4-segment meter,
   from the same bench: Kitten/Jenny 4, Pocket 3 (v27 0.49 RTF, still FAST), Kokoro/Kokoro German 2
   (MODERATE), HEAVY only the Pocket clean-reference build.
+- `install/QualityGrade.kt` — the card's Quality meter (`EngineDescriptor.quality`)
+  and the voice-pack meter share this ranked scale (#78): Pocket and Kokoro 4,
+  Kitten 3, VITS 2. Max's listening grades, pinned by EngineCatalogTest and
+  QualityGradeTest; agents never change them.
 
 ### Preprocessing
 - `preprocessing/Preprocessor.kt` — applies the rule set

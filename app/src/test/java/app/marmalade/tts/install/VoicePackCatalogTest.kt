@@ -385,7 +385,7 @@ class VoicePackCatalogTest {
         assertEquals("en-GB", jenny.languageCode)
         assertEquals("Jenny (Dioco, VITS)", jenny.displayName)
         assertEquals("medium", jenny.qualityTier)
-        assertEquals(PackQuality.GOOD, jenny.quality)
+        assertEquals(QualityGrade.GOOD, jenny.quality)
         assertEquals(22_050, jenny.sampleRate)
         // Documented by the dataset README ("Voice is recorded by Jenny.
         // She's Irish."), not inferred from the name.

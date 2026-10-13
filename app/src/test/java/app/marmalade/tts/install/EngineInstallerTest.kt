@@ -877,7 +877,7 @@ class EngineInstallerTest {
         languageCode = "uk-UA",
         displayName = "Test (Ukrainian)",
         qualityTier = "x_low",
-        quality = PackQuality.BASIC,
+        quality = QualityGrade.BASIC,
         sampleRate = 16_000,
         gender = null,
         archive = EngineArchive(
@@ -930,7 +930,7 @@ class EngineInstallerTest {
         licenseSummaryRes = R.string.engine_kitten_license,
         taglineRes = R.string.engine_kitten_tagline,
         speedTier = SpeedTier.FAST,
-        qualityTier = QualityTier.NATURAL,
+        quality = QualityGrade.GOOD,
         languageCodes = listOf("en"),
     )
 

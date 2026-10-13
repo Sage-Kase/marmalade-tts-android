@@ -138,9 +138,6 @@
     <string name="engine_speed_fast">快速</string>
     <string name="engine_speed_moderate">中等</string>
     <string name="engine_speed_heavy">重载</string>
-    <string name="engine_quality_natural">自然</string>
-    <string name="engine_quality_best">综合最佳</string>
-    <string name="engine_quality_expressive">最富表现力</string>
     <string name="engine_languages_see_all">查看全部 %1$d 种语言</string>
     <string name="engine_languages_info_cd">显示支持的语言</string>
     <string name="engine_languages_dialog_title">支持的语言</string>
@@ -164,7 +161,7 @@
     <string name="language_kk">哈萨克语</string>
     <string name="language_nb">挪威语（书面挪威语）</string>
 
-    <!-- 语音包的音质 (PackQuality) -->
+    <!-- 语音包的音质 (QualityGrade) -->
     <string name="pack_quality_excellent">优秀</string>
     <string name="pack_quality_good">良好</string>
     <string name="pack_quality_basic">一般</string>

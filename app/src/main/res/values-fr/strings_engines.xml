@@ -139,9 +139,6 @@
     <string name="engine_speed_fast">Rapide</string>
     <string name="engine_speed_moderate">Moyenne</string>
     <string name="engine_speed_heavy">Lourd</string>
-    <string name="engine_quality_natural">Naturel</string>
-    <string name="engine_quality_best">Le meilleur</string>
-    <string name="engine_quality_expressive">Le plus expressif</string>
     <string name="engine_languages_see_all">Voir les %1$d</string>
     <string name="engine_languages_info_cd">Afficher les langues prises en charge</string>
     <string name="engine_languages_dialog_title">Langues prises en charge</string>
@@ -165,7 +162,7 @@
     <string name="language_kk">Kazakh</string>
     <string name="language_nb">Norvégien (bokmål)</string>
 
-    <!-- Qualité audio des packs de voix (PackQuality) -->
+    <!-- Qualité audio des packs de voix (QualityGrade) -->
     <string name="pack_quality_excellent">Excellente</string>
     <string name="pack_quality_good">Bonne</string>
     <string name="pack_quality_basic">Correcte</string>
