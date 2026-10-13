@@ -139,9 +139,6 @@
     <string name="engine_speed_fast">Veloce</string>
     <string name="engine_speed_moderate">Medio</string>
     <string name="engine_speed_heavy">Pesante</string>
-    <string name="engine_quality_natural">Naturale</string>
-    <string name="engine_quality_best">Migliore in assoluto</string>
-    <string name="engine_quality_expressive">Più espressivo</string>
     <string name="engine_languages_see_all">Vedi tutte le %1$d</string>
     <string name="engine_languages_info_cd">Mostra le lingue supportate</string>
     <string name="engine_languages_dialog_title">Lingue supportate</string>

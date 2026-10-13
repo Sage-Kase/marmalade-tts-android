@@ -138,9 +138,6 @@
     <string name="engine_speed_fast">高速</string>
     <string name="engine_speed_moderate">中速</string>
     <string name="engine_speed_heavy">重い</string>
-    <string name="engine_quality_natural">自然</string>
-    <string name="engine_quality_best">総合的に最高</string>
-    <string name="engine_quality_expressive">最も表現豊か</string>
     <string name="engine_languages_see_all">%1$d言語をすべて表示</string>
     <string name="engine_languages_info_cd">対応言語を表示</string>
     <string name="engine_languages_dialog_title">対応言語</string>
