@@ -1,7 +1,8 @@
 # Pocket TTS model — third-party license notice
 
 The Pocket TTS model is **not bundled in the APK**. It is downloaded
-on-demand from `marmalade-tts-android-engines` (release `v27`,
+on-demand from `marmalade-tts-android-engines` (release `v29`,
+`pocket-tts-en-v2026_09-mixed.tar.gz`, the same files as release `v27`'s
 `pocket-tts-en-v2026_09-mixed.tar.bz2`; v21 before it) into
 `${filesDir}/engines/pocket-tts-en-v2026_04/` when the user opts in via
 the onboarding wizard or Settings → Engines.

@@ -4,8 +4,8 @@ import app.marmalade.tts.data.db.VoiceMeta
 
 /**
  * Static catalog of the predefined voices the app offers from the
- * `pocket-tts-en-v2026_09-mixed` bundle (engines release v27, ~105 MB
- * compressed, ~225 MB on-disk).
+ * `pocket-tts-en-v2026_09-mixed` bundle (engines release v27; v29 is the
+ * same files as tar.gz, ~118 MB compressed, ~225 MB on-disk).
  *
  * Upstream pocket-tts defines 8 predefined voices; `cosette` (Expresso) and
  * `jean` (EARS) are **CC-BY-NC-4.0 (non-commercial)** and were dropped before
