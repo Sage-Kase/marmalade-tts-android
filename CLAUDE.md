@@ -2,6 +2,9 @@
 
 ## Orientation: read REPO-MAP.md first
 
+Vocabulary (alias, voice pack, expressive voice, chunk mode …) is in
+`CONTEXT.md`. Use its terms, and add an entry when a concept is new.
+
 `REPO-MAP.md` at the project root is the orientation pass for this
 codebase. It covers module structure, key files by concern, data
 flow, conventions, and known quirks (TTS engine registration
