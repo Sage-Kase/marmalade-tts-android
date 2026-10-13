@@ -1294,7 +1294,10 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   SystemDefault. EnginePick lists the card wearing the Recommended pill
   first (`EngineCardState.showsRecommended`: the probe's fit, else the
   catalog flag, i.e. Kitten until the probe answers), the rest in catalog
-  order (#63). `finish()` flips the onboarded flag. A failed install
+  order (#63). The verdict also ticks the recommended engine to install,
+  unless the user already toggled a card; the built-in Kitten always stays
+  in the selection (its install step waits for the offline seed).
+  `finish()` flips the onboarded flag. A failed install
   row keeps the installer's own `Failed` (localized via
   `installFailureText`) and offers Retry + "Remove download".
 - `MainActivity.kt` — decides between `OnboardingScreen` and `AppRoot`
