@@ -208,7 +208,9 @@ The dictionary-only phonemizer path (using BSD-3 OpenPhonemizer ONNX +
 a CMUDict-derived IPA dictionary, no espeak at all) was explored and
 deferred — phonemizer-side IPA convention mismatches with the trained
 Kitten model caused enough quality regression to make espeak the right
-call. Revisit if there's ever a no-GPL-anywhere requirement.
+call. Revisit if there's ever a no-GPL-anywhere requirement, but not with
+OpenPhonemizer: its weights are BSD-3, yet it was trained on espeak-generated
+CC-BY-SA-4.0 data (found 2026-10-12).
 
 
 ## Android app publishing — knowledge base TODO

@@ -1422,7 +1422,10 @@ straight into Kokoro and skip the whole lexicon/espeak class of bugs.
 **Maise** (Mobile-Artificial-Intelligence/maise, MIT) is a working
 reference for this path — ~120 LoC for the Kokoro ONNX session and
 ~200 LoC for **OpenPhonemizer** (BSD-3 English G2P, ONNX-based, no
-spaCy/pyopenjtalk/espeak dependency). Audited GREEN 2026-05-23.
+spaCy/pyopenjtalk/espeak dependency). Audited GREEN 2026-05-23 for
+code and weights; but (2026-10-12) its model was trained on
+`mrfakename/ipa-phonemes-word-pairs`, espeak-generated and labelled
+CC-BY-SA-4.0, so treat anything derived from it as share-alike. The repo is archived.
 
 **Trade-off:** sherpa-onnx gives multi-language G2P routing for free
 (via lexicon + jieba + espeak fallback); onnxruntime-direct + a single
