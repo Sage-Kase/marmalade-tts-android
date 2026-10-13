@@ -22,7 +22,9 @@ import app.marmalade.tts.data.db.VoiceMeta
  * ([KYUTAI_DONOR_VOICE_KEYS]; each WAV is the donor's published clip from
  * `kyutai/tts-voices` `voice-donations/`, unchanged) and `jenny`, a 17 s
  * reference cut from the Jenny (Dioco) TTS dataset, whose licence requires
- * the voice be called "Jenny". See `LICENSES/pocket-tts.md` for the
+ * the voice be called "Jenny", and where practical "Jenny (Dioco)", so that
+ * is its name ([displayNameFor]; the VITS pack's is "Jenny (Dioco, VITS)",
+ * issue #64). See `LICENSES/pocket-tts.md` for the
  * per-voice source/license map.
  *
  * Pocket TTS is a different beast from the sherpa-onnx-backed engines:
@@ -129,24 +131,36 @@ object PocketVoiceCatalog {
      * The picker's credit line per voice key (#37), from
      * `LICENSES/pocket-tts.md`'s per-voice table. The CC BY voices name
      * their source; the CC0 donors (javert and the v27 Kyutai donors) stay
-     * anonymous. Jenny's licence asks for "Jenny (Dioco)" where practical
-     * and is bespoke, so the line has no licence name. `marius` is absent:
+     * anonymous. Jenny's name already reads "Jenny (Dioco)", so her line
+     * says "Dioco" without repeating it, and has no licence name (bespoke). `marius` is absent:
      * no longer offered.
      */
     fun creditFor(voiceKey: String): VoiceCredit? = when (voiceKey) {
         "alba" -> VoiceCredit(source = "Alba Mackenna (Kyutai)", license = "CC BY 4.0")
         in VCTK_VOICE_KEYS -> VoiceCredit(source = "VCTK (University of Edinburgh)", license = "CC BY 4.0")
         "javert", in KYUTAI_DONOR_VOICE_KEYS -> VoiceCredit(donor = true, license = "CC0")
-        "jenny" -> VoiceCredit(source = "Jenny (Dioco)")
+        "jenny" -> VoiceCredit(source = "Dioco")
         else -> null
+    }
+
+    /**
+     * The UI name for [voiceKey] (`jenny`, `alba`, …), whether offered or not:
+     * the capitalized key, except Jenny, whose licence asks for "Jenny
+     * (Dioco)" where practical (issue #64). Read by [seed] and by
+     * `VoicePathResolver`, so the picker and the alias editor agree. A `when`,
+     * not a map: [voices] calls it while this object is still initializing.
+     */
+    fun displayNameFor(voiceKey: String): String = when (voiceKey) {
+        "jenny" -> "Jenny (Dioco)"
+        else -> voiceKey.replaceFirstChar { it.uppercase() }
     }
 
     private fun seed(name: String, gender: String): VoiceMeta = VoiceMeta(
         id = voiceId(name),
         engine = ENGINE,
         // The lowercase [name] is the machinery key (voice id, `voices/<name>.wav`
-        // in the bundle); the UI gets the capitalized form.
-        displayName = name.replaceFirstChar { it.uppercase() },
+        // in the bundle); the UI gets [displayNameFor]'s form.
+        displayName = displayNameFor(name),
         languageCode = LANGUAGE,
         sampleRate = SAMPLE_RATE,
         gender = gender,

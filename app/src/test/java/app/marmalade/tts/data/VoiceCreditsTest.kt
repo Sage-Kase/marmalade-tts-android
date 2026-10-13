@@ -38,8 +38,9 @@ class VoiceCreditsTest {
         for (key in PocketVoiceCatalog.KYUTAI_DONOR_VOICE_KEYS) {
             assertEquals("Voice donor · CC0", line(pocket(key)))
         }
-        // The Jenny (Dioco) licence: "Jenny (Dioco)" where practical; bespoke, so no licence name.
-        assertEquals("Jenny (Dioco)", line(pocket("jenny")))
+        // The name already reads "Jenny (Dioco)" (#64), so the line doesn't repeat it;
+        // the licence is bespoke, so no licence name.
+        assertEquals("Dioco", line(pocket("jenny")))
     }
 
     @Test
@@ -57,7 +58,7 @@ class VoiceCreditsTest {
         val jenny = VitsVoiceCatalog.voices.single {
             VitsVoiceCatalog.packIdOf(it.id) == VoicePackCatalog.EN_JENNY_DIOCO_MEDIUM.id
         }
-        assertEquals("Jenny (Dioco)", jenny.displayName)
+        assertEquals("Jenny (Dioco, VITS)", jenny.displayName)
         assertEquals("Dioco · model by Bryce Beattie", line(jenny))
     }
 

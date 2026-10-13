@@ -3,6 +3,7 @@ package app.marmalade.tts.data
 import app.marmalade.tts.data.cloud.CloudModel
 import app.marmalade.tts.data.cloud.CloudProvider
 import app.marmalade.tts.data.cloud.CloudProviderDirectory
+import app.marmalade.tts.install.VoicePackCatalog
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -62,6 +63,21 @@ class VoicePathTest {
         // "Kitten Nano › Kitten Nano" would be the giveaway of a bad merge.
         assertEquals(path.source, path.model)
         assertEquals(path.model, path.collapsed)
+    }
+
+    @Test
+    fun `the two Jennys resolve to names that tell them apart`() {
+        // #64: Pocket's v27 Jenny and the VITS pack come from the same dataset.
+        val pocket = resolver.resolve(PocketVoiceCatalog.voiceId("jenny"), PocketVoiceCatalog.ENGINE)
+        val vits = resolver.resolve(
+            VitsVoiceCatalog.voiceId(VoicePackCatalog.EN_JENNY_DIOCO_MEDIUM.id),
+            VitsVoiceCatalog.ENGINE,
+        )
+
+        assertEquals("Jenny (Dioco)", pocket.voice)
+        assertEquals("Jenny (Dioco, VITS)", vits.voice)
+        // Every other Pocket voice is still its capitalized key.
+        assertEquals("Alba", resolver.resolve(PocketVoiceCatalog.voiceId("alba"), PocketVoiceCatalog.ENGINE).voice)
     }
 
     @Test

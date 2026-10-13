@@ -613,9 +613,11 @@ object VoicePackCatalog {
      *
      * **License-mandated display name.** The dataset's attribution term
      * requires the voice be named "Jenny", and where practical "Jenny
-     * (Dioco)" — so [displayName] is exactly `"Jenny (Dioco)"` and must not be
+     * (Dioco)" — so [displayName] must start "Jenny (Dioco" and must not be
      * shortened anywhere it is shown. This is a licence condition, not a style
-     * choice. Gender comes from the dataset README's own description of the
+     * choice. A suffix inside the brackets is fine: it is `"Jenny (Dioco,
+     * VITS)"` since Pocket's v27 voice made from the same dataset is "Jenny
+     * (Dioco)" (issue #64, Max 2026-10-12). Gender comes from the dataset README's own description of the
      * speaker ("Voice is recorded by Jenny. She's Irish.") — documented, not
      * inferred from the name.
      */
@@ -623,7 +625,7 @@ object VoicePackCatalog {
         id = "en-jenny_dioco-medium",
         engine = VITS_MARMALADE_ENGINE,
         languageCode = "en-GB",
-        displayName = "Jenny (Dioco)",
+        displayName = "Jenny (Dioco, VITS)",
         qualityTier = "medium",
         quality = PackQuality.GOOD,
         sampleRate = 22_050,

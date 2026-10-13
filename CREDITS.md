@@ -22,8 +22,7 @@ The Pocket engine offers 10 predefined reference voices. Two sources carry
   **jenny-tts-dataset**, recorded and released by **Jenny** (dioco-group)
   for TTS training (https://github.com/dioco-group/jenny-tts-dataset).
   Its custom licence requires the voice be called "Jenny", and where
-  practical "Jenny (Dioco)": the app names it Jenny and credits it
-  "Jenny (Dioco)".
+  practical "Jenny (Dioco)": the app names it "Jenny (Dioco)".
 
 Five more (`javert`, `mary`, `rita`, `stephen`, `ramone`) come from the
 **Unmute Voice Donation Project** and are **CC0** — no attribution
@@ -49,8 +48,8 @@ three of them require attribution:
   (https://github.com/dioco-group/jenny-tts-dataset). Both the dataset and
   the weights are under **custom attribution licences** (commercial use
   permitted). The dataset's term is binding on how the voice is named: it
-  **must be credited "Jenny (Dioco)"** — which is exactly the voice's
-  in-app display name.
+  **must be credited "Jenny (Dioco)"**: the voice's in-app display name is
+  "Jenny (Dioco, VITS)", which tells it from Pocket's Jenny.
 - **Talrómur** — the four Icelandic voices (`is-bui-medium`,
   `is-salka-medium`, `is-steinn-medium`, `is-ugla-medium`) are trained
   on the **Talrómur** corpus — Reykjavík University & RÚV, Icelandic

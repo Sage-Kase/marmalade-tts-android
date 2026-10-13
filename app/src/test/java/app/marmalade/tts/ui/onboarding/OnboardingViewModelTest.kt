@@ -20,6 +20,7 @@ import app.marmalade.tts.ui.screen.FakeAliasDao
 import app.marmalade.tts.ui.screen.FakeDao
 import app.marmalade.tts.ui.screen.FakeSettings
 import app.marmalade.tts.util.MainDispatcherRule
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -425,6 +426,42 @@ class OnboardingViewModelTest {
         assertEquals(EngineFit.RECOMMENDED, cards.first { it.descriptor.name == KITTEN }.fit)
         assertEquals(EngineFit.MAY_BE_SLOW, cards.first { it.descriptor.name == KOKORO }.fit)
         assertEquals(EngineFit.MAY_BE_SLOW, cards.first { it.descriptor.name == POCKET }.fit)
+    }
+
+    @Test
+    fun fastDevicePreTicksPocket() = runTest {
+        val vm = newViewModel(deviceProbe = FakeDeviceProbe(FAST_PHONE))
+        vm.recommendation.first { it != null }
+
+        // #63 follow-up: the recommended download is ticked; the built-in
+        // Kitten stays in the set (not a choice, and it waits for the seed).
+        assertEquals(setOf(KITTEN, POCKET), vm.selectedEngineIds.value)
+    }
+
+    @Test
+    fun slowDevicePreTicksOnlyKitten() = runTest {
+        val vm = newViewModel(
+            deviceProbe = FakeDeviceProbe(DeviceProbe(measuredKittenRtf = 0.9, computeScore = 4.0)),
+        )
+        vm.recommendation.first { it != null }
+
+        assertEquals(setOf(KITTEN), vm.selectedEngineIds.value)
+    }
+
+    @Test
+    fun aToggleBeforeTheVerdictKeepsTheUsersSelection() = runTest {
+        val probe = CompletableDeferred<DeviceProbe>()
+        val vm = newViewModel(
+            deviceProbe = object : DeviceProbeSource {
+                override suspend fun probe(): DeviceProbe = probe.await()
+            },
+        )
+
+        vm.toggle(KOKORO)
+        probe.complete(FAST_PHONE)
+        vm.recommendation.first { it != null }
+
+        assertEquals(setOf(KITTEN, KOKORO), vm.selectedEngineIds.value)
     }
 
     @Test

@@ -213,13 +213,21 @@ class OnboardingViewModel @Inject constructor(
     val step: StateFlow<OnboardingStep> = _step.asStateFlow()
 
     /**
-     * Initial selection: every engine flagged `isRecommended` in the
-     * catalog is pre-checked. For v0.1 that's just Kitten.
+     * Initial selection: the built-in Kitten (the catalog's `isRecommended`
+     * flag), which stays selected because it is not a choice ([toggle]) and
+     * its install step is what waits for the offline seed. When the probe
+     * answers, the engine it recommends is ticked too (issue #63 follow-up,
+     * Max 2026-10-12), so on a slow phone, where Kitten is the
+     * recommendation, nothing else is. A user who already ticked or unticked
+     * something keeps their own selection ([selectionTouched]).
      */
     private val _selectedEngineIds = MutableStateFlow<Set<String>>(
         EngineCatalog.all.filter { it.isRecommended }.map { it.name }.toSet(),
     )
     val selectedEngineIds: StateFlow<Set<String>> = _selectedEngineIds.asStateFlow()
+
+    /** The user has toggled a card, so the probe's verdict no longer ticks one. */
+    private var selectionTouched = false
 
     /**
      * Per-engine install state, keyed by engine name. Only present for
@@ -287,10 +295,16 @@ class OnboardingViewModel @Inject constructor(
             withTimeoutOrNull(SEED_WAIT_TIMEOUT_MS) {
                 settings.bakedDefaultSeeded.firstOrNull { it }
             }
-            _recommendation.value = EngineRecommender.recommend(
+            val recommendation = EngineRecommender.recommend(
                 deviceProbe.probe(),
                 offered = EngineCatalog.visibleTo(showDeveloper = false).map { it.name },
             )
+            // Tick before publishing the verdict, so the pill, the sort and
+            // the tick land in the same frame.
+            if (recommendation != null && !selectionTouched) {
+                _selectedEngineIds.update { it + recommendation.recommended }
+            }
+            _recommendation.value = recommendation
         }
     }
 
@@ -300,6 +314,7 @@ class OnboardingViewModel @Inject constructor(
         // opt out of, and dropping it would strand a fresh offline install
         // with no usable voice.
         if (engineName == KittenDirectVoiceCatalog.ENGINE) return
+        selectionTouched = true
         _selectedEngineIds.update { current ->
             if (current.contains(engineName)) current - engineName else current + engineName
         }

@@ -414,7 +414,12 @@ class MarmaladeTtsApplication : Application() {
          *    Ramone, Jenny; issue #38), so the reseed adds their rows (5 → 10
          *    Pocket voices). The developer twin doesn't get them: its own v10
          *    archive has no WAV for them.
+         *  - v42: the two Jennys get names that tell them apart (issue #64):
+         *    the VITS pack's voice "Jenny (Dioco)" → "Jenny (Dioco, VITS)",
+         *    Pocket's "Jenny" → "Jenny (Dioco)". Ids are unchanged, so aliases
+         *    and system-TTS clients keep working; an installed pack's row is
+         *    this same catalog row, so it is renamed too.
          */
-        const val CATALOG_VERSION: Int = 41
+        const val CATALOG_VERSION: Int = 42
     }
 }

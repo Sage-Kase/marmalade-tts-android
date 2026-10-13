@@ -399,7 +399,9 @@ When investigating **{concern}**, start at **{files}**:
   rita, stephen, ramone (CC0 Kyutai Unmute donors `3973`,
   `spanish-limaperu`, `thepolishdane`, `floyd2026`; the published
   `voice-donations/<donor>.wav`, unchanged) and jenny (Jenny (Dioco)
-  dataset, custom licence: the name must stay "Jenny"; a 17 s reference:
+  dataset, custom licence: the name must keep "Jenny", and "Jenny (Dioco)"
+  where practical; shown as "Jenny (Dioco)", the VITS pack's as "Jenny
+  (Dioco, VITS)" (#64); a 17 s reference:
   three whole recipe clips, `~/coding/scratch/pocket-v27-38/src/mkref-jenny.sh`;
   #30's 26 s `refs/jenny.wav` OOM-killed the emulator on first use, see
   the encoder-memory note below). Adding a voice = WAV in the bundle's
@@ -1294,7 +1296,10 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   SystemDefault. EnginePick lists the card wearing the Recommended pill
   first (`EngineCardState.showsRecommended`: the probe's fit, else the
   catalog flag, i.e. Kitten until the probe answers), the rest in catalog
-  order (#63). `finish()` flips the onboarded flag. A failed install
+  order (#63). The verdict also ticks the recommended engine to install,
+  unless the user already toggled a card; the built-in Kitten always stays
+  in the selection (its install step waits for the offline seed).
+  `finish()` flips the onboarded flag. A failed install
   row keeps the installer's own `Failed` (localized via
   `installFailureText`) and offers Retry + "Remove download".
 - `MainActivity.kt` — decides between `OnboardingScreen` and `AppRoot`

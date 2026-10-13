@@ -375,14 +375,15 @@ class VoicePackCatalogTest {
     @Test
     fun theEnglishJennyPackCarriesItsLicenseMandatedIdentity() {
         // The dataset's attribution term requires the voice be named "Jenny
-        // (Dioco)" — a licence condition, not a style choice — so pin the exact
+        // (Dioco)" where practical — a licence condition, not a style choice;
+        // ", VITS" tells it from Pocket's Jenny (#64) — so pin the exact
         // display name here alongside the download identity a stray edit could
         // corrupt.
         val jenny = VoicePackCatalog.EN_JENNY_DIOCO_MEDIUM
         assertEquals("en-jenny_dioco-medium", jenny.id)
         assertEquals(ENGINE, jenny.engine)
         assertEquals("en-GB", jenny.languageCode)
-        assertEquals("Jenny (Dioco)", jenny.displayName)
+        assertEquals("Jenny (Dioco, VITS)", jenny.displayName)
         assertEquals("medium", jenny.qualityTier)
         assertEquals(PackQuality.GOOD, jenny.quality)
         assertEquals(22_050, jenny.sampleRate)
@@ -400,8 +401,8 @@ class VoicePackCatalogTest {
         val voice = jenny.voices.single()
         assertEquals("en-jenny_dioco-medium", voice.voiceKey)
         assertEquals(0, voice.sid)
-        assertEquals("Jenny (Dioco)", voice.displayName)
-        assertEquals("Jenny (Dioco)", VoicePackCatalog.voiceByKey(ENGINE, jenny.id)!!.displayName)
+        assertEquals("Jenny (Dioco, VITS)", voice.displayName)
+        assertEquals("Jenny (Dioco, VITS)", VoicePackCatalog.voiceByKey(ENGINE, jenny.id)!!.displayName)
     }
 
     @Test
