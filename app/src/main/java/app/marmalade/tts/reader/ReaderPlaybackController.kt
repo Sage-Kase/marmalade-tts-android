@@ -98,8 +98,8 @@ data class ReaderPlaybackState(
     val speed: Float = 1.0f,
     /**
      * The speed this article was opened at — its reading alias's own speed
-     * (see [speed]). Kept after the user picks another so the speed sheet can
-     * always offer the way back to it, even when it isn't a curated chip.
+     * (see [speed]). Kept after the user picks another so the dial's slider
+     * always has a stop there, even off its 0.1× grid (#71).
      */
     val startingSpeed: Float = 1.0f,
     /**
@@ -299,8 +299,10 @@ class ReaderPlaybackController internal constructor(
      */
     fun setSpeed(speed: Float) {
         // Sent even when unchanged: re-picking the speed it already has can end
-        // an override (#67); the Narrator changes nothing else then.
-        narrator.setSpeed(speed.coerceIn(NarratorControl.MIN_SPEED, NarratorControl.MAX_SPEED))
+        // an override (#67); the Narrator changes nothing else then. Rounded
+        // like the alias's own speed ([roundedSpeed]), so a slider's float
+        // noise (1.1000001) can't keep an override alive (#71).
+        narrator.setSpeed(roundedSpeed(speed).coerceIn(NarratorControl.MIN_SPEED, NarratorControl.MAX_SPEED))
     }
 
     /**

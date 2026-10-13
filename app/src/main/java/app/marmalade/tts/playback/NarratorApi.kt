@@ -100,7 +100,7 @@ interface NarratorControl {
     fun cancelOneShot(id: Long)
 
     companion object {
-        /** The article's (the reader's) speed range: its chips and sheet. */
+        /** The article's speed range (the reader's slider uses 0.5–2 of it). */
         const val MIN_SPEED = 0.5f
         const val MAX_SPEED = 3.0f
 

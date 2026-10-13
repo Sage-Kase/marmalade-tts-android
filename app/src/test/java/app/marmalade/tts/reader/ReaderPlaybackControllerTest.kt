@@ -1199,6 +1199,44 @@ class ReaderPlaybackControllerTest {
         done()
     }
 
+    // -- The dial's speed slider (#71): its values carry float noise ---------------
+
+    /** An article read by a 1.1× alias, playing. */
+    private fun TestScope.playingAt11() {
+        rig()
+        controller.open(article(KEY, blocks), initialSpeed = 1.1f)
+        controller.play()
+        h.settle()
+    }
+
+    @Test
+    fun `a slider drag away from the alias's speed is an override`() = runTest {
+        playingAt11()
+        controller.setSpeed(1.5000001f)
+        h.settle()
+        assertEquals(1.5f, state.speed, 0f)
+
+        controller.pickAlias(alias("bella", NarratorHarness.ENGINE, speed = 0.9f))
+        h.settle()
+        assertEquals(1.5f, state.speed, 0f)
+        done()
+    }
+
+    @Test
+    fun `a slider drag back to the alias's speed ends the override`() = runTest {
+        playingAt11()
+        controller.setSpeed(1.5000001f)
+        h.settle()
+        controller.setSpeed(1.1000001f)
+        h.settle()
+        assertEquals(1.1f, state.speed, 0f)
+
+        controller.pickAlias(alias("bella", NarratorHarness.ENGINE, speed = 0.9f))
+        h.settle()
+        assertEquals(0.9f, state.speed, 0f)
+        done()
+    }
+
     @Test
     fun `an override outlasts a primary change too`() = runTest {
         playing()

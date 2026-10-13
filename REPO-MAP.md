@@ -830,7 +830,7 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   start of the interrupted chunk's sentence; ~60 s ahead on-device, cloud this block +
   next; preparing continues while paused except after `PauseReason.Navigation`;
   every speed change (cloud too) is the writer's live Tempo, engines render
-  at 1.0 (speed range: the article 0.5–3, the reader's chips; a one-shot
+  at 1.0 (speed range: the article 0.5–3, the reader's slider 0.5–2; a one-shot
   0.25–4, system TTS's range, for Tasker's `EXTRA_SPEED`); permanent focus loss → `Paused(FocusLoss)`; 30 min paused → stopped
   (Idle, the shell stops); Previous/Next act on the article only (Next past
   the last block finishes it; from a stopped article both start playing, as
@@ -1268,8 +1268,12 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   transport bar's dial (`AliasDial` in ReaderScreen): who reads
   (`ReaderViewModel.readingVoice`: the alias, or an installed voice's own name)
   over the speed. It opens `ReaderDialSheet`: the alias rows (`PersonaRow`
-  from `ui/components/PersonaSheet.kt`, the Speak screen's) then the speed
-  chips; it stays open on a pick so the speed it brings shows. A pick goes to
+  from `ui/components/PersonaSheet.kt`, the Speak screen's) then the alias
+  editor's speed slider (`ui/components/SpeedSlider.kt`, shared since #71:
+  0.5–2.0× in 0.1 steps); it stays open on a pick so the speed it brings
+  shows. The slider applies on release (one `setSpeed` per drag), and always
+  has a stop at the reading alias's own speed: off the 0.1 grid it drops its
+  detents and snaps by hand (`snapSpeed`). A pick goes to
   `ReaderPlaybackController.pickAlias`. The top bar is just "Reader". The left
   flank takes the room the "N of M" readout doesn't need (the readout reserves
   its widest value), so the transport sits a little right of centre.
@@ -1278,16 +1282,15 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   (`Narrator` `Session.speedOverride`: set when the user's speed differs from
   the voice's own, cleared when they pick the voice's own speed again)
   outlasts every switch, even one to an alias whose speed it happens to equal.
+  `ReaderPlaybackController.setSpeed` rounds with `roundedSpeed`, as the
+  alias's own speed is, so a slider's float noise can't keep an override.
   The reading speed is
   session-only and an **absolute override** of the reading alias's speed,
   not a factor on it: each new article starts at that alias's own speed
   (`ReaderViewModel.startingSpeed` → `ReaderPlaybackController.open`),
   and it is the Narrator's session speed, applied at playback *instead of*
   the alias's speed (voice, effect and language still come from the
-  alias). A non-chip alias speed gets its
-  own chip for the whole article (`readerSpeedChoices` over
-  `ReaderPlaybackState.startingSpeed`), so picking another speed never
-  removes the way back to it. A mid-article speed change is applied
+  alias). A mid-article speed change is applied
   live (the writer's Tempo; no restart, no re-render — cloud voices too).
   **The reader is a Narrator client** (`reader/ReaderPlaybackController`,
   step C1): it holds the extracted article for rebinds, forwards commands

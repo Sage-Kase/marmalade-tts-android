@@ -11,8 +11,9 @@ This project follows [Semantic Versioning](https://semver.org/).
   speed; tap it to pick another of your aliases or another speed in one
   place. The paragraph being read starts again in the new voice, and your
   pick stays for the rest of the article even if you change your primary
-  alias. A new alias reads at its own speed, unless you chose a speed in
-  the reader: that speed stays until you pick the alias's own speed again.
+  alias. The speed is set with the same slider as in the alias editor. A
+  new alias reads at its own speed, unless you chose a speed in the reader:
+  that speed stays until you slide back to the alias's own speed.
 - **"What's new" after an update**: the first time Marmalade opens after
   an update, a short pop-up lists what changed. It shows once per update
   and never on a fresh install; Settings → About → What's new opens it

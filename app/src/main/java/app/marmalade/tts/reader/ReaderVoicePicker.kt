@@ -66,8 +66,9 @@ suspend fun readerStartingSpeed(voice: VoiceChoice, primaryAlias: suspend () -> 
 }
 
 /**
- * [speed] rounded to hundredths: the alias slider stores values like
- * 1.1000001f, which would otherwise match no speed chip and label the extra
- * chip with float noise. The difference is far below anything audible.
+ * [speed] rounded to hundredths: slider values carry float noise (1.1000001f;
+ * aliases saved before #71 store it too), which would otherwise miss the
+ * slider's stop at the alias's speed and keep a reader override alive. The
+ * difference is far below anything audible.
  */
 fun roundedSpeed(speed: Float): Float = (speed * 100).roundToInt() / 100f
