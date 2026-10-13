@@ -928,6 +928,7 @@ open class EngineInstaller @Inject constructor(
             )
 
             Log.d(TAG, "Downloading ${archive.url} → ${archiveTmp.absolutePath}")
+            val startedAt = System.nanoTime()
             val fetchedSha = downloadArchive(archive.url, archiveTmp, totalBytes) { fetched ->
                 val update = InstallState.Downloading(
                     bytesFetched = fetched,
@@ -946,6 +947,8 @@ open class EngineInstaller @Inject constructor(
                 )
             }
 
+            val fetchedAt = System.nanoTime()
+
             // 3. Extract. Emit byte-level progress against the catalog's
             // declared installed size — the UI shows a determinate bar for
             // the unpack phase instead of a stuck indeterminate spinner.
@@ -960,6 +963,8 @@ open class EngineInstaller @Inject constructor(
                     totalBytes = totalUnpackedBytes,
                 )
             }
+
+            val extractedAt = System.nanoTime()
 
             // 4. Delete the archive scratch file — it's served its purpose.
             archiveTmp.delete()
@@ -993,6 +998,7 @@ open class EngineInstaller @Inject constructor(
             // and surface InstallState.Outdated. Written AFTER the atomic
             // rename so a partial install never leaves a stale meta behind.
             writeInstallMeta(finalDir, archive)
+            val swappedAt = System.nanoTime()
 
             // 7. Post-install sanity check. The archive sha already proved
             // the bytes are correct, so this just confirms the extraction
@@ -1009,6 +1015,17 @@ open class EngineInstaller @Inject constructor(
                 )
             }
 
+            // One line per install, so a slow "finishing" phase can be
+            // pinned on the right step from logcat (#65).
+            val ms = { from: Long, to: Long -> (to - from) / 1_000_000L }
+            Log.i(
+                TAG,
+                "Installed $label from ${archive.url.substringAfterLast('/')}: " +
+                    "fetch+sha256 ${ms(startedAt, fetchedAt)} ms, " +
+                    "unpack ${ms(fetchedAt, extractedAt)} ms, " +
+                    "swap ${ms(extractedAt, swappedAt)} ms, " +
+                    "check ${ms(swappedAt, System.nanoTime())} ms",
+            )
             sf.value = InstallState.Installed
             Result.success(Unit)
         } catch (t: Throwable) {
