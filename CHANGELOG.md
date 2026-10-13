@@ -25,6 +25,11 @@ This project follows [Semantic Versioning](https://semver.org/).
   They appear once Pocket is updated on the Engines screen.
 
 ### Changed
+- **Pocket finishes installing sooner**: once its download is done, Pocket
+  now unpacks several times faster. The download holds the same files,
+  packed in a format phones unpack much faster; it grows from 100 MB to
+  113 MB. A Pocket you already have needs no update: its files are the
+  same.
 - **No more stutter when a voice can't keep up**: when an engine can't
   render as fast as it speaks at the chosen speed (a slower phone, or a
   high speed), Marmalade now plays each sentence or clause whole once

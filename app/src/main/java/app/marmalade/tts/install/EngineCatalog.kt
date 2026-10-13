@@ -429,7 +429,7 @@ object EngineCatalog {
 
     /**
      * Pocket TTS English (`pocket-tts-en-v2026_09-mixed`, engines release
-     * v27). Kyutai
+     * v29: v27's files repacked as tar.gz, issue #65). Kyutai
      * Labs' Latent Space Diffusion model, run on Microsoft
      * `onnxruntime-android` directly (no sherpa-onnx in this path). 10
      * commercial-safe predefined voices: 5 of the upstream 8 (minus
@@ -464,6 +464,13 @@ object EngineCatalog {
      * at +1.1 GB on a Pixel 6a, +2.65 GB for Jenny). An update replaces the
      * whole directory, so an older bundle's cache never meets new weights.
      *
+     * v29 (issue #65) is v27's tar stream, byte for byte, recompressed with
+     * gzip (`gzip -n -9`): Android unpacks gzip with native zlib, where the
+     * tar.bz2 went through commons-compress's pure-Java bzip2, which was most
+     * of the time an install took after the download. The download grows
+     * from 104.7 MB to 118.5 MB. v27 is listed in `sameContentAs`, so a v27
+     * install stays current and nobody downloads the same files again.
+     *
      * Licensing: the Kyutai model **code** is MIT (not Apache-2.0) and its
      * **weights** are CC-BY-4.0 (huggingface.co/kyutai/pocket-tts). Each
      * predefined voice carries its own data license — the 10 in the bundle
@@ -478,14 +485,16 @@ object EngineCatalog {
         name = "pocket-tts-en-v2026_04",
         displayName = "Pocket TTS (English, 2026-09)",
         descriptionRes = R.string.engine_pocket_desc,
-        downloadSizeBytes = 104_703_288L,
+        downloadSizeBytes = 118_458_315L,
         installedSizeBytes = POCKET_TTS_INSTALLED_SIZE_BYTES,
         isRecommended = false,
         archive = EngineArchive(
-            url = "https://github.com/maxwhipw/marmalade-tts-android-engines/releases/download/v27/pocket-tts-en-v2026_09-mixed.tar.bz2",
-            sha256 = "00cf24b87111de48717c26a4dcc126f2c80de056b061d5de888dac653f8b1cdf",
-            sizeBytes = 104_703_288L,
+            url = "https://github.com/maxwhipw/marmalade-tts-android-engines/releases/download/v29/pocket-tts-en-v2026_09-mixed.tar.gz",
+            sha256 = "dd276be0eff361f58ce1ef7ef3dd56c3cbeca1616892c172b7b45bf1f874f647",
+            sizeBytes = 118_458_315L,
             archiveRoot = "pocket-tts-en/",
+            // v27, the same files as tar.bz2.
+            sameContentAs = setOf("00cf24b87111de48717c26a4dcc126f2c80de056b061d5de888dac653f8b1cdf"),
         ),
         licenseNotice = "LICENSES/pocket-tts.md",
         licenseSummaryRes = R.string.engine_pocket_license,
