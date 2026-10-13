@@ -1261,16 +1261,24 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   fallback edits ignored) and on a change re-runs the pick and calls
   `NarratorControl.setArticleVoice`, which drops every rendered chunk, re-resolves
   and restarts the listener's block in the new voice (playing keeps playing,
-  paused stays paused; logged `D/Narrator: voice change`). A session speed the
-  user never touched follows the new alias's speed. An alias the user picks in
-  the reader (`pickAlias`, `ReaderPlaybackState.voicePicked`) wins for the rest
-  of that article.
-  **Picking the voice (#66):** the top bar's title is a voice chip naming
-  who reads (`ReaderViewModel.readingVoice`: the alias, or an installed
-  voice's own name; "Reader" while loading or failed); it opens the shared
-  alias sheet (`ui/components/PersonaSheet.kt`, the Speak screen's, without
-  its Speak-only rows) and a pick goes to `ReaderPlaybackController.pickAlias`.
-  The transport bar had no room for another button. The reading speed (`ReaderSpeedSheet`) is
+  paused stays paused; logged `D/Narrator: voice change`). An alias the user
+  picks in the reader (`pickAlias`, `ReaderPlaybackState.voicePicked`) wins for
+  the rest of that article.
+  **The alias dial (#67, Max's design):** voice and speed are ONE control, the
+  transport bar's dial (`AliasDial` in ReaderScreen): who reads
+  (`ReaderViewModel.readingVoice`: the alias, or an installed voice's own name)
+  over the speed. It opens `ReaderDialSheet`: the alias rows (`PersonaRow`
+  from `ui/components/PersonaSheet.kt`, the Speak screen's) then the speed
+  chips; it stays open on a pick so the speed it brings shows. A pick goes to
+  `ReaderPlaybackController.pickAlias`. The top bar is just "Reader". The left
+  flank takes the room the "N of M" readout doesn't need (the readout reserves
+  its widest value), so the transport sits a little right of centre.
+  **Speed is an override:** an alias switch or primary change brings the new
+  alias's speed, unless the user set a speed in the reader. That override
+  (`Narrator` `Session.speedOverride`: set when the user's speed differs from
+  the voice's own, cleared when they pick the voice's own speed again)
+  outlasts every switch, even one to an alias whose speed it happens to equal.
+  The reading speed is
   session-only and an **absolute override** of the reading alias's speed,
   not a factor on it: each new article starts at that alias's own speed
   (`ReaderViewModel.startingSpeed` → `ReaderPlaybackController.open`),

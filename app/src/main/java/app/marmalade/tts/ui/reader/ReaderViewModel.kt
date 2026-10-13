@@ -142,7 +142,7 @@ sealed interface ReaderPlaybackError {
 private data class PrimaryAlias(val engine: String)
 
 /**
- * Who reads the article, for the reader's voice chip (#66): the alias's name
+ * Who reads the article, for the reader's alias dial (#67): the alias's name
  * and id, or — for an installed voice no alias uses (the language rule's
  * last resort) — the voice's own name and no id.
  */

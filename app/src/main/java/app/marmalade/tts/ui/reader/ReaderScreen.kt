@@ -27,16 +27,13 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
@@ -67,6 +64,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
@@ -74,6 +72,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
@@ -93,8 +93,6 @@ import app.marmalade.tts.reader.ArticleBlock
 import app.marmalade.tts.reader.ReaderPlaybackState
 import app.marmalade.tts.reader.ReaderPlaybackStatus
 import app.marmalade.tts.service.SpeakDispatcher
-import app.marmalade.tts.ui.MarmaladeIcons
-import app.marmalade.tts.ui.components.PersonaSheet
 import kotlinx.coroutines.launch
 
 // -----------------------------------------------------------------------------
@@ -174,8 +172,7 @@ fun ReaderScreen(
     val articlePalette = if (ready != null) surface.palette else null
 
     var showDisplaySheet by remember { mutableStateOf(false) }
-    var showSpeedSheet by remember { mutableStateOf(false) }
-    var showVoiceSheet by remember { mutableStateOf(false) }
+    var showDialSheet by remember { mutableStateOf(false) }
     val tocDrawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var tocJump by remember { mutableStateOf<TocJump?>(null) }
@@ -219,16 +216,7 @@ fun ReaderScreen(
                 ?: MaterialTheme.colorScheme.background,
             topBar = {
                 CenterAlignedTopAppBar(
-                    title = {
-                        // The voice reading the article, and the way to pick
-                        // another (#66); nothing to name before an article.
-                        val voice = readingVoice
-                        if (ready != null && voice != null) {
-                            ReaderVoiceChip(voice, surface.palette, onClick = { showVoiceSheet = true })
-                        } else {
-                            Text(stringResource(R.string.reader_title))
-                        }
-                    },
+                    title = { Text(stringResource(R.string.reader_title)) },
                     windowInsets = WindowInsets(0),
                     navigationIcon = {
                         IconButton(onClick = leaveReader) {
@@ -270,9 +258,10 @@ fun ReaderScreen(
                         TransportBar(
                             blockCount = ready.blocks.size,
                             playback = playback,
+                            readingVoice = readingVoice,
                             palette = surface.palette,
                             onOpenDisplaySettings = { showDisplaySheet = true },
-                            onOpenSpeedSettings = { showSpeedSheet = true },
+                            onOpenDial = { showDialSheet = true },
                             onPlayPause = viewModel::onPlayPause,
                             onPrevious = viewModel::onPreviousBlock,
                             onNext = viewModel::onNextBlock,
@@ -318,60 +307,17 @@ fun ReaderScreen(
         )
     }
 
-    if (showVoiceSheet) {
-        PersonaSheet(
-            personas = aliases,
-            activeId = readingVoice?.aliasId,
-            onPick = viewModel::onAliasPicked,
-            onDismiss = { showVoiceSheet = false },
-        )
-    }
-
-    if (showSpeedSheet) {
-        ReaderSpeedSheet(
+    if (showDialSheet) {
+        ReaderDialSheet(
+            aliases = aliases,
+            activeAliasId = readingVoice?.aliasId,
             speed = playback.speed,
             startingSpeed = playback.startingSpeed,
             showPerfWarning = showSpeedWarning,
+            onAliasPick = viewModel::onAliasPicked,
             onSpeedChange = viewModel::onSpeedChange,
-            onDismiss = { showSpeedSheet = false },
+            onDismiss = { showDialSheet = false },
         )
-    }
-}
-
-/**
- * The top bar's voice chip: who is reading the article. Tapping it opens the
- * alias list, as the Speak screen's voice row does (same "Change voice").
- */
-@Composable
-private fun ReaderVoiceChip(voice: ReadingVoice, palette: ReaderPalette, onClick: () -> Unit) {
-    Surface(
-        onClick = onClick,
-        shape = CircleShape,
-        color = palette.highlight,
-        contentColor = palette.text,
-    ) {
-        Row(
-            modifier = Modifier.padding(start = 12.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                imageVector = MarmaladeIcons.Speak,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(Modifier.width(6.dp))
-            Text(
-                text = voice.name,
-                style = MaterialTheme.typography.titleSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.widthIn(max = 180.dp),
-            )
-            Icon(
-                imageVector = Icons.Filled.KeyboardArrowDown,
-                contentDescription = stringResource(R.string.speak_change_voice),
-            )
-        }
     }
 }
 
@@ -691,12 +637,15 @@ private fun PlaybackErrorLine(error: ReaderPlaybackError, palette: ReaderPalette
 }
 
 /**
- * Three zones: "Aa" + speed (the two per-reading settings) | transport |
- * "N of M".
+ * Three zones: "Aa" + the alias dial (the two per-reading settings) |
+ * transport | "N of M".
  *
- * The transport is centred rather than parked on one end — it's the control
- * the thumb goes for, and the readout is read, not pressed. Both flanks take
- * equal weight so the centre stays centred whatever the readout grows to.
+ * The transport sits in the middle rather than parked on one end — it's the
+ * control the thumb goes for, and the readout is read, not pressed. The left
+ * flank takes all the room the readout doesn't need, so the alias dial can
+ * show an alias name ("Steady narrator") rather than its first six letters;
+ * the transport sits a little right of centre for it (#67). The readout
+ * reserves its widest value ("60 of 60") so nothing shifts as it counts.
  *
  * Backward is not a seek — audio is synthesised one block at a time, so there
  * is nothing to scrub. It restarts the current block, or steps back a block if
@@ -706,9 +655,10 @@ private fun PlaybackErrorLine(error: ReaderPlaybackError, palette: ReaderPalette
 private fun TransportBar(
     blockCount: Int,
     playback: ReaderPlaybackState,
+    readingVoice: ReadingVoice?,
     palette: ReaderPalette,
     onOpenDisplaySettings: () -> Unit,
-    onOpenSpeedSettings: () -> Unit,
+    onOpenDial: () -> Unit,
     onPlayPause: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
@@ -729,7 +679,9 @@ private fun TransportBar(
                 modifier = Modifier.weight(1f),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextButton(
+                // An IconButton, not a TextButton: 48 dp instead of 58 leaves
+                // the dial room for its alias name.
+                IconButton(
                     onClick = onOpenDisplaySettings,
                     modifier = Modifier.semantics { contentDescription = displayLabel },
                 ) {
@@ -739,13 +691,13 @@ private fun TransportBar(
                         color = palette.text,
                     )
                 }
-                IconButton(onClick = onOpenSpeedSettings) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_reader_speed),
-                        contentDescription = stringResource(R.string.reader_speed_open),
-                        tint = palette.text,
-                    )
-                }
+                AliasDial(
+                    voice = readingVoice,
+                    speed = playback.speed,
+                    palette = palette,
+                    onClick = onOpenDial,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onPrevious) {
@@ -782,20 +734,75 @@ private fun TransportBar(
                     )
                 }
             }
-            Text(
-                text = stringResource(
-                    R.string.reader_progress,
-                    playback.currentIndex + 1,
-                    blockCount,
-                ),
-                style = MaterialTheme.typography.labelLarge,
-                color = palette.muted,
-                textAlign = TextAlign.End,
-                // The left cluster's inset is the row's 12dp plus the button's
-                // own content padding; the readout is bare text, so it needs
-                // the difference added back or it sits on the screen edge.
-                modifier = Modifier.weight(1f).padding(end = 4.dp),
+            // The left cluster's inset is the row's 12dp plus the button's
+            // own content padding; the readout is bare text, so it needs
+            // the difference added back or it sits on the screen edge.
+            Box(modifier = Modifier.padding(start = 8.dp, end = 4.dp), contentAlignment = Alignment.CenterEnd) {
+                Text(
+                    text = stringResource(R.string.reader_progress, blockCount, blockCount),
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.alpha(0f).clearAndSetSemantics {},
+                )
+                Text(
+                    text = stringResource(
+                        R.string.reader_progress,
+                        playback.currentIndex + 1,
+                        blockCount,
+                    ),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = palette.muted,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The alias dial (#67, Max's design): who reads the article over how fast,
+ * one control that opens [ReaderDialSheet]. With no alias to name (no primary
+ * alias yet) it shows the speed alone.
+ */
+@Composable
+private fun AliasDial(
+    voice: ReadingVoice?,
+    speed: Float,
+    palette: ReaderPalette,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val speedText = stringResource(R.string.reader_speed_value, formatSpeed(speed))
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(palette.background)
+            .clickable(
+                onClickLabel = stringResource(R.string.speak_change_voice),
+                role = Role.Button,
+                onClick = onClick,
             )
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (voice == null) {
+            Icon(
+                painter = painterResource(R.drawable.ic_reader_speed),
+                contentDescription = stringResource(R.string.reader_speed_open),
+                tint = palette.text,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(4.dp))
+            Text(speedText, style = MaterialTheme.typography.labelLarge, color = palette.text)
+        } else {
+            Column {
+                Text(
+                    text = voice.name,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = palette.text,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(speedText, style = MaterialTheme.typography.labelSmall, color = palette.muted)
+            }
         }
     }
 }

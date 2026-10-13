@@ -4,11 +4,11 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * The speed sheet's chip set. Reading starts at the primary alias's own
+ * The alias dial's speed chips. Reading starts at the reading alias's own
  * speed, which need not be one of the curated chips — the current speed must
  * still show as a selected chip.
  */
-class ReaderSpeedSheetTest {
+class ReaderDialSheetTest {
 
     @Test
     fun `a curated speed shows just the curated chips`() {
