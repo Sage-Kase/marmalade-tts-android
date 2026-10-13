@@ -25,14 +25,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
@@ -79,6 +83,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -88,6 +93,8 @@ import app.marmalade.tts.reader.ArticleBlock
 import app.marmalade.tts.reader.ReaderPlaybackState
 import app.marmalade.tts.reader.ReaderPlaybackStatus
 import app.marmalade.tts.service.SpeakDispatcher
+import app.marmalade.tts.ui.MarmaladeIcons
+import app.marmalade.tts.ui.components.PersonaSheet
 import kotlinx.coroutines.launch
 
 // -----------------------------------------------------------------------------
@@ -152,6 +159,8 @@ fun ReaderScreen(
     val showShortExtractionNotice by
         viewModel.showShortExtractionNotice.collectAsStateWithLifecycle()
     val playbackError by viewModel.playbackError.collectAsStateWithLifecycle()
+    val readingVoice by viewModel.readingVoice.collectAsStateWithLifecycle()
+    val aliases by viewModel.aliases.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     // Which preset an untouched preference resolves to. Read off the theme's
@@ -166,6 +175,7 @@ fun ReaderScreen(
 
     var showDisplaySheet by remember { mutableStateOf(false) }
     var showSpeedSheet by remember { mutableStateOf(false) }
+    var showVoiceSheet by remember { mutableStateOf(false) }
     val tocDrawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var tocJump by remember { mutableStateOf<TocJump?>(null) }
@@ -209,7 +219,16 @@ fun ReaderScreen(
                 ?: MaterialTheme.colorScheme.background,
             topBar = {
                 CenterAlignedTopAppBar(
-                    title = { Text(stringResource(R.string.reader_title)) },
+                    title = {
+                        // The voice reading the article, and the way to pick
+                        // another (#66); nothing to name before an article.
+                        val voice = readingVoice
+                        if (ready != null && voice != null) {
+                            ReaderVoiceChip(voice, surface.palette, onClick = { showVoiceSheet = true })
+                        } else {
+                            Text(stringResource(R.string.reader_title))
+                        }
+                    },
                     windowInsets = WindowInsets(0),
                     navigationIcon = {
                         IconButton(onClick = leaveReader) {
@@ -299,6 +318,15 @@ fun ReaderScreen(
         )
     }
 
+    if (showVoiceSheet) {
+        PersonaSheet(
+            personas = aliases,
+            activeId = readingVoice?.aliasId,
+            onPick = viewModel::onAliasPicked,
+            onDismiss = { showVoiceSheet = false },
+        )
+    }
+
     if (showSpeedSheet) {
         ReaderSpeedSheet(
             speed = playback.speed,
@@ -307,6 +335,43 @@ fun ReaderScreen(
             onSpeedChange = viewModel::onSpeedChange,
             onDismiss = { showSpeedSheet = false },
         )
+    }
+}
+
+/**
+ * The top bar's voice chip: who is reading the article. Tapping it opens the
+ * alias list, as the Speak screen's voice row does (same "Change voice").
+ */
+@Composable
+private fun ReaderVoiceChip(voice: ReadingVoice, palette: ReaderPalette, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = palette.highlight,
+        contentColor = palette.text,
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 12.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = MarmaladeIcons.Speak,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = voice.name,
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = 180.dp),
+            )
+            Icon(
+                imageVector = Icons.Filled.KeyboardArrowDown,
+                contentDescription = stringResource(R.string.speak_change_voice),
+            )
+        }
     }
 }
 

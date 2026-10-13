@@ -6,6 +6,10 @@ This project follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Choose who reads an article**: the reader's top bar now names the
+  alias reading the article. Tap it to pick another of your aliases; the
+  paragraph being read starts again in that voice, and your pick stays for
+  the rest of the article even if you change your primary alias.
 - **"What's new" after an update**: the first time Marmalade opens after
   an update, a short pop-up lists what changed. It shows once per update
   and never on a fresh install; Settings → About → What's new opens it

@@ -1081,6 +1081,24 @@ class ReaderPlaybackControllerTest {
     }
 
     @Test
+    fun `picking the alias already reading only keeps it`() = runTest {
+        playing()
+        h.runUntil { heard(0) != null }
+
+        controller.pickAlias(primary.value!!)
+        h.settle()
+        assertTrue(state.voicePicked)
+        assertEquals(VoiceChoice.Primary, state.voice)
+        assertEquals(1, articleVoices().size)
+
+        primary.value = alias("jenny", NarratorHarness.VITS_ENGINE)
+        h.settle()
+        assertEquals(0, picks)
+        assertEquals(1, articleVoices().size)
+        done()
+    }
+
+    @Test
     fun `renaming the primary does not restart the block`() = runTest {
         playing()
         h.runUntil { heard(0) != null }

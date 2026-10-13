@@ -175,12 +175,19 @@ class ReaderPlaybackController internal constructor(
         combine(narrator.state, held, ::project)
             .stateIn(scope, SharingStarted.Eagerly, current())
 
+    /** The primary alias's id as last seen, for [pickAlias]. */
+    @Volatile
+    private var primaryId: String? = null
+
     init {
         // Only what can change the voice counts: renaming the primary or
         // setting its fallback must not restart the block being read.
         scope.launch {
             primary
-                .map { it?.copy(name = "", createdAt = 0, fallbackAliasId = null) }
+                .map {
+                    primaryId = it?.id
+                    it?.copy(name = "", createdAt = 0, fallbackAliasId = null)
+                }
                 .distinctUntilChanged()
                 .drop(1)
                 .collect { onPrimaryChanged() }
@@ -222,11 +229,21 @@ class ReaderPlaybackController internal constructor(
      * Read the held article in [alias] from now on — the user's pick in the
      * reader, at that alias's own speed (unless they picked another speed).
      * It holds for the rest of this article: a later primary change no longer
-     * moves it. The block being read restarts in the new voice.
+     * moves it. The block being read restarts in the new voice — unless
+     * [alias] is already the one reading, which is only pinned.
      */
     fun pickAlias(alias: VoiceAlias) {
         val h = held.value
         val article = h.article ?: return
+        val reading = when (val current = h.voice) {
+            VoiceChoice.Primary -> primaryId == alias.id
+            is VoiceChoice.Alias -> current.aliasId == alias.id
+            is VoiceChoice.Installed -> false
+        }
+        if (reading) {
+            if (!h.voicePicked) held.value = h.copy(voicePicked = true)
+            return
+        }
         val voice = VoiceChoice.Alias(alias.id, alias.voiceId, alias.engine, alias.speed)
         val speed = roundedSpeed(alias.speed)
         held.value = h.copy(voice = voice, startingSpeed = speed, voicePicked = true)

@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.marmalade.tts.data.CloudApiVoiceCatalog
 import app.marmalade.tts.data.SettingsRepository
+import app.marmalade.tts.data.VoicePathResolver
 import app.marmalade.tts.install.EngineCatalog
 import app.marmalade.tts.reader.ArticleBlock
 import app.marmalade.tts.reader.ArticleExtractor
@@ -25,6 +26,7 @@ import app.marmalade.tts.lang.VoiceChoice
 import app.marmalade.tts.reader.ReaderVoicePicker
 import app.marmalade.tts.reader.readerStartingSpeed
 import app.marmalade.tts.service.ArticleLoadHold
+import app.marmalade.tts.ui.components.Persona
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.net.URL
 import javax.inject.Inject
@@ -139,6 +141,13 @@ sealed interface ReaderPlaybackError {
 /** The primary alias's engine, or a neutral default. */
 private data class PrimaryAlias(val engine: String)
 
+/**
+ * Who reads the article, for the reader's voice chip (#66): the alias's name
+ * and id, or — for an installed voice no alias uses (the language rule's
+ * last resort) — the voice's own name and no id.
+ */
+data class ReadingVoice(val aliasId: String?, val name: String)
+
 @HiltViewModel
 class ReaderViewModel @Inject constructor(
     private val fetcher: ArticleFetcher,
@@ -151,6 +160,7 @@ class ReaderViewModel @Inject constructor(
     @ReaderParseDispatcher private val parseDispatcher: CoroutineDispatcher,
     private val savedStateHandle: SavedStateHandle,
     private val loadHold: ArticleLoadHold,
+    private val voicePaths: VoicePathResolver,
 ) : ViewModel() {
 
     /** The shared link. Non-null in practice — the route can't be built without it. */
@@ -225,6 +235,40 @@ class ReaderViewModel @Inject constructor(
                 is VoiceChoice.Installed -> voice.engine
             }
         }.stateIn(viewModelScope, SharingStarted.Eagerly, "")
+
+    /** Every alias, for the reader's alias picker, in the alias screen's order. */
+    val aliases: StateFlow<List<Persona>> =
+        combine(aliasDao.getAll(), settings.primaryAliasId) { rows, primaryId ->
+            rows.map { alias ->
+                val path = voicePaths.resolve(alias.voiceId, alias.engine)
+                Persona(
+                    id = alias.id,
+                    name = alias.name,
+                    subtitle = path.summary,
+                    isCloud = path.isCloud,
+                    isPrimary = alias.id == primaryId,
+                )
+            }
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /**
+     * Who is reading this article, or null when nobody can be named (no
+     * primary alias). Follows the Narrator's routing: the primary, the alias
+     * the language rule or the user picked (a deleted one falls back to the
+     * primary, as [app.marmalade.tts.service.TtsRouter.resolveAlias] does), or
+     * an installed voice.
+     */
+    val readingVoice: StateFlow<ReadingVoice?> =
+        combine(playback, aliasDao.getAll(), settings.primaryAliasId) { pb, rows, primaryId ->
+            val primary = rows.firstOrNull { it.id == primaryId }
+            val alias = when (val voice = pb.voice) {
+                VoiceChoice.Primary -> primary
+                is VoiceChoice.Alias -> rows.firstOrNull { it.id == voice.aliasId } ?: primary
+                is VoiceChoice.Installed ->
+                    return@combine ReadingVoice(null, voicePaths.resolve(voice.voiceId, voice.engine).voice)
+            }
+            alias?.let { ReadingVoice(it.id, it.name) }
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     /**
      * This device's synthesis-capability probe, resolved once. Feeds the
@@ -356,6 +400,17 @@ class ReaderViewModel @Inject constructor(
     fun onBackFromReader() = playbackController.pauseForNavigation()
 
     fun onNextBlock() = playbackController.next()
+
+    /**
+     * The user picked [aliasId] in the reader: read the rest of this article in
+     * it (the block being read restarts in that voice) — and keep it even if
+     * the primary alias changes. Picking the alias already reading only keeps it.
+     */
+    fun onAliasPicked(aliasId: String) {
+        viewModelScope.launch {
+            aliasDao.findById(aliasId)?.let(playbackController::pickAlias)
+        }
+    }
 
     fun onPreviousBlock() = playbackController.previous()
 

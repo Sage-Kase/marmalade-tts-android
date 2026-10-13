@@ -1252,7 +1252,12 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   user never touched follows the new alias's speed. An alias the user picks in
   the reader (`pickAlias`, `ReaderPlaybackState.voicePicked`) wins for the rest
   of that article.
-  The reader UI shows no voice name. The reading speed (`ReaderSpeedSheet`) is
+  **Picking the voice (#66):** the top bar's title is a voice chip naming
+  who reads (`ReaderViewModel.readingVoice`: the alias, or an installed
+  voice's own name; "Reader" while loading or failed); it opens the shared
+  alias sheet (`ui/components/PersonaSheet.kt`, the Speak screen's, without
+  its Speak-only rows) and a pick goes to `ReaderPlaybackController.pickAlias`.
+  The transport bar had no room for another button. The reading speed (`ReaderSpeedSheet`) is
   session-only and an **absolute override** of the reading alias's speed,
   not a factor on it: each new article starts at that alias's own speed
   (`ReaderViewModel.startingSpeed` → `ReaderPlaybackController.open`),
