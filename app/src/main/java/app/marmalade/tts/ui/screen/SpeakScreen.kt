@@ -66,6 +66,8 @@ import app.marmalade.tts.data.db.VoiceAlias
 import app.marmalade.tts.data.db.VoiceMeta
 import app.marmalade.tts.install.EngineCatalog
 import app.marmalade.tts.ui.MarmaladeIcons
+import app.marmalade.tts.ui.components.Persona
+import app.marmalade.tts.ui.components.PersonaSheet
 import app.marmalade.tts.ui.theme.LocalWordmarkColor
 import app.marmalade.tts.ui.theme.Wordmark
 
@@ -341,7 +343,7 @@ fun SpeakScreen(
  */
 @Composable
 private fun CurrentVoiceRow(
-    persona: SpeakViewModel.Persona?,
+    persona: Persona?,
     onClick: () -> Unit,
 ) {
     val shape = MaterialTheme.shapes.medium
@@ -419,99 +421,6 @@ fun CloudMark(
         tint = tint,
         modifier = modifier.size(14.dp),
     )
-}
-
-/**
- * Persona picker. Every saved persona with the same three facts the row
- * shows, plus the escape hatches: hand-pick a voice, or make a new
- * persona. "New persona" lives here rather than as a permanent chip on
- * the main screen, where it competed with the personas themselves.
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun PersonaSheet(
-    personas: List<SpeakViewModel.Persona>,
-    activeId: String?,
-    onPick: (String) -> Unit,
-    onPickVoice: () -> Unit,
-    onCreate: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Text(
-            text = stringResource(R.string.speak_sheet_title),
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 4.dp),
-        )
-        LazyColumn(modifier = Modifier.weight(1f, fill = false)) {
-            items(personas, key = { it.id }) { persona ->
-                ListItem(
-                    headlineContent = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(persona.name)
-                            if (persona.isPrimary) {
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    text = stringResource(R.string.speak_persona_primary),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
-                            }
-                        }
-                    },
-                    supportingContent = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = persona.subtitle,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false),
-                            )
-                            if (persona.isCloud) {
-                                Spacer(Modifier.width(5.dp))
-                                CloudMark()
-                            }
-                        }
-                    },
-                    trailingContent = {
-                        if (persona.id == activeId) {
-                            Icon(
-                                imageVector = Icons.Filled.Check,
-                                contentDescription = stringResource(R.string.speak_persona_selected),
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
-                        }
-                    },
-                    modifier = Modifier.clickable {
-                        onPick(persona.id)
-                        onDismiss()
-                    },
-                )
-            }
-        }
-        HorizontalDivider()
-        ListItem(
-            headlineContent = { Text(stringResource(R.string.speak_pick_voice_directly)) },
-            leadingContent = {
-                Icon(MarmaladeIcons.Speak, contentDescription = null)
-            },
-            modifier = Modifier.clickable {
-                onPickVoice()
-                onDismiss()
-            },
-        )
-        ListItem(
-            headlineContent = { Text(stringResource(R.string.speak_new_persona)) },
-            leadingContent = {
-                Icon(Icons.Filled.Add, contentDescription = null)
-            },
-            modifier = Modifier.clickable {
-                onCreate()
-                onDismiss()
-            },
-        )
-        Spacer(Modifier.height(12.dp))
-    }
 }
 
 // Idle says nothing. "Ready" was permanent furniture that carried no
