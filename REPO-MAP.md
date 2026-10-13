@@ -1218,7 +1218,12 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   (`ReaderAutoScroll`) except after a user drag, and never while
   TalkBack's touch exploration is on (watched live via
   `AccessibilityManager`) — it would steal accessibility focus; then only
-  a ToC pick scrolls. **Voice per article** (`reader/ReaderVoicePicker.kt`
+  a ToC pick scrolls. The contents (`ui/reader/ReaderToc.kt`, #66) are a
+  Material modal drawer from the END edge, wrapping the reader's Scaffold:
+  `ModalNavigationDrawer` only opens from the start, so it runs in the mirrored
+  `LocalLayoutDirection` and the drawer and page get the real one back. Swipe
+  opening is off (`gesturesEnabled = isOpen`); scrim tap, swipe, a pick or Back
+  close it. **Voice per article** (`reader/ReaderVoicePicker.kt`
   over the shared `lang/VoiceForLanguage.kt` + `lang/LanguageVoiceSelector.kt`,
   2026-09-28): once per article, before the first block, the reader
   detects the article's language (`LangDetector` over the first ~2000
@@ -1236,7 +1241,23 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   rule): text reaches a provider only through a cloud primary. Undetected language keeps the
   primary — never an English default, so a German primary keeps reading text
   the detector can't place (#59). A rebind keeps the article's voice; logged as `D/ReaderVoice`.
-  The reader UI shows no voice name. The reading speed (`ReaderSpeedSheet`) is
+  **The voice follows the primary alias (#66):** the Narrator resolves an
+  article's voice once per session, so before #66 a held article (re-shared,
+  reopened from the notification) kept reading in the old primary forever.
+  `ReaderPlaybackController` now watches the primary alias row (rename and
+  fallback edits ignored) and on a change re-runs the pick and calls
+  `NarratorControl.setArticleVoice`, which drops every rendered chunk, re-resolves
+  and restarts the listener's block in the new voice (playing keeps playing,
+  paused stays paused; logged `D/Narrator: voice change`). A session speed the
+  user never touched follows the new alias's speed. An alias the user picks in
+  the reader (`pickAlias`, `ReaderPlaybackState.voicePicked`) wins for the rest
+  of that article.
+  **Picking the voice (#66):** the top bar's title is a voice chip naming
+  who reads (`ReaderViewModel.readingVoice`: the alias, or an installed
+  voice's own name; "Reader" while loading or failed); it opens the shared
+  alias sheet (`ui/components/PersonaSheet.kt`, the Speak screen's, without
+  its Speak-only rows) and a pick goes to `ReaderPlaybackController.pickAlias`.
+  The transport bar had no room for another button. The reading speed (`ReaderSpeedSheet`) is
   session-only and an **absolute override** of the reading alias's speed,
   not a factor on it: each new article starts at that alias's own speed
   (`ReaderViewModel.startingSpeed` → `ReaderPlaybackController.open`),

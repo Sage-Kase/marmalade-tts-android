@@ -6,6 +6,10 @@ This project follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Choose who reads an article**: the reader's top bar now names the
+  alias reading the article. Tap it to pick another of your aliases; the
+  paragraph being read starts again in that voice, and your pick stays for
+  the rest of the article even if you change your primary alias.
 - **"What's new" after an update**: the first time Marmalade opens after
   an update, a short pop-up lists what changed. It shows once per update
   and never on a fresh install; Settings → About → What's new opens it
@@ -25,6 +29,11 @@ This project follows [Semantic Versioning](https://semver.org/).
   They appear once Pocket is updated on the Engines screen.
 
 ### Changed
+- **Reader contents open from the side**: the reader's table of contents
+  now slides in from the right edge of the screen (the left in
+  right-to-left languages) instead of rising from the bottom, opens on the
+  section being read, and closes with a tap outside it, a swipe back or
+  Back.
 - **No more stutter when a voice can't keep up**: when an engine can't
   render as fast as it speaks at the chosen speed (a slower phone, or a
   high speed), Marmalade now plays each sentence or clause whole once
@@ -163,6 +172,12 @@ This project follows [Semantic Versioning](https://semver.org/).
   used Sky now use Heart.
 
 ### Fixed
+- **The reader follows a new primary alias**: an article already open in
+  the reader kept the voice it started with after you made another alias
+  primary, so coming back to it (or sharing the same link again) still
+  read in the old voice. Changing the primary alias, or its voice, speed
+  or effect, now moves the open article to it: the paragraph being read
+  starts again in the new voice.
 - **German text is recognised as German**: Marmalade's language detection
   now knows German. A German article in reader mode, or German text shared
   to Marmalade, was taken for English and read by an English voice; it now

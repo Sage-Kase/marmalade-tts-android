@@ -16,6 +16,7 @@ import app.marmalade.tts.data.db.VoiceAliasDao
 import app.marmalade.tts.data.db.VoiceMeta
 import app.marmalade.tts.data.db.VoiceMetaDao
 import app.marmalade.tts.install.EngineCatalog
+import app.marmalade.tts.ui.components.Persona
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -256,25 +257,6 @@ class SpeakViewModel @Inject constructor(
             started = SharingStarted.WhileSubscribed(5_000),
             initialValue = emptyList(),
         )
-
-    /**
-     * One row of the persona list, pre-resolved for display.
-     *
-     * The screen shows exactly these three facts and nothing else, so the
-     * resolution happens once here rather than per-recomposition in the
-     * composable — [VoicePathResolver] consults the cloud provider
-     * directory, which is not work to do inside a list item.
-     */
-    data class Persona(
-        /** Alias UUID; a raw voice id when the row stands in for a hand-picked voice. */
-        val id: String,
-        val name: String,
-        /** "Kokoro · Adam" — model then voice. */
-        val subtitle: String,
-        /** Needs the network. Drives the cloud glyph; on-device gets none. */
-        val isCloud: Boolean,
-        val isPrimary: Boolean,
-    )
 
     /** Every saved persona, in the order the alias screen shows them. */
     val personas: StateFlow<List<Persona>> =

@@ -74,6 +74,18 @@ interface NarratorControl {
     /** The article session's speed, clamped to [MIN_SPEED]..[MAX_SPEED]; applied live, no re-render. */
     fun setSpeed(speed: Float)
 
+    /**
+     * Read the article [key] in [voice] from now on (#66): the primary alias
+     * changed under it, or the user picked an alias in the reader. The voice
+     * is resolved afresh even when [voice] equals the old choice — the
+     * primary it names is what changed. Every rendered chunk is dropped and
+     * the listener's block restarts from its start in the new voice; a
+     * playing article keeps playing, a paused one stays paused. The session
+     * speed follows [startingSpeed] unless the user had picked another.
+     * Ignored when [key] is not the loaded article.
+     */
+    fun setArticleVoice(key: String, voice: VoiceChoice, startingSpeed: Float)
+
     /** Stop everything. The article stays loaded with its cursor kept. */
     fun stop()
 

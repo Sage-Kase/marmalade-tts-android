@@ -25,19 +25,24 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
@@ -50,6 +55,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -57,6 +63,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -76,6 +83,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -85,6 +93,9 @@ import app.marmalade.tts.reader.ArticleBlock
 import app.marmalade.tts.reader.ReaderPlaybackState
 import app.marmalade.tts.reader.ReaderPlaybackStatus
 import app.marmalade.tts.service.SpeakDispatcher
+import app.marmalade.tts.ui.MarmaladeIcons
+import app.marmalade.tts.ui.components.PersonaSheet
+import kotlinx.coroutines.launch
 
 // -----------------------------------------------------------------------------
 // Reader screen — a shared link, rendered as native Compose text.
@@ -148,6 +159,8 @@ fun ReaderScreen(
     val showShortExtractionNotice by
         viewModel.showShortExtractionNotice.collectAsStateWithLifecycle()
     val playbackError by viewModel.playbackError.collectAsStateWithLifecycle()
+    val readingVoice by viewModel.readingVoice.collectAsStateWithLifecycle()
+    val aliases by viewModel.aliases.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     // Which preset an untouched preference resolves to. Read off the theme's
@@ -162,7 +175,9 @@ fun ReaderScreen(
 
     var showDisplaySheet by remember { mutableStateOf(false) }
     var showSpeedSheet by remember { mutableStateOf(false) }
-    var showTocSheet by remember { mutableStateOf(false) }
+    var showVoiceSheet by remember { mutableStateOf(false) }
+    val tocDrawer = rememberDrawerState(DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
     var tocJump by remember { mutableStateOf<TocJump?>(null) }
 
     // Leaving the reader by an explicit back gesture pauses playback; switching
@@ -173,93 +188,121 @@ fun ReaderScreen(
         onBack()
     }
     BackHandler(onBack = leaveReader)
+    // Declared after, so it wins while the contents are open.
+    BackHandler(enabled = tocDrawer.isOpen) { scope.launch { tocDrawer.close() } }
 
     // Only articles with a real heading structure get a contents button (see
     // tocEntriesOf); everything else would open a list of nothing.
     val tocEntries = remember(ready) { tocEntriesOf(ready?.blocks.orEmpty()) }
 
-    Scaffold(
-        // Nested-Scaffold inset handoff — AppRoot's outer Scaffold owns the
-        // status-bar insets; opt out here so the bar doesn't double-pad.
-        contentWindowInsets = WindowInsets(0),
-        containerColor = articlePalette?.background
-            ?: MaterialTheme.colorScheme.background,
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text(stringResource(R.string.reader_title)) },
-                windowInsets = WindowInsets(0),
-                navigationIcon = {
-                    IconButton(onClick = leaveReader) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.reader_back),
-                        )
-                    }
-                },
-                actions = {
-                    if (tocEntries.isNotEmpty()) {
-                        IconButton(onClick = { showTocSheet = true }) {
+    ReaderTocDrawer(
+        drawerState = tocDrawer,
+        entries = tocEntries,
+        // The heading whose section is being read — falling back to the
+        // transport's index so a paused or idle article still shows where
+        // it is rather than nothing.
+        currentBlockIndex = currentBlockIndex ?: playback.currentIndex,
+        onEntryTapped = { index ->
+            // Exactly the tap-a-block action (plays even from Paused), so seeking and auto-scroll
+            // have one implementation between them. The jump is recorded
+            // only for when TalkBack has auto-scroll off (FollowSpokenBlock).
+            viewModel.onBlockTapped(index)
+            tocJump = TocJump(index)
+            scope.launch { tocDrawer.close() }
+        },
+    ) {
+        Scaffold(
+            // Nested-Scaffold inset handoff — AppRoot's outer Scaffold owns the
+            // status-bar insets; opt out here so the bar doesn't double-pad.
+            contentWindowInsets = WindowInsets(0),
+            containerColor = articlePalette?.background
+                ?: MaterialTheme.colorScheme.background,
+            topBar = {
+                CenterAlignedTopAppBar(
+                    title = {
+                        // The voice reading the article, and the way to pick
+                        // another (#66); nothing to name before an article.
+                        val voice = readingVoice
+                        if (ready != null && voice != null) {
+                            ReaderVoiceChip(voice, surface.palette, onClick = { showVoiceSheet = true })
+                        } else {
+                            Text(stringResource(R.string.reader_title))
+                        }
+                    },
+                    windowInsets = WindowInsets(0),
+                    navigationIcon = {
+                        IconButton(onClick = leaveReader) {
                             Icon(
-                                painter = painterResource(R.drawable.ic_reader_toc),
-                                contentDescription = stringResource(R.string.reader_toc_open),
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = stringResource(R.string.reader_back),
                             )
                         }
-                    }
-                },
-                // The bar sits directly above the page, so it takes the
-                // preset too — an app-themed strip over a black page reads
-                // as a rendering bug.
-                colors = if (articlePalette == null) {
-                    TopAppBarDefaults.centerAlignedTopAppBarColors()
-                } else {
-                    TopAppBarDefaults.centerAlignedTopAppBarColors(
-                        containerColor = articlePalette.background,
-                        titleContentColor = articlePalette.text,
-                        navigationIconContentColor = articlePalette.text,
-                        actionIconContentColor = articlePalette.text,
-                    )
-                },
-            )
-        },
-        bottomBar = {
-            if (ready != null) {
-                Column {
-                    playbackError?.let { PlaybackErrorLine(it, surface.palette) }
-                    TransportBar(
-                        blockCount = ready.blocks.size,
-                        playback = playback,
-                        palette = surface.palette,
-                        onOpenDisplaySettings = { showDisplaySheet = true },
-                        onOpenSpeedSettings = { showSpeedSheet = true },
-                        onPlayPause = viewModel::onPlayPause,
-                        onPrevious = viewModel::onPreviousBlock,
-                        onNext = viewModel::onNextBlock,
-                    )
-                }
-            }
-        },
-    ) { innerPadding ->
-        Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
-            when (val current = state) {
-                ReaderUiState.Loading -> LoadingBody(host = viewModel.pageHost)
-                is ReaderUiState.Failed -> FailedBody(
-                    reason = current.reason,
-                    onOpenInBrowser = { openUrl(context, viewModel.url) },
-                    onReadAsIs = {
-                        SpeakDispatcher.dispatch(context, viewModel.sharedText)
-                        onBack()
+                    },
+                    actions = {
+                        if (tocEntries.isNotEmpty()) {
+                            IconButton(onClick = { scope.launch { tocDrawer.open() } }) {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_reader_toc),
+                                    contentDescription = stringResource(R.string.reader_toc_open),
+                                )
+                            }
+                        }
+                    },
+                    // The bar sits directly above the page, so it takes the
+                    // preset too — an app-themed strip over a black page reads
+                    // as a rendering bug.
+                    colors = if (articlePalette == null) {
+                        TopAppBarDefaults.centerAlignedTopAppBarColors()
+                    } else {
+                        TopAppBarDefaults.centerAlignedTopAppBarColors(
+                            containerColor = articlePalette.background,
+                            titleContentColor = articlePalette.text,
+                            navigationIconContentColor = articlePalette.text,
+                            actionIconContentColor = articlePalette.text,
+                        )
                     },
                 )
-                is ReaderUiState.Ready -> ArticleBody(
-                    article = current,
-                    currentBlockIndex = currentBlockIndex,
-                    tocJump = tocJump,
-                    surface = surface,
-                    showShortExtractionNotice = showShortExtractionNotice,
-                    onOpenInBrowser = { openUrl(context, viewModel.url) },
-                    onDismissNotice = viewModel::onDismissShortExtractionNotice,
-                    onBlockTapped = viewModel::onBlockTapped,
-                )
+            },
+            bottomBar = {
+                if (ready != null) {
+                    Column {
+                        playbackError?.let { PlaybackErrorLine(it, surface.palette) }
+                        TransportBar(
+                            blockCount = ready.blocks.size,
+                            playback = playback,
+                            palette = surface.palette,
+                            onOpenDisplaySettings = { showDisplaySheet = true },
+                            onOpenSpeedSettings = { showSpeedSheet = true },
+                            onPlayPause = viewModel::onPlayPause,
+                            onPrevious = viewModel::onPreviousBlock,
+                            onNext = viewModel::onNextBlock,
+                        )
+                    }
+                }
+            },
+        ) { innerPadding ->
+            Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+                when (val current = state) {
+                    ReaderUiState.Loading -> LoadingBody(host = viewModel.pageHost)
+                    is ReaderUiState.Failed -> FailedBody(
+                        reason = current.reason,
+                        onOpenInBrowser = { openUrl(context, viewModel.url) },
+                        onReadAsIs = {
+                            SpeakDispatcher.dispatch(context, viewModel.sharedText)
+                            onBack()
+                        },
+                    )
+                    is ReaderUiState.Ready -> ArticleBody(
+                        article = current,
+                        currentBlockIndex = currentBlockIndex,
+                        tocJump = tocJump,
+                        surface = surface,
+                        showShortExtractionNotice = showShortExtractionNotice,
+                        onOpenInBrowser = { openUrl(context, viewModel.url) },
+                        onDismissNotice = viewModel::onDismissShortExtractionNotice,
+                        onBlockTapped = viewModel::onBlockTapped,
+                    )
+                }
             }
         }
     }
@@ -275,6 +318,15 @@ fun ReaderScreen(
         )
     }
 
+    if (showVoiceSheet) {
+        PersonaSheet(
+            personas = aliases,
+            activeId = readingVoice?.aliasId,
+            onPick = viewModel::onAliasPicked,
+            onDismiss = { showVoiceSheet = false },
+        )
+    }
+
     if (showSpeedSheet) {
         ReaderSpeedSheet(
             speed = playback.speed,
@@ -284,24 +336,42 @@ fun ReaderScreen(
             onDismiss = { showSpeedSheet = false },
         )
     }
+}
 
-    if (showTocSheet) {
-        ReaderTocSheet(
-            entries = tocEntries,
-            // The heading whose section is being read — falling back to the
-            // transport's index so a paused or idle article still shows where
-            // it is rather than nothing.
-            currentBlockIndex = currentBlockIndex ?: playback.currentIndex,
-            onEntryTapped = { index ->
-                // Exactly the tap-a-block action (plays even from Paused), so seeking and auto-scroll
-                // have one implementation between them. The jump is recorded
-                // only for when TalkBack has auto-scroll off (FollowSpokenBlock).
-                viewModel.onBlockTapped(index)
-                tocJump = TocJump(index)
-                showTocSheet = false
-            },
-            onDismiss = { showTocSheet = false },
-        )
+/**
+ * The top bar's voice chip: who is reading the article. Tapping it opens the
+ * alias list, as the Speak screen's voice row does (same "Change voice").
+ */
+@Composable
+private fun ReaderVoiceChip(voice: ReadingVoice, palette: ReaderPalette, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = palette.highlight,
+        contentColor = palette.text,
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 12.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = MarmaladeIcons.Speak,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = voice.name,
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = 180.dp),
+            )
+            Icon(
+                imageVector = Icons.Filled.KeyboardArrowDown,
+                contentDescription = stringResource(R.string.speak_change_voice),
+            )
+        }
     }
 }
 

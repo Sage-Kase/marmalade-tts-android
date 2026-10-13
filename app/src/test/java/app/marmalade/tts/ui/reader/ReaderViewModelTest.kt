@@ -20,6 +20,7 @@ import app.marmalade.tts.playback.Track
 import app.marmalade.tts.service.ArticleLoadHold
 import app.marmalade.tts.service.PlaybackHost
 import app.marmalade.tts.perf.DeviceProbe
+import app.marmalade.tts.data.VoicePathResolver
 import app.marmalade.tts.ui.screen.FakeAliasDao
 import app.marmalade.tts.ui.screen.FakeDeviceProbe
 import app.marmalade.tts.ui.screen.FakeSettings
@@ -169,6 +170,7 @@ class ReaderViewModelTest {
             parseDispatcher = Dispatchers.Main,
             savedStateHandle = SavedStateHandle(),
             loadHold = ArticleLoadHold({ true }, backgroundScope),
+            voicePaths = voicePaths,
         )
 
         assertEquals(
@@ -847,6 +849,52 @@ class ReaderViewModelTest {
         assertTrue(vm.showSpeedWarning.first())
     }
 
+    private val voicePaths = VoicePathResolver { null }
+
+    // -- The voice chip and alias picker (#66) -------------------------------------
+
+    @Test
+    fun `the voice chip names the primary alias reading the article`() = runTest {
+        val settings = FakeSettings(initialId = "kitten-direct-v0_8:Bella")
+        settings.setPrimaryAliasId("adam")
+        val aliasDao = FakeAliasDao(initial = listOf(alias(id = "adam", speed = 1f), alias(id = "jenny", speed = 1f)))
+        val vm = newViewModel(extraction = threeBlocks(), settings = settings, aliasDao = aliasDao)
+        vm.state.first { it is ReaderUiState.Ready }
+
+        assertEquals(ReadingVoice("adam", "adam"), vm.readingVoice.first { it != null })
+        assertEquals(listOf(true, false), vm.aliases.first { it.isNotEmpty() }.map { it.isPrimary })
+    }
+
+    @Test
+    fun `an installed voice is named by the voice itself`() = runTest {
+        val vm = newViewModel(extraction = threeBlocks(), voicePicker = FakeVoicePicker(zhInstalled))
+        vm.state.first { it is ReaderUiState.Ready }
+
+        val expected = voicePaths.resolve(zhInstalled.voiceId, zhInstalled.engine).voice
+        assertEquals(ReadingVoice(null, expected), vm.readingVoice.first { it != null })
+    }
+
+    @Test
+    fun `picking an alias reads the rest of the article in it`() = runTest {
+        val settings = FakeSettings(initialId = "kitten-direct-v0_8:Bella")
+        settings.setPrimaryAliasId("adam")
+        val jenny = alias(id = "jenny", speed = 1.25f)
+        val aliasDao = FakeAliasDao(initial = listOf(alias(id = "adam", speed = 1f), jenny))
+        val vm = newViewModel(extraction = threeBlocks(), settings = settings, aliasDao = aliasDao)
+        vm.state.first { it is ReaderUiState.Ready }
+        h.runUntil { h.firstHeard(articleId(), 0) != null }
+
+        vm.onAliasPicked("jenny")
+        h.settle()
+
+        val picked = VoiceChoice.Alias("jenny", jenny.voiceId, jenny.engine, 1.25f)
+        val pb = vm.playback.first { it.voicePicked }
+        assertEquals(picked, pb.voice)
+        assertEquals(1.25f, pb.speed, 0f)
+        assertEquals(listOf(VoiceChoice.Primary, picked), articleVoices())
+        assertEquals(ReadingVoice("jenny", "jenny"), vm.readingVoice.first { it?.aliasId == "jenny" })
+    }
+
     private fun alias(id: String, speed: Float) = VoiceAlias(
         id = id,
         name = id,
@@ -913,6 +961,7 @@ class ReaderViewModelTest {
         parseDispatcher = parseDispatcher,
         savedStateHandle = handle,
         loadHold = loadHold,
+        voicePaths = voicePaths,
     )
 
     /** The nav args, plus whatever a restored ViewModel would find saved. */
