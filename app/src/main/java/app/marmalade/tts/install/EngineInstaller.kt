@@ -1787,8 +1787,8 @@ open class EngineInstaller @Inject constructor(
 
     /**
      * Compare the on-disk install meta to the current catalog entry. Returns
-     * an [InstallState.Outdated] when the recorded `archive_sha256` differs
-     * from the catalog's. Returns `null` when the install matches (caller
+     * an [InstallState.Outdated] when the recorded `archive_sha256` is neither
+     * the catalog's nor one of its [EngineArchive.sameContentAs]. Returns `null` when the install matches (caller
      * proceeds with the structural layout check).
      *
      * If the meta file is missing entirely (pre-v0.3.0-alpha.7 install with
@@ -1815,7 +1815,7 @@ open class EngineInstaller @Inject constructor(
         val recorded = runCatching {
             org.json.JSONObject(metaFile.readText()).getString("archive_sha256")
         }.getOrNull()
-        if (recorded == null || recorded != expected) {
+        if (!archive.holdsSameFiles(recorded)) {
             return InstallState.Outdated(installedSha256 = recorded, expectedSha256 = expected)
         }
         return null

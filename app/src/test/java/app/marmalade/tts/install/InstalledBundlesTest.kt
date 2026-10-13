@@ -4,6 +4,7 @@ import java.io.File
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -41,6 +42,22 @@ class InstalledBundlesTest {
     }
 
     private fun catalog(name: String) = EngineCatalog.byName(name)!!.archive
+
+    /** #65: an install from an archive with the same files (another container) is current. */
+    @Test
+    fun anInstallFromAnArchiveWithTheSameFilesIsCurrent() {
+        val old = "ab".repeat(32)
+        val archive = EngineArchive(
+            url = "https://example.test/releases/download/v29/x.tar.gz",
+            sha256 = "cd".repeat(32),
+            sizeBytes = 1L,
+            sameContentAs = setOf(old),
+        )
+        assertTrue(InstalledBundle("x", "https://example.test/releases/download/v27/x.tar.bz2", old, archive).isCurrent)
+        assertTrue(InstalledBundle("x", archive.url, archive.sha256, archive).isCurrent)
+        assertFalse(InstalledBundle("x", null, "ef".repeat(32), archive).isCurrent)
+        assertFalse(InstalledBundle("x", null, null, archive).isCurrent)
+    }
 
     @Test
     fun reportsWhatEachEngineOnDiskWasInstalledFrom() = runTest {

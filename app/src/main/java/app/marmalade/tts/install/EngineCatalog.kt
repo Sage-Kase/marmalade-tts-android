@@ -48,13 +48,23 @@ import app.marmalade.tts.R
  *               use that for future archives that aren't wrapper-dir'd.
  *               For Kitten Direct this is `"kitten-direct-v0_8/"` (the
  *               directory name the bundle's tarball uses).
+ * @property sameContentAs SHA-256s of earlier archives of this bundle that
+ *               unpack to byte-identical files: the same tar in another
+ *               container (#65: Pocket v27's tar.bz2 repacked as tar.gz). An
+ *               install from one of them stays current, so nobody is asked
+ *               to download the same files again.
  */
 data class EngineArchive(
     val url: String,
     val sha256: String,
     val sizeBytes: Long,
     val archiveRoot: String = "",
-)
+    val sameContentAs: Set<String> = emptySet(),
+) {
+    /** Whether an install recorded with [installedSha256] holds this archive's files. */
+    fun holdsSameFiles(installedSha256: String?): Boolean =
+        installedSha256 != null && (installedSha256 == sha256 || installedSha256 in sameContentAs)
+}
 
 /**
  * Relative synthesis-speed tier — the hero axis on the engine-select card
