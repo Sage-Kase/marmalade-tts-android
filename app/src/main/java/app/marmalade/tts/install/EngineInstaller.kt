@@ -267,7 +267,8 @@ object UrlHttpFetcher : HttpFetcher {
 //     │
 //     ├── _state["kitten"].value = Extracting
 //     │
-//     ├── Open archive.tmp → BZip2CompressorInputStream → TarArchiveInputStream:
+//     ├── Open archive.tmp → GZIPInputStream (or BZip2CompressorInputStream,
+//     │   picked by magic bytes) → TarArchiveInputStream:
 //     │      ├── for each entry:
 //     │      │     ├── strip archive.archiveRoot prefix
 //     │      │     ├── canonical-path check (zip-slip protection)
@@ -504,7 +505,7 @@ open class EngineInstaller @Inject constructor(
     /**
      * Install [engineName] from the catalog.
      *
-     * Downloads the engine's single tar.bz2 archive, verifies its SHA-256,
+     * Downloads the engine's single tar.gz (or tar.bz2) archive, verifies its SHA-256,
      * decompresses + untars it into the engine directory. Reports progress
      * through [onProgress] and updates the per-engine state flow.
      *
@@ -1414,7 +1415,7 @@ open class EngineInstaller @Inject constructor(
     }
 
     /**
-     * Extract a tar.bz2 [archiveFile] into [destDir]. Strips the leading
+     * Extract a tar.gz or tar.bz2 [archiveFile] into [destDir]. Strips the leading
      * [archiveRoot] prefix from each entry path (so an archive containing
      * `kitten-nano-en-v0_1-fp16/model.fp16.onnx` produces
      * `${destDir}/model.fp16.onnx`).

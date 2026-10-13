@@ -21,7 +21,7 @@ import app.marmalade.tts.R
 //     │                                           licenseSummaryRes
 //     │
 //     ▼
-//   Single HTTP GET → sha256 check → tar.bz2 extract → atomic rename
+//   Single HTTP GET → sha256 check → tar.gz/tar.bz2 extract → atomic rename
 //
 //   UI (Onboarding / EnginesScreen)
 //     │
@@ -34,7 +34,7 @@ import app.marmalade.tts.R
  * verifies [sha256], and extracts it into `${filesDir}/engines/<name>.tmp/`
  * before atomic-renaming to `${filesDir}/engines/<name>/`.
  *
- * @property url Absolute HTTPS URL to a tar.bz2 archive whose top-level
+ * @property url Absolute HTTPS URL to a tar.gz (or legacy tar.bz2) archive whose top-level
  *               directory (named per [archiveRoot]) contains the engine
  *               payload. The installer flattens the top-level directory
  *               during extraction so the on-device layout is
@@ -128,7 +128,7 @@ enum class QualityTier {
  *                             [archive.sizeBytes] by convention.
  * @property installedSizeBytes Approximate on-disk size after extraction.
  *                             Larger than [downloadSizeBytes] because the
- *                             archive is tar.bz2-compressed.
+ *                             archive is compressed.
  * @property isRecommended     True for the engine pre-checked in the
  *                             onboarding wizard. v0.1 only ships Kitten,
  *                             which is the recommended default.
