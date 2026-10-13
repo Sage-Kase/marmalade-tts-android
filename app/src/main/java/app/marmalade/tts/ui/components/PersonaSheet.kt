@@ -49,10 +49,10 @@ data class Persona(
 
 /**
  * Persona picker. Every saved persona with the same three facts the Speak
- * screen's voice row shows, plus (on the Speak screen) the escape hatches:
- * hand-pick a voice, or make a new persona. The reader uses it bare to pick
- * the alias an article is read in (#66). "New persona" lives here rather than as a permanent chip on
- * the main screen, where it competed with the personas themselves.
+ * screen's voice row shows, plus the escape hatches: hand-pick a voice, or
+ * make a new persona. "New persona" lives here rather than as a permanent chip
+ * on the main screen, where it competed with the personas themselves. The
+ * reader lists the same rows in its alias dial (#67, ReaderDialSheet).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,10 +60,9 @@ fun PersonaSheet(
     personas: List<Persona>,
     activeId: String?,
     onPick: (String) -> Unit,
+    onPickVoice: () -> Unit,
+    onCreate: () -> Unit,
     onDismiss: () -> Unit,
-    /** The Speak screen's escape hatches; null hides them (the reader picks aliases only). */
-    onPickVoice: (() -> Unit)? = null,
-    onCreate: (() -> Unit)? = null,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Text(
@@ -73,75 +72,81 @@ fun PersonaSheet(
         )
         LazyColumn(modifier = Modifier.weight(1f, fill = false)) {
             items(personas, key = { it.id }) { persona ->
-                ListItem(
-                    headlineContent = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(persona.name)
-                            if (persona.isPrimary) {
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    text = stringResource(R.string.speak_persona_primary),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
-                            }
-                        }
-                    },
-                    supportingContent = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = persona.subtitle,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false),
-                            )
-                            if (persona.isCloud) {
-                                Spacer(Modifier.width(5.dp))
-                                CloudMark()
-                            }
-                        }
-                    },
-                    trailingContent = {
-                        if (persona.id == activeId) {
-                            Icon(
-                                imageVector = Icons.Filled.Check,
-                                contentDescription = stringResource(R.string.speak_persona_selected),
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
-                        }
-                    },
-                    modifier = Modifier.clickable {
+                PersonaRow(
+                    persona = persona,
+                    active = persona.id == activeId,
+                    onClick = {
                         onPick(persona.id)
                         onDismiss()
                     },
                 )
             }
         }
-        if (onPickVoice != null || onCreate != null) HorizontalDivider()
-        onPickVoice?.let { pickVoice ->
-            ListItem(
-                headlineContent = { Text(stringResource(R.string.speak_pick_voice_directly)) },
-                leadingContent = {
-                    Icon(MarmaladeIcons.Speak, contentDescription = null)
-                },
-                modifier = Modifier.clickable {
-                    pickVoice()
-                    onDismiss()
-                },
-            )
-        }
-        onCreate?.let { create ->
-            ListItem(
-                headlineContent = { Text(stringResource(R.string.speak_new_persona)) },
-                leadingContent = {
-                    Icon(Icons.Filled.Add, contentDescription = null)
-                },
-                modifier = Modifier.clickable {
-                    create()
-                    onDismiss()
-                },
-            )
-        }
+        HorizontalDivider()
+        ListItem(
+            headlineContent = { Text(stringResource(R.string.speak_pick_voice_directly)) },
+            leadingContent = {
+                Icon(MarmaladeIcons.Speak, contentDescription = null)
+            },
+            modifier = Modifier.clickable {
+                onPickVoice()
+                onDismiss()
+            },
+        )
+        ListItem(
+            headlineContent = { Text(stringResource(R.string.speak_new_persona)) },
+            leadingContent = {
+                Icon(Icons.Filled.Add, contentDescription = null)
+            },
+            modifier = Modifier.clickable {
+                onCreate()
+                onDismiss()
+            },
+        )
         Spacer(Modifier.height(12.dp))
     }
+}
+
+/** One persona: its name (and "Primary"), model · voice, the cloud glyph, a check when [active]. */
+@Composable
+fun PersonaRow(persona: Persona, active: Boolean, onClick: () -> Unit) {
+    ListItem(
+        headlineContent = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(persona.name)
+                if (persona.isPrimary) {
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = stringResource(R.string.speak_persona_primary),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+        },
+        supportingContent = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = persona.subtitle,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (persona.isCloud) {
+                    Spacer(Modifier.width(5.dp))
+                    CloudMark()
+                }
+            }
+        },
+        trailingContent = {
+            if (active) {
+                Icon(
+                    imageVector = Icons.Filled.Check,
+                    contentDescription = stringResource(R.string.speak_persona_selected),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+        },
+        modifier = Modifier.clickable(onClick = onClick),
+    )
 }

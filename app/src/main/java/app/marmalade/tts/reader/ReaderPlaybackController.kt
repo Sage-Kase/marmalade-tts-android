@@ -227,7 +227,8 @@ class ReaderPlaybackController internal constructor(
 
     /**
      * Read the held article in [alias] from now on — the user's pick in the
-     * reader, at that alias's own speed (unless they picked another speed).
+     * reader's alias dial, at that alias's own speed unless the user set a
+     * speed in the reader: that override stays (#67, see [setSpeed]).
      * It holds for the rest of this article: a later primary change no longer
      * moves it. The block being read restarts in the new voice — unless
      * [alias] is already the one reading, which is only pinned.
@@ -292,12 +293,14 @@ class ReaderPlaybackController internal constructor(
      * Set the session's speed — absolute, replacing the alias's own speed
      * rather than scaling it (see [ReaderPlaybackState.speed]). Applied live
      * by the Narrator: nothing stops or re-renders, playing keeps playing and
-     * paused stays paused.
+     * paused stays paused. A speed other than the reading alias's own is an
+     * override that outlasts an alias switch or a primary change; picking the
+     * alias's own speed again ends it, so the next alias brings its speed (#67).
      */
     fun setSpeed(speed: Float) {
-        val clamped = speed.coerceIn(NarratorControl.MIN_SPEED, NarratorControl.MAX_SPEED)
-        if (clamped == current().speed) return
-        narrator.setSpeed(clamped)
+        // Sent even when unchanged: re-picking the speed it already has can end
+        // an override (#67); the Narrator changes nothing else then.
+        narrator.setSpeed(speed.coerceIn(NarratorControl.MIN_SPEED, NarratorControl.MAX_SPEED))
     }
 
     /**
