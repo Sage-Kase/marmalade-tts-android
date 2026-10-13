@@ -1,5 +1,7 @@
 package app.marmalade.tts.ui.onboarding
 
+import android.os.SystemClock
+import android.util.Log
 import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -29,6 +31,8 @@ import app.marmalade.tts.perf.EngineRecommendation
 import app.marmalade.tts.perf.EngineRecommender
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -48,6 +52,7 @@ import kotlinx.coroutines.launch
 //   OnboardingScreen
 //     │
 //     ├── step           ◄────── OnboardingViewModel.step (StateFlow<OnboardingStep>)
+//     ├── probeDone      ◄────── OnboardingViewModel.probeDone (spinner until true)
 //     ├── engines        ◄────── OnboardingViewModel.engines
 //     │                              ▲
 //     │                              │ EngineCatalog.visibleTo(false),
@@ -94,6 +99,8 @@ import kotlinx.coroutines.launch
 //     └── settings.setOnboarded(true)
 // -----------------------------------------------------------------------------
 
+private const val TAG = "Onboarding"
+
 /**
  * Max wait for the first-run baked-default seed to finish before onboarding
  * decides whether to install (download) it. The seed copies ~58 MB from assets
@@ -101,6 +108,19 @@ import kotlinx.coroutines.launch
  * failed, in which case the normal download path takes over.
  */
 private const val SEED_WAIT_TIMEOUT_MS = 15_000L
+
+/**
+ * Longest the engine step hides its cards behind the phone check, counted
+ * from onboarding's start (the check overlaps the Welcome step), seed wait
+ * included (issue #76). The real check is the ~58 MB seed copy (a couple of
+ * seconds), Kitten's model load and ~2 s of Kitten audio: under a second of
+ * synthesis on the Pixel 6a (probe RTF 0.21), about 2 s at the slowest probe
+ * that still gets a verdict worth having (0.9). A phone still checking after
+ * 20 s renders Kitten at RTF ~5 or worse, where the verdict would be Kitten
+ * alone, which is what the static flags already say. The probe's own caps
+ * (15 s seed + 30 s benchmark) are too long to stare at a spinner.
+ */
+internal const val PROBE_WAIT_MS = 20_000L
 
 /** Five-step onboarding flow. */
 enum class OnboardingStep {
@@ -163,8 +183,9 @@ enum class OnboardingStep {
  * composable doesn't have to thread two collections through.
  *
  * @property fit This device's predicted fit for the engine, or null while
- *   the capability probe is still running — the card then falls back to the
- *   catalog's static [EngineDescriptor.isRecommended] flag.
+ *   the capability probe is still running or when it gave no verdict — the
+ *   card then falls back to the catalog's static
+ *   [EngineDescriptor.isRecommended] flag.
  * @property isBuiltIn The engine ships inside the APK, so there is nothing
  *   to download and nothing to opt out of.
  */
@@ -238,11 +259,21 @@ class OnboardingViewModel @Inject constructor(
     val installStates: StateFlow<Map<String, InstallState>> = _installStates.asStateFlow()
 
     /**
-     * This device's engine fit + ordering, or null until the capability
-     * probe answers. Null is the whole "still checking" signal the UI needs.
+     * This device's engine fit + ordering, or null: still checking, or the
+     * check gave no verdict ([EngineRecommender.recommend] returned null, or
+     * the probe threw). [probeDone] tells the two apart.
      */
     private val _recommendation = MutableStateFlow<EngineRecommendation?>(null)
     val recommendation: StateFlow<EngineRecommendation?> = _recommendation.asStateFlow()
+
+    /**
+     * The phone check has finished: a verdict, no verdict, a failure, or
+     * [PROBE_WAIT_MS] elapsing. Until then the engine step shows a spinner
+     * instead of cards and can't install (issue #76), so the user never acts
+     * on a list that is about to re-sort and re-tick.
+     */
+    private val _probeDone = MutableStateFlow(false)
+    val probeDone: StateFlow<Boolean> = _probeDone.asStateFlow()
 
     /**
      * The cards rendered on the EnginePick step. Production engines only —
@@ -250,14 +281,15 @@ class OnboardingViewModel @Inject constructor(
      * never offered to new users in onboarding; they're an opt-in via
      * Settings afterward.
      *
-     * Labels come from [_recommendation] once it lands; before that the
-     * catalog's static `isRecommended` flag stands in, so the step is
-     * usable the instant it opens. The card wearing the Recommended pill
-     * comes first, the rest keep the catalog's order (issue #63, Max
-     * 2026-10-12: "Recommended engine should be boosted to the top";
-     * before that the pill moved and the cards never did). Before the
-     * probe answers that is the built-in Kitten, already first, so a
-     * card only moves when the verdict lands on another engine.
+     * Labels come from [_recommendation]; with no verdict (none, a failed
+     * probe, or [PROBE_WAIT_MS] passing first) the catalog's static
+     * `isRecommended` flag stands in. The screen shows these only once
+     * [probeDone] (issue #76, Max 2026-10-13: no cards until the check
+     * finishes). The card wearing the Recommended pill comes first, the
+     * rest keep the catalog's order (issue #63, Max 2026-10-12:
+     * "Recommended engine should be boosted to the top"). With the static
+     * flag that is the built-in Kitten, already first, so a card only moves
+     * when a verdict lands on another engine.
      */
     val engines: StateFlow<List<EngineCardState>> =
         combine(_recommendation, _selectedEngineIds, ::cardsFor)
@@ -284,28 +316,56 @@ class OnboardingViewModel @Inject constructor(
     // Kick the capability probe off as soon as onboarding starts, so the
     // benchmark overlaps the Welcome step's reading time and the EnginePick
     // step usually has its answer by the time the user gets there. Declared
-    // after [_recommendation] because the launch body assigns it and
-    // viewModelScope dispatches eagerly on an unconfined test dispatcher.
+    // after [_recommendation] and [_probeDone] because the launch body
+    // assigns them and viewModelScope dispatches eagerly on an unconfined
+    // test dispatcher.
     init {
         viewModelScope.launch {
-            // The Tier 2 benchmark synthesizes on the baked Kitten engine, so
-            // it waits on the same first-run asset seed runInstall waits for.
-            // If the seed never lands the probe still answers, from CPU
-            // topology alone.
-            withTimeoutOrNull(SEED_WAIT_TIMEOUT_MS) {
-                settings.bakedDefaultSeeded.firstOrNull { it }
+            val started = SystemClock.elapsedRealtime()
+            val check = async { checkPhone() }
+            val inTime = withTimeoutOrNull(PROBE_WAIT_MS) { check.join() } != null
+            if (inTime) {
+                val recommendation = check.await()
+                // Tick before publishing the verdict, and publish it before
+                // [probeDone], so the cards appear sorted, labelled and
+                // ticked in one frame.
+                if (recommendation != null && !selectionTouched) {
+                    _selectedEngineIds.update { it + recommendation.recommended }
+                }
+                _recommendation.value = recommendation
+                _probeDone.value = true
+                Log.i(TAG, "Phone check done in ${SystemClock.elapsedRealtime() - started} ms: " +
+                    (recommendation?.recommended ?: "no verdict"))
+            } else {
+                // Too slow: show the static list now. A late verdict still
+                // relabels and re-sorts it (the screen scrolls back to the
+                // top), but no longer ticks anything: the user may be about
+                // to tap Install.
+                _probeDone.value = true
+                Log.i(TAG, "Phone check passed ${PROBE_WAIT_MS} ms; showing the static list")
+                _recommendation.value = check.await()
             }
-            val recommendation = EngineRecommender.recommend(
-                deviceProbe.probe(),
-                offered = EngineCatalog.visibleTo(showDeveloper = false).map { it.name },
-            )
-            // Tick before publishing the verdict, so the pill, the sort and
-            // the tick land in the same frame.
-            if (recommendation != null && !selectionTouched) {
-                _selectedEngineIds.update { it + recommendation.recommended }
-            }
-            _recommendation.value = recommendation
         }
+    }
+
+    /** The probe's verdict, or null when it has none or fails. */
+    private suspend fun checkPhone(): EngineRecommendation? = try {
+        // The Tier 2 benchmark synthesizes on the baked Kitten engine, so
+        // it waits on the same first-run asset seed runInstall waits for.
+        // If the seed never lands the probe still answers, from CPU
+        // topology alone.
+        withTimeoutOrNull(SEED_WAIT_TIMEOUT_MS) {
+            settings.bakedDefaultSeeded.firstOrNull { it }
+        }
+        EngineRecommender.recommend(
+            deviceProbe.probe(),
+            offered = EngineCatalog.visibleTo(showDeveloper = false).map { it.name },
+        )
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w(TAG, "Phone check failed; showing the static list", e)
+        null
     }
 
     /** Toggle the selection state of [engineName] in the picker. */
@@ -357,9 +417,13 @@ class OnboardingViewModel @Inject constructor(
      *   full list at once).
      *
      * If no engines are selected, this is a no-op — the user reaches the
-     * "Continue" affordance immediately on the next step.
+     * "Continue" affordance immediately on the next step. Also a no-op until
+     * [probeDone]: the selection isn't final before the verdict.
      */
     fun installSelected() {
+        // The verdict still has to tick the recommended engine (issue #76).
+        // The screen disables the button until then; this holds if it doesn't.
+        if (!_probeDone.value) return
         _step.value = OnboardingStep.Installing
         val toInstall = _selectedEngineIds.value.toList()
         if (toInstall.isEmpty()) return

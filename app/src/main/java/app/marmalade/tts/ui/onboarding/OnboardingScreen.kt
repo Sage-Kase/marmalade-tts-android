@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -100,7 +101,8 @@ import app.marmalade.tts.ui.screen.installFailureText
 //     │   OnboardingViewModel
 //     │
 //     ├── Welcome step:   mascot + pitch + "Get started" → vm.next()
-//     ├── EnginePick step: cards + "Install selected"    → vm.installSelected()
+//     ├── EnginePick step: spinner until vm.probeDone, then
+//     │    cards + "Install selected"                    → vm.installSelected()
 //     ├── Installing step: progress per engine
 //     │    │
 //     │    ├── all engines reached terminal state (Installed/Failed)
@@ -147,7 +149,7 @@ fun OnboardingScreen(
     val aliasEditor by viewModel.aliasEditorState.collectAsStateWithLifecycle()
     val installedVoices by viewModel.installedVoices.collectAsStateWithLifecycle()
     val aliasEngines by viewModel.aliasEngines.collectAsStateWithLifecycle()
-    val recommendation by viewModel.recommendation.collectAsStateWithLifecycle()
+    val probeDone by viewModel.probeDone.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     Scaffold { padding ->
@@ -159,9 +161,7 @@ fun OnboardingScreen(
             OnboardingStep.EnginePick -> EnginePickStep(
                 padding = padding,
                 cards = engines,
-                // Null recommendation = the device probe is still running,
-                // so the cards are showing catalog order, not this phone's.
-                probePending = recommendation == null,
+                probePending = !probeDone,
                 selectedIds = selected,
                 onToggle = viewModel::toggle,
                 onInstall = viewModel::installSelected,
@@ -319,49 +319,57 @@ private fun EnginePickStep(
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth(),
         )
-        // While the capability probe runs, the fit labels aren't this
-        // phone's verdict yet. A spinner + line says the check is live
-        // (Max, 2026-08-08: text alone read as static copy).
-        if (probePending) {
-            Spacer(Modifier.height(8.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(14.dp),
-                    strokeWidth = 2.dp,
-                )
-                Spacer(Modifier.size(8.dp))
-                Text(
-                    text = stringResource(R.string.onboarding_checking_device),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
         Spacer(Modifier.height(16.dp))
 
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-        ) {
-            items(items = cards, key = { it.descriptor.name }) { card ->
-                // The Recommended card moves to the top when the probe
-                // answers (#63); animateItem slides it there instead of
-                // the list snapping.
-                Column(Modifier.animateItem()) {
-                    EngineCard(
-                        engine = card.descriptor,
-                        isSelected = selectedIds.contains(card.descriptor.name),
-                        fit = card.fit,
-                        showsRecommended = card.showsRecommended,
-                        isBuiltIn = card.isBuiltIn,
-                        onToggle = { onToggle(card.descriptor.name) },
-                    )
-                    Spacer(Modifier.height(12.dp))
+        // While the phone check runs, no cards: they would re-sort and
+        // re-tick under the user's finger when it answers (issue #76, Max
+        // 2026-10-13). The VM bounds the wait, so this can't spin forever.
+        if (probePending) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                CircularProgressIndicator()
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    text = stringResource(R.string.onboarding_checking_device),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+            }
+        } else {
+            val listState = rememberLazyListState()
+            // The list opens at the top, Recommended card first. If a late
+            // verdict re-sorts it while visible, LazyColumn would keep the
+            // old first card in view and leave the new one above it, so
+            // follow the order back to the top.
+            val order = cards.map { it.descriptor.name }
+            LaunchedEffect(order) { listState.scrollToItem(0) }
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+            ) {
+                items(items = cards, key = { it.descriptor.name }) { card ->
+                    // A late verdict moves the Recommended card to the top
+                    // (#63); animateItem slides it there instead of the
+                    // list snapping.
+                    Column(Modifier.animateItem()) {
+                        EngineCard(
+                            engine = card.descriptor,
+                            isSelected = selectedIds.contains(card.descriptor.name),
+                            fit = card.fit,
+                            showsRecommended = card.showsRecommended,
+                            isBuiltIn = card.isBuiltIn,
+                            onToggle = { onToggle(card.descriptor.name) },
+                        )
+                        Spacer(Modifier.height(12.dp))
+                    }
                 }
             }
         }
@@ -381,9 +389,13 @@ private fun EnginePickStep(
             Row {
                 TextButton(onClick = onSkip) { Text(stringResource(R.string.onboarding_skip)) }
                 Spacer(Modifier.size(8.dp))
+                // Off while checking: the verdict still has to tick the
+                // recommended engine, and Install now would fetch only part
+                // of what the list will show. Skip stays on: it fetches
+                // nothing, so there is no selection to get wrong.
                 Button(
                     onClick = onInstall,
-                    enabled = selectedIds.isNotEmpty(),
+                    enabled = !probePending && selectedIds.isNotEmpty(),
                 ) {
                     Text(
                         stringResource(

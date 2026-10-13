@@ -73,6 +73,11 @@ This project follows [Semantic Versioning](https://semver.org/).
 - **Setup lists the recommended engine first**: the engine marked
   Recommended for your phone now leads the setup list and is ticked to
   install, and the rest keep their usual order.
+- **Setup waits for the phone check**: the setup engine list now appears
+  once Marmalade has finished checking your phone's speed, already sorted
+  with the recommended engine at the top. Until then it shows "Checking
+  your phone…". If the check takes longer than 20 seconds, the list shows
+  anyway.
 - **The two Jenny voices have names that tell them apart**: the VITS
   Marmalade voice is now "Jenny (Dioco, VITS)" and Pocket's is "Jenny
   (Dioco)", whose credit line now reads "Dioco". Aliases using either keep
