@@ -1129,6 +1129,73 @@ class ReaderPlaybackControllerTest {
         done()
     }
 
+    // -- The alias dial: speed as an override (#67) --------------------------------
+
+    @Test
+    fun `an alias picked with the speed untouched reads at that alias's speed`() = runTest {
+        playing()
+        controller.pickAlias(alias("jenny", NarratorHarness.VITS_ENGINE, speed = 1.2f))
+        h.settle()
+        assertEquals(1.2f, state.speed, 0f)
+        assertEquals(1.2f, state.startingSpeed, 0f)
+        done()
+    }
+
+    @Test
+    fun `a speed set in the reader outlasts an alias switch`() = runTest {
+        playing()
+        controller.setSpeed(1.5f)
+        h.settle()
+        controller.pickAlias(alias("jenny", NarratorHarness.VITS_ENGINE, speed = 1.2f))
+        h.settle()
+        assertEquals(1.5f, state.speed, 0f)
+        // The new alias's own speed is still offered as the way back.
+        assertEquals(1.2f, state.startingSpeed, 0f)
+        done()
+    }
+
+    @Test
+    fun `picking the alias's own speed again lets the next alias bring its speed`() = runTest {
+        playing()
+        controller.setSpeed(1.5f)
+        h.settle()
+        controller.setSpeed(1.0f)
+        h.settle()
+        controller.pickAlias(alias("jenny", NarratorHarness.VITS_ENGINE, speed = 1.2f))
+        h.settle()
+        assertEquals(1.2f, state.speed, 0f)
+        done()
+    }
+
+    /** An override stays one even when an alias happens to share its speed. */
+    @Test
+    fun `an override equal to the new alias's speed still outlasts the next switch`() = runTest {
+        playing()
+        controller.setSpeed(1.2f)
+        h.settle()
+        controller.pickAlias(alias("jenny", NarratorHarness.VITS_ENGINE, speed = 1.2f))
+        controller.pickAlias(alias("bella", NarratorHarness.ENGINE, speed = 0.9f))
+        h.settle()
+        assertEquals(1.2f, state.speed, 0f)
+        assertEquals(0.9f, state.startingSpeed, 0f)
+        done()
+    }
+
+    @Test
+    fun `an override outlasts a primary change too`() = runTest {
+        playing()
+        controller.setSpeed(2.0f)
+        h.settle()
+        picked = VoiceChoice.Primary to 1.0f
+        primary.value = alias("jenny", NarratorHarness.VITS_ENGINE, speed = 1.0f)
+        h.settle()
+        picked = VoiceChoice.Primary to 1.3f
+        primary.value = alias("fast", NarratorHarness.ENGINE, speed = 1.3f)
+        h.settle()
+        assertEquals(2.0f, state.speed, 0f)
+        done()
+    }
+
     @Test
     fun `a primary change with no article held does nothing`() = runTest {
         rig()

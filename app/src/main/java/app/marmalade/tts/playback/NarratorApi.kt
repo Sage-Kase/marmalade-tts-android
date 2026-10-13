@@ -81,7 +81,9 @@ interface NarratorControl {
      * primary it names is what changed. Every rendered chunk is dropped and
      * the listener's block restarts from its start in the new voice; a
      * playing article keeps playing, a paused one stays paused. The session
-     * speed follows [startingSpeed] unless the user had picked another.
+     * speed follows [startingSpeed] unless the user had set another with
+     * [setSpeed] — an override, kept across voice changes until the user
+     * picks the voice's own speed again (#67).
      * Ignored when [key] is not the loaded article.
      */
     fun setArticleVoice(key: String, voice: VoiceChoice, startingSpeed: Float)

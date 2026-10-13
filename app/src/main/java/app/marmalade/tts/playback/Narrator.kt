@@ -254,6 +254,12 @@ class Narrator(
         var speed: Float?,
         var startingSpeed: Float,
     ) {
+        /**
+         * The user set the article's speed away from its voice's own (#67): it
+         * then outlasts a voice change. Picking the voice's own speed again
+         * clears it, so the next voice brings its speed.
+         */
+        var speedOverride = false
         val segs: List<Seg> = texts.map(::Seg)
         var voice: ResolvedVoice? = null
         var resolveToken = 0L
@@ -533,6 +539,7 @@ class Narrator(
     private fun setSpeedNow(s: Session, speed: Float) {
         val old = s.tempo
         s.speed = speed
+        s.speedOverride = speed != s.startingSpeed
         log("speed $old→$speed")
         if (s.begun) output.submit(OutputCommand.SetTempo(s.track, s.id, speed))
         // A render in flight re-decides chunk mode for its next piece (#54).
@@ -562,7 +569,7 @@ class Narrator(
         s.dropPcm()
         releaseResidency(s)
         // A speed the user picked stays; one they never touched follows the new voice.
-        if (s.speed == s.startingSpeed) s.speed = msg.startingSpeed
+        if (!s.speedOverride) s.speed = msg.startingSpeed
         s.startingSpeed = msg.startingSpeed
         s.liveTempo.value = s.tempo
         log("voice change session=${s.id} -> ${msg.voice} seg=${s.cursor} epoch=${s.epoch} speed=${s.tempo}")
