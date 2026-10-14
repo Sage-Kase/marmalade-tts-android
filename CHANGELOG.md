@@ -3,7 +3,7 @@
 All notable changes to **marmalade-tts-android** will be documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.2.0] - 2026-10-13
 
 ### Added
 - **Choose who reads an article**: the reader's speed button is now a
