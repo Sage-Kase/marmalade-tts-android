@@ -436,6 +436,11 @@ private fun EngineCard(
     isBuiltIn: Boolean,
     onToggle: () -> Unit,
 ) {
+    // Light mode tints a ticked card deeper than the plain one (Orange 200
+    // over Orange 100): its secondaryContainer is the page colour, which made
+    // a ticked card look like the odd one out (Max, 2026-10-13: "Stronger tint").
+    val tinted = isSelected && !isBuiltIn
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -457,12 +462,8 @@ private fun EngineCard(
         // The permanently-ticked built-in card keeps the plain container:
         // the selected tint means "you chose this", and Kitten isn't a
         // choice (Max, 2026-08-08 — the loud terracotta card read as an
-        // error state in dark mode). Light mode tints deeper than the plain
-        // card (Orange 200 over Orange 100): its secondaryContainer is the page
-        // colour, which made a ticked card look like the odd one out (Max,
-        // 2026-10-13: "Stronger tint").
-        colors = if (isSelected && !isBuiltIn) {
-            val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+        // error state in dark mode).
+        colors = if (tinted) {
             CardDefaults.cardColors(
                 containerColor = if (isDark) {
                     MaterialTheme.colorScheme.secondaryContainer
@@ -511,7 +512,7 @@ private fun EngineCard(
                 // (recommended-badge-lab R1).
                 if (showsRecommended) {
                     Spacer(Modifier.height(4.dp))
-                    RecommendedTag()
+                    RecommendedTag(onTintedCard = tinted && !isDark)
                 } else if (fit == EngineFit.MAY_BE_SLOW) {
                     Spacer(Modifier.height(4.dp))
                     MayBeSlowTag()
@@ -553,7 +554,7 @@ private fun EngineCard(
  * orange) so it stays warm without flooding the card.
  */
 @Composable
-private fun RecommendedTag() {
+private fun RecommendedTag(onTintedCard: Boolean = false) {
     Text(
         text = stringResource(R.string.onboarding_recommended),
         style = MaterialTheme.typography.labelSmall,
@@ -561,7 +562,15 @@ private fun RecommendedTag() {
         color = MaterialTheme.colorScheme.onTertiaryContainer,
         modifier = Modifier
             .clip(RoundedCornerShape(50))
-            .background(MaterialTheme.colorScheme.tertiaryContainer)
+            // A ticked card in light mode is the pill's own Orange 200, which
+            // made the pill vanish; it takes the page's cream there instead.
+            .background(
+                if (onTintedCard) {
+                    MaterialTheme.colorScheme.background
+                } else {
+                    MaterialTheme.colorScheme.tertiaryContainer
+                },
+            )
             .padding(horizontal = 8.dp, vertical = 2.dp),
     )
 }
