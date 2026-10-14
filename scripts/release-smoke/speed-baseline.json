@@ -1,156 +1,164 @@
 {
   "rows": {
     "kitten-direct-v0_8:Leo@1": {
-      "first_sound_ms": 161,
-      "render_rtf": 0.137,
+      "first_sound_ms": 138,
+      "render_rtf": 0.119,
       "longest_stall_ms": 0,
-      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
-      "measured": "2026-10-10"
+      "longest_wait_ms": 0,
+      "build": "app.marmalade.tts.rc 1.2.0 (10020000)",
+      "measured": "2026-10-14"
     },
     "kitten-direct-v0_8:Leo@1.25": {
-      "first_sound_ms": 157,
-      "render_rtf": 0.15,
+      "first_sound_ms": 128,
+      "render_rtf": 0.146,
       "longest_stall_ms": 0,
-      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
-      "measured": "2026-10-10"
+      "longest_wait_ms": 0,
+      "build": "app.marmalade.tts.rc 1.2.0 (10020000)",
+      "measured": "2026-10-14"
     },
     "kitten-direct-v0_8:Leo@1.5": {
-      "first_sound_ms": 141,
-      "render_rtf": 0.176,
+      "first_sound_ms": 125,
+      "render_rtf": 0.18,
       "longest_stall_ms": 0,
-      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
-      "measured": "2026-10-10"
+      "longest_wait_ms": 0,
+      "build": "app.marmalade.tts.rc 1.2.0 (10020000)",
+      "measured": "2026-10-14"
     },
     "kitten-direct-v0_8:Leo@2": {
-      "first_sound_ms": 145,
-      "render_rtf": 0.268,
+      "first_sound_ms": 137,
+      "render_rtf": 0.243,
       "longest_stall_ms": 0,
-      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
-      "measured": "2026-10-10"
+      "longest_wait_ms": 0,
+      "build": "app.marmalade.tts.rc 1.2.0 (10020000)",
+      "measured": "2026-10-14"
     },
     "kokoro-de-v1_0:thorsten@1": {
-      "first_sound_ms": 340,
-      "render_rtf": 0.45,
-      "longest_stall_ms": 0,
-      "longest_wait_ms": 0,
-      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
-      "measured": "2026-10-11"
-    },
-    "kokoro-de-v1_0:thorsten@1.25": {
-      "first_sound_ms": 365,
-      "render_rtf": 0.576,
-      "longest_stall_ms": 0,
-      "longest_wait_ms": 0,
-      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
-      "measured": "2026-10-11"
-    },
-    "kokoro-de-v1_0:thorsten@1.5": {
-      "first_sound_ms": 758,
-      "render_rtf": 0.698,
-      "longest_stall_ms": 0,
-      "longest_wait_ms": 608,
-      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
-      "measured": "2026-10-11"
-    },
-    "kokoro-de-v1_0:thorsten@2": {
-      "first_sound_ms": 724,
-      "render_rtf": 0.945,
-      "longest_stall_ms": 0,
-      "longest_wait_ms": 1101,
-      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
-      "measured": "2026-10-11"
-    },
-    "kokoro-direct-v1_0:af_heart@1": {
-      "first_sound_ms": 366,
-      "render_rtf": 0.452,
-      "longest_stall_ms": 0,
-      "longest_wait_ms": 0,
-      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
-      "measured": "2026-10-11"
-    },
-    "kokoro-direct-v1_0:af_heart@1.25": {
-      "first_sound_ms": 371,
-      "render_rtf": 0.552,
-      "longest_stall_ms": 0,
-      "longest_wait_ms": 0,
-      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
-      "measured": "2026-10-11"
-    },
-    "kokoro-direct-v1_0:af_heart@1.5": {
-      "first_sound_ms": 617,
-      "render_rtf": 0.661,
-      "longest_stall_ms": 0,
-      "longest_wait_ms": 632,
-      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
-      "measured": "2026-10-11"
-    },
-    "kokoro-direct-v1_0:af_heart@2": {
-      "first_sound_ms": 678,
-      "render_rtf": 0.919,
-      "longest_stall_ms": 0,
-      "longest_wait_ms": 997,
-      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
-      "measured": "2026-10-11"
-    },
-    "pocket-tts-en-v2026_04:alba@1": {
-      "first_sound_ms": 350,
-      "render_rtf": 0.31,
-      "longest_stall_ms": 0,
-      "longest_wait_ms": 0,
-      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
-      "measured": "2026-10-11"
-    },
-    "pocket-tts-en-v2026_04:alba@1.25": {
-      "first_sound_ms": 334,
-      "render_rtf": 0.378,
-      "longest_stall_ms": 0,
-      "longest_wait_ms": 0,
-      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
-      "measured": "2026-10-11"
-    },
-    "pocket-tts-en-v2026_04:alba@1.5": {
-      "first_sound_ms": 321,
+      "first_sound_ms": 401,
       "render_rtf": 0.455,
       "longest_stall_ms": 0,
       "longest_wait_ms": 0,
-      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
-      "measured": "2026-10-11"
+      "build": "app.marmalade.tts.rc 1.2.0 (10020000)",
+      "measured": "2026-10-14"
     },
-    "pocket-tts-en-v2026_04:alba@2": {
-      "first_sound_ms": 394,
-      "render_rtf": 0.614,
+    "kokoro-de-v1_0:thorsten@1.25": {
+      "first_sound_ms": 442,
+      "render_rtf": 0.568,
       "longest_stall_ms": 0,
       "longest_wait_ms": 0,
-      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
-      "measured": "2026-10-11"
+      "build": "app.marmalade.tts.rc 1.2.0 (10020000)",
+      "measured": "2026-10-14"
+    },
+    "kokoro-de-v1_0:thorsten@1.5": {
+      "first_sound_ms": 788,
+      "render_rtf": 0.706,
+      "longest_stall_ms": 0,
+      "longest_wait_ms": 557,
+      "build": "app.marmalade.tts.rc 1.2.0 (10020000)",
+      "measured": "2026-10-14"
+    },
+    "kokoro-de-v1_0:thorsten@2": {
+      "first_sound_ms": 804,
+      "render_rtf": 0.941,
+      "longest_stall_ms": 0,
+      "longest_wait_ms": 1077,
+      "build": "app.marmalade.tts.rc 1.2.0 (10020000)",
+      "measured": "2026-10-14"
+    },
+    "kokoro-direct-v1_0:af_heart@1": {
+      "first_sound_ms": 276,
+      "render_rtf": 0.413,
+      "longest_stall_ms": 0,
+      "longest_wait_ms": 0,
+      "build": "app.marmalade.tts.rc 1.2.0 (10020000)",
+      "measured": "2026-10-14"
+    },
+    "kokoro-direct-v1_0:af_heart@1.25": {
+      "first_sound_ms": 342,
+      "render_rtf": 0.555,
+      "longest_stall_ms": 0,
+      "longest_wait_ms": 0,
+      "build": "app.marmalade.tts.rc 1.2.0 (10020000)",
+      "measured": "2026-10-14"
+    },
+    "kokoro-direct-v1_0:af_heart@1.5": {
+      "first_sound_ms": 620,
+      "render_rtf": 0.687,
+      "longest_stall_ms": 0,
+      "longest_wait_ms": 582,
+      "build": "app.marmalade.tts.rc 1.2.0 (10020000)",
+      "measured": "2026-10-14"
+    },
+    "kokoro-direct-v1_0:af_heart@2": {
+      "first_sound_ms": 782,
+      "render_rtf": 0.933,
+      "longest_stall_ms": 0,
+      "longest_wait_ms": 1050,
+      "build": "app.marmalade.tts.rc 1.2.0 (10020000)",
+      "measured": "2026-10-14"
+    },
+    "pocket-tts-en-v2026_04:alba@1": {
+      "first_sound_ms": 338,
+      "render_rtf": 0.31,
+      "longest_stall_ms": 0,
+      "longest_wait_ms": 0,
+      "build": "app.marmalade.tts.rc 1.2.0 (10020000)",
+      "measured": "2026-10-14"
+    },
+    "pocket-tts-en-v2026_04:alba@1.25": {
+      "first_sound_ms": 345,
+      "render_rtf": 0.388,
+      "longest_stall_ms": 0,
+      "longest_wait_ms": 0,
+      "build": "app.marmalade.tts.rc 1.2.0 (10020000)",
+      "measured": "2026-10-14"
+    },
+    "pocket-tts-en-v2026_04:alba@1.5": {
+      "first_sound_ms": 270,
+      "render_rtf": 0.453,
+      "longest_stall_ms": 0,
+      "longest_wait_ms": 0,
+      "build": "app.marmalade.tts.rc 1.2.0 (10020000)",
+      "measured": "2026-10-14"
+    },
+    "pocket-tts-en-v2026_04:alba@2": {
+      "first_sound_ms": 385,
+      "render_rtf": 0.622,
+      "longest_stall_ms": 0,
+      "longest_wait_ms": 0,
+      "build": "app.marmalade.tts.rc 1.2.0 (10020000)",
+      "measured": "2026-10-14"
     },
     "vits-marmalade-v1:en-jenny_dioco-medium@1": {
-      "first_sound_ms": 165,
-      "render_rtf": 0.084,
+      "first_sound_ms": 108,
+      "render_rtf": 0.074,
       "longest_stall_ms": 0,
-      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
-      "measured": "2026-10-10"
+      "longest_wait_ms": 0,
+      "build": "app.marmalade.tts.rc 1.2.0 (10020000)",
+      "measured": "2026-10-14"
     },
     "vits-marmalade-v1:en-jenny_dioco-medium@1.25": {
-      "first_sound_ms": 132,
-      "render_rtf": 0.096,
+      "first_sound_ms": 134,
+      "render_rtf": 0.095,
       "longest_stall_ms": 0,
-      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
-      "measured": "2026-10-10"
+      "longest_wait_ms": 0,
+      "build": "app.marmalade.tts.rc 1.2.0 (10020000)",
+      "measured": "2026-10-14"
     },
     "vits-marmalade-v1:en-jenny_dioco-medium@1.5": {
-      "first_sound_ms": 119,
-      "render_rtf": 0.114,
-      "longest_stall_ms": 145,
-      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
-      "measured": "2026-10-10"
+      "first_sound_ms": 109,
+      "render_rtf": 0.11,
+      "longest_stall_ms": 0,
+      "longest_wait_ms": 132,
+      "build": "app.marmalade.tts.rc 1.2.0 (10020000)",
+      "measured": "2026-10-14"
     },
     "vits-marmalade-v1:en-jenny_dioco-medium@2": {
-      "first_sound_ms": 162,
-      "render_rtf": 0.164,
-      "longest_stall_ms": 191,
-      "build": "app.marmalade.tts.rc 1.1.0 (10010000)",
-      "measured": "2026-10-10"
+      "first_sound_ms": 98,
+      "render_rtf": 0.14,
+      "longest_stall_ms": 0,
+      "longest_wait_ms": 207,
+      "build": "app.marmalade.tts.rc 1.2.0 (10020000)",
+      "measured": "2026-10-14"
     }
   },
   "phone": "Pixel 6a",
