@@ -687,12 +687,14 @@ private fun UnknownEngineBody(name: String, padding: androidx.compose.foundation
     }
 }
 
+/** The quiet section label Settings uses (#83): dim ink, never orange on stone. */
 @Composable
 private fun DetailSectionHeader(label: String) {
     Text(
         text = label,
-        style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.primary,
+        style = MaterialTheme.typography.labelLarge,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.depth.dim,
         modifier = Modifier
             .semantics { heading() }
             .padding(
