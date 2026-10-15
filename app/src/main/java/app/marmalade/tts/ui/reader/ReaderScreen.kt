@@ -7,6 +7,7 @@ import android.os.SystemClock
 import android.util.Log
 import android.view.accessibility.AccessibilityManager
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -41,7 +42,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.CenterAlignedTopAppBar
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
@@ -69,7 +69,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -95,6 +99,13 @@ import app.marmalade.tts.reader.ArticleBlock
 import app.marmalade.tts.reader.ReaderPlaybackState
 import app.marmalade.tts.reader.ReaderPlaybackStatus
 import app.marmalade.tts.service.SpeakDispatcher
+import app.marmalade.tts.ui.components.WorkingDots
+import app.marmalade.tts.ui.theme.MarmaladeMotion
+import app.marmalade.tts.ui.theme.SoftShadow
+import app.marmalade.tts.ui.theme.darkDepth
+import app.marmalade.tts.ui.theme.depth
+import app.marmalade.tts.ui.theme.lightDepth
+import app.marmalade.tts.ui.theme.softShadow
 import kotlinx.coroutines.launch
 
 // -----------------------------------------------------------------------------
@@ -104,7 +115,7 @@ import kotlinx.coroutines.launch
 //                                                            │
 //                                             ReaderViewModel.state
 //                                                            │
-//     Loading ──► spinner + the host we're contacting
+//     Loading ──► working dots + the host we're contacting
 //     Ready   ──► LazyColumn: title header, byline, then one row per block
 //     Failed  ──► reason message + "open in browser" / "read text as-is"
 //
@@ -255,7 +266,9 @@ fun ReaderScreen(
             },
             bottomBar = {
                 if (ready != null) {
-                    Column {
+                    // The error line rides inside the raised bar, so the bar's
+                    // shadow falls on the page above it and never across it.
+                    Column(modifier = Modifier.raisedBar(surface.palette)) {
                         playbackError?.let { PlaybackErrorLine(it, surface.palette) }
                         TransportBar(
                             blockCount = ready.blocks.size,
@@ -330,7 +343,7 @@ private fun LoadingBody(host: String) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        CircularProgressIndicator()
+        WorkingDots()
         Spacer(Modifier.height(20.dp))
         Text(
             text = stringResource(R.string.reader_loading),
@@ -665,9 +678,9 @@ private fun TransportBar(
     onNext: () -> Unit,
 ) {
     val isPlaying = playback.status == ReaderPlaybackStatus.Playing
-    // The highlight tint, not the page color: it separates the bar from the
-    // article without introducing a fourth color per preset.
-    Surface(color = palette.highlight, contentColor = palette.text) {
+    // The paper's raised step (see [raisedBar]); the hairline and shadow that
+    // lift it off the article come from the Column it sits in.
+    Surface(color = palette.raised(), contentColor = palette.text) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -707,23 +720,31 @@ private fun TransportBar(
                         tint = palette.text,
                     )
                 }
+                val playPauseLabel =
+                    stringResource(if (isPlaying) R.string.reader_pause else R.string.reader_play)
                 FilledIconButton(
                     onClick = onPlayPause,
                     colors = IconButtonDefaults.filledIconButtonColors(
                         containerColor = palette.text,
                         contentColor = palette.background,
                     ),
+                    // The label sits on the button, not the glyphs: mid-fade both
+                    // glyphs are composed, and TalkBack must not hear both.
+                    modifier = Modifier.semantics { contentDescription = playPauseLabel },
                 ) {
-                    if (isPlaying) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_reader_pause),
-                            contentDescription = stringResource(R.string.reader_pause),
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Filled.PlayArrow,
-                            contentDescription = stringResource(R.string.reader_play),
-                        )
+                    Crossfade(
+                        targetState = isPlaying,
+                        animationSpec = MarmaladeMotion.fast(),
+                        label = "playPause",
+                    ) { playing ->
+                        if (playing) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_reader_pause),
+                                contentDescription = null,
+                            )
+                        } else {
+                            Icon(imageVector = Icons.Filled.PlayArrow, contentDescription = null)
+                        }
                     }
                 }
                 IconButton(onClick = onNext) {
@@ -815,6 +836,44 @@ private fun AliasDial(
     }
 }
 
+/** How far ink lifts a dark paper's raised step: the lab's raised bar, in the paper's colours. */
+private const val DARK_PAPER_LIFT = 0.06f
+
+private fun ReaderPalette.isDark(): Boolean = background.luminance() < 0.5f
+
+/**
+ * The paper's raised step, for the transport bar. The bar sits on the page,
+ * whose preset can disagree with the app theme (a light app reading on black),
+ * so it is built from the paper, not from MaterialTheme.depth: a dark paper
+ * lifts a step with its own ink, as the dark ramp's raised surface does; a
+ * light one stays the page colour and lets the shadow lift it, as light
+ * mode's near-white raised step does.
+ */
+private fun ReaderPalette.raised(): Color =
+    if (isDark()) text.copy(alpha = DARK_PAPER_LIFT).compositeOver(background) else background
+
+/**
+ * The lab's raised bar around the reader's bottom unit: a soft shadow cast up
+ * onto the article and a hairline along the top. Both follow the paper, not
+ * the app: the hairline is the paper's ink at the theme's line strength, the
+ * shadow the dark or light ramp's bar shadow by the paper's brightness (a
+ * black shadow on a white page would read as a smudge).
+ */
+@Composable
+private fun Modifier.raisedBar(palette: ReaderPalette): Modifier {
+    val scheme = MaterialTheme.colorScheme
+    val paperIsDark = palette.isDark()
+    val shadow: SoftShadow? = remember(scheme, paperIsDark) {
+        (if (paperIsDark) darkDepth(scheme) else lightDepth(scheme)).barShadow
+    }
+    val hairline = palette.text.copy(alpha = MaterialTheme.depth.line.alpha)
+    return softShadow(shadow, RectangleShape).drawWithContent {
+        drawContent()
+        val y = 0.5.dp.toPx()
+        drawLine(hairline, Offset(0f, y), Offset(size.width, y), strokeWidth = 1.dp.toPx())
+    }
+}
+
 /**
  * Whether the alias dial shows its speed badge: only when the badge wouldn't
  * read "1×". At 1× the bar stays a plain icon; the sheet still shows the speed.
@@ -838,8 +897,15 @@ private fun BlockRow(
     val shape = RoundedCornerShape(8.dp)
     // Cross-fade rather than snap: the highlight moves on every block
     // boundary, and a hard swap of a full-width background reads as a flicker.
+    // It fades out to the highlight at zero alpha, not Color.Transparent
+    // (transparent black), so the wash leaving a block doesn't dim on its way.
     val background by animateColorAsState(
-        targetValue = if (isCurrent) surface.palette.highlight else Color.Transparent,
+        targetValue = if (isCurrent) {
+            surface.palette.highlight
+        } else {
+            surface.palette.highlight.copy(alpha = 0f)
+        },
+        animationSpec = MarmaladeMotion.base(),
         label = "blockHighlight",
     )
     Box(

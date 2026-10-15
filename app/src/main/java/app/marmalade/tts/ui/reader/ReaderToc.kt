@@ -15,10 +15,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
@@ -30,6 +32,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import app.marmalade.tts.R
 import app.marmalade.tts.reader.ArticleBlock
+import app.marmalade.tts.ui.theme.depth
 
 // -----------------------------------------------------------------------------
 // Table of contents — the article's own headings, as a way to jump.
@@ -120,12 +123,17 @@ fun ReaderTocDrawer(
         ModalNavigationDrawer(
             drawerState = drawerState,
             gesturesEnabled = drawerState.isOpen,
+            scrimColor = MaterialTheme.depth.scrim,
             drawerContent = {
                 CompositionLocalProvider(LocalLayoutDirection provides direction) {
                     // Rounded on the side facing the page; no status-bar
-                    // inset: AppRoot's Scaffold already sits below it.
+                    // inset: AppRoot's Scaffold already sits below it. The
+                    // sheet step of the surface ramp, untinted, like the app's
+                    // bottom sheets.
                     ModalDrawerSheet(
                         drawerShape = RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp),
+                        drawerContainerColor = MaterialTheme.depth.sheet,
+                        drawerTonalElevation = 0.dp,
                         windowInsets = WindowInsets(0),
                     ) {
                         TocList(entries, currentBlockIndex, onEntryTapped)
@@ -145,6 +153,13 @@ private fun TocList(
     onEntryTapped: (Int) -> Unit,
 ) {
     val current = currentTocEntry(entries, currentBlockIndex)
+    // The section being read gets the toast wash (the lab's active row) in
+    // place of Material's secondary-container pill; the rest stay quiet ink.
+    val itemColors = NavigationDrawerItemDefaults.colors(
+        selectedContainerColor = MaterialTheme.depth.selected,
+        unselectedContainerColor = Color.Transparent,
+        selectedTextColor = MaterialTheme.colorScheme.onSurface,
+    )
     val readFromHere = stringResource(R.string.reader_read_from_here)
     // Opens on the section being read, a little of the one before showing.
     val listState = rememberLazyListState(
@@ -176,6 +191,7 @@ private fun TocList(
                     // `selected` also tells TalkBack which section is being read.
                     selected = isCurrent,
                     onClick = { onEntryTapped(entry.blockIndex) },
+                    colors = itemColors,
                     modifier = Modifier
                         .padding(start = TOC_INDENT * entry.depth)
                         .semantics {
