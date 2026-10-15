@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.progressSemantics
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.DropdownMenu
@@ -54,7 +55,8 @@ import app.marmalade.tts.ui.theme.softShadow
  * edge a card gets is the error red, through [border].
  *
  * [selected] washes the fill with toast (the lab's active row) and animates
- * the change. Clickable when [onClick] is set.
+ * the change; [selectedFill] overrides that wash where a screen needs a
+ * stronger one. Clickable when [onClick] is set.
  */
 @Composable
 fun MarmaladeCard(
@@ -62,6 +64,7 @@ fun MarmaladeCard(
     onClick: (() -> Unit)? = null,
     enabled: Boolean = true,
     selected: Boolean = false,
+    selectedFill: Color? = null,
     shape: Shape = MaterialTheme.shapes.medium,
     border: BorderStroke? = null,
     content: @Composable ColumnScope.() -> Unit,
@@ -69,7 +72,11 @@ fun MarmaladeCard(
     val depth = MaterialTheme.depth
     val fill by animateColorAsState(
         // Opaque, so the shadow under the card never shows through the wash.
-        targetValue = if (selected) depth.selected.compositeOver(depth.card) else depth.card,
+        targetValue = when {
+            !selected -> depth.card
+            selectedFill != null -> selectedFill
+            else -> depth.selected.compositeOver(depth.card)
+        },
         animationSpec = MarmaladeMotion.fast(),
         label = "cardFill",
     )
@@ -161,18 +168,22 @@ fun chevronAngle(expanded: Boolean, openDegrees: Float = 180f): Float {
 /**
  * "Working": three dots that pulse in turn (the lab's 1.4 s live pulse).
  * Replaces the spinning ring, which Max rejected. Under reduced motion the
- * dots stand still. Decorative: the caller's text or semantics say what is
- * happening.
+ * dots stand still. Like the ring, it tells TalkBack "in progress"
+ * ([announce]); pass false where a live text line already says it.
  */
 @Composable
 fun WorkingDots(
     modifier: Modifier = Modifier,
     color: Color = MaterialTheme.colorScheme.tertiary,
     dotSize: Dp = 8.dp,
+    announce: Boolean = true,
 ) {
     val still = rememberReducedMotion()
     val pulse = rememberInfiniteTransition(label = "workingDots")
-    Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(dotSize * 0.75f)) {
+    Row(
+        modifier = if (announce) modifier.progressSemantics() else modifier,
+        horizontalArrangement = Arrangement.spacedBy(dotSize * 0.75f),
+    ) {
         repeat(3) { i ->
             val a by pulse.animateFloat(
                 initialValue = 1f,

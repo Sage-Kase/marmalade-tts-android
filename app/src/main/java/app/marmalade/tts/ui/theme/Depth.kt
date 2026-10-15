@@ -54,6 +54,8 @@ data class SoftShadow(
  */
 @Immutable
 data class MarmaladeDepth(
+    /** The page is dark: the cue for the brand's dark-mode swaps. */
+    val isDark: Boolean,
     val dim: Color,
     val faint: Color,
     val ghost: Color,
@@ -88,19 +90,18 @@ enum class LightDepth { FLAT, SOFT, LIFTED }
 /** The shipped light-mode pick. */
 val LIGHT_DEPTH = LightDepth.SOFT
 
-private val Toast = Color(0xFFFED7AA)
-
 /** Dark: Stone 800 cards on stone deep; shadows from the agent-cards lab. */
 internal fun darkDepth(scheme: ColorScheme): MarmaladeDepth {
     val ink = scheme.onSurface
     return MarmaladeDepth(
+        isDark = true,
         dim = ink.copy(alpha = 0.64f),
         faint = ink.copy(alpha = 0.40f),
         ghost = ink.copy(alpha = 0.22f),
         line = ink.copy(alpha = 0.07f),
         line2 = ink.copy(alpha = 0.11f),
         hover = ink.copy(alpha = 0.05f),
-        selected = Toast.copy(alpha = 0.10f),
+        selected = MarmaladeToast.copy(alpha = 0.10f),
         page = scheme.background,
         card = scheme.surfaceContainerHigh,
         raised = scheme.surfaceContainerHighest,
@@ -119,16 +120,17 @@ internal fun darkDepth(scheme: ColorScheme): MarmaladeDepth {
  */
 internal fun lightDepth(scheme: ColorScheme, pick: LightDepth = LIGHT_DEPTH): MarmaladeDepth {
     val ink = scheme.onSurface
-    val warm = Color(0xFF7C2D12)
+    val warm = MarmaladeToastInk
     val shadowed = pick != LightDepth.FLAT
     return MarmaladeDepth(
+        isDark = false,
         dim = ink.copy(alpha = 0.64f),
         faint = ink.copy(alpha = 0.52f),
         ghost = ink.copy(alpha = 0.24f),
         line = ink.copy(alpha = 0.08f),
         line2 = ink.copy(alpha = 0.13f),
         hover = ink.copy(alpha = 0.05f),
-        selected = Toast.copy(alpha = 0.55f),
+        selected = MarmaladeToast.copy(alpha = 0.55f),
         page = scheme.background,
         card = if (pick == LightDepth.LIFTED) scheme.surfaceContainerLow else scheme.surfaceContainerHigh,
         raised = scheme.surfaceContainerLowest,

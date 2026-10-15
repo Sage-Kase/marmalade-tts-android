@@ -112,6 +112,14 @@ val MarmaladeDarkColors = darkColorScheme(
     surfaceTint = Color(0xFFFB923C),
 )
 
+/**
+ * Toast and its ink (brand v0): the default button, the selected chip and
+ * the dark-mode stand-in for orange (an active tab, a primary badge), in
+ * every preset. Never a large dark-mode surface.
+ */
+val MarmaladeToast = Color(0xFFFED7AA)               // Orange 200
+val MarmaladeToastInk = Color(0xFF7C2D12)            // Orange 900
+
 // =============================================================================
 // Theme Presets
 // =============================================================================
