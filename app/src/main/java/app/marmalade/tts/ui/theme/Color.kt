@@ -77,28 +77,30 @@ val MarmaladeDarkColors = darkColorScheme(
     onTertiary = Color(0xFF1C1917),
     tertiaryContainer = Color(0xFF9A3412),
     onTertiaryContainer = Color(0xFFFED7AA),
-    surface = Color(0xFF262626),
+    surface = Color(0xFF1C1917),             // Stone deep — bars sit on the page
     onSurface = Color(0xFFFAFAF9),           // Stone 50
-    surfaceVariant = Color(0xFF3D3D3D),
+    surfaceVariant = Color(0xFF292524),      // Stone 800
     onSurfaceVariant = Color(0xFFD6D3D1),    // Stone 300
     // Same reason as the light scheme — see the note there. Warm-neutral
     // stone ladder rather than Material's baseline, which reads violet in
     // dark mode too. Per the brand scheme, dark mode gets no orange
     // surfaces: the warmth comes from the cream text on stone.
-    surfaceContainerLowest = Color(0xFF141210),
-    surfaceContainerLow = Color(0xFF1F1D1B),
-    surfaceContainer = Color(0xFF292524),    // Stone 800 — cards, nav bar
-    surfaceContainerHigh = Color(0xFF332F2C),
-    surfaceContainerHighest = Color(0xFF3D3835),
+    // The ladder is the agent-cards lab's (#83): stone deep page → Stone 800
+    // cards → a step above for menus; sheets sit just above the page.
+    surfaceContainerLowest = Color(0xFF151311),
+    surfaceContainerLow = Color(0xFF221E1C),     // sheets
+    surfaceContainer = Color(0xFF24201E),        // nav bar
+    surfaceContainerHigh = Color(0xFF292524),    // Stone 800 — cards
+    surfaceContainerHighest = Color(0xFF2F2A28), // menus, raised rows
     surfaceBright = Color(0xFF383430),
     surfaceDim = Color(0xFF1C1917),
-    background = Color(0xFF1A1A1A),
+    background = Color(0xFF1C1917),          // Stone deep
     onBackground = Color(0xFFFAFAF9),        // Stone 50
     error = Color(0xFFEF4444),
-    onError = Color(0xFF1A1A1A),
+    onError = Color(0xFF1C1917),
     errorContainer = Color(0xFF7F1D1D),
     onErrorContainer = Color(0xFFFECACA),
-    outline = Color(0xFF737373),
+    outline = Color(0xFF78716C),             // Stone 500
     outlineVariant = Color(0xFF3D3D3D),
     inverseSurface = Color(0xFFFAFAF9),
     inverseOnSurface = Color(0xFF1C1917),
