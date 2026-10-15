@@ -96,7 +96,7 @@
     <string name="engine_kitten_license">Apache-2.0 model; phonemized by the app’s built-in espeak-ng (GPL-3.0-or-later).</string>
 
     <string name="engine_kokoro_tagline">The widest language coverage and the best all-round voices.</string>
-    <string name="engine_kokoro_desc">Best all-round quality with the widest language support — 53 voices across 9 languages, including English, Spanish, French, Italian, Hindi, Portuguese, Japanese, and Mandarin. Runs fully on your device; Japanese and Mandarin use bundled pronunciation data and the other languages use espeak-ng, all loaded at runtime.</string>
+    <string name="engine_kokoro_desc">Best all-round quality with the widest language support — 52 voices across 9 languages, including English, Spanish, French, Italian, Hindi, Portuguese, Japanese, and Mandarin. Runs fully on your device; Japanese and Mandarin use bundled pronunciation data and the other languages use espeak-ng, all loaded at runtime.</string>
     <string name="engine_kokoro_license">Apache-2.0 model + BSD-3 Open JTalk dictionary (Japanese) + CC-BY-SA-4.0 Mandarin lexicon (partly derived from CC-CEDICT); European langs phonemized by the app’s built-in espeak-ng (GPL-3.0-or-later).</string>
 
     <string name="engine_kokoro_de_tagline">A native German voice, fine-tuned from Kokoro.</string>
