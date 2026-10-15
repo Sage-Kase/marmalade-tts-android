@@ -1,5 +1,6 @@
 package app.marmalade.tts.ui.screen
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -11,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -19,10 +19,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -42,6 +40,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.marmalade.tts.R
 import app.marmalade.tts.data.cloud.CloudProvider
+import app.marmalade.tts.ui.components.MarmaladeCard
+import app.marmalade.tts.ui.components.WorkingDots
+import app.marmalade.tts.ui.theme.MarmaladeMotion
 
 // -----------------------------------------------------------------------------
 // Cloud voices — configure surface
@@ -113,6 +114,13 @@ fun CloudApiContent(
             }
             items(items = providers, key = { it.id }) { provider ->
                 ProviderCard(
+                    // The list refreshes from the engines repo on open; a
+                    // provider it adds or drops fades in or out in place.
+                    modifier = Modifier.animateItem(
+                        fadeInSpec = MarmaladeMotion.base(),
+                        placementSpec = MarmaladeMotion.slow(),
+                        fadeOutSpec = MarmaladeMotion.fast(),
+                    ),
                     provider = provider,
                     keyed = provider.id in keyedIds,
                     voiceCount = voiceCounts[provider.id] ?: 0,
@@ -259,8 +267,9 @@ private fun ProviderCard(
     error: String?,
     onSetKey: () -> Unit,
     onRefreshVoices: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+    MarmaladeCard(modifier = modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -269,12 +278,13 @@ private fun ProviderCard(
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f),
                 )
-                if (busy) {
-                    CircularProgressIndicator(
-                        // .size() — see EngineDetailScreen for why not .height().
-                        modifier = Modifier.size(20.dp),
-                        strokeWidth = 2.5.dp,
-                    )
+                // Syncing: the working dots fade in beside the name.
+                AnimatedVisibility(
+                    visible = busy,
+                    enter = MarmaladeMotion.fadeEnter,
+                    exit = MarmaladeMotion.fadeExit,
+                ) {
+                    WorkingDots()
                 }
             }
 
