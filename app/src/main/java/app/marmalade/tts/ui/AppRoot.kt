@@ -1,12 +1,12 @@
 package app.marmalade.tts.ui
 
+import android.net.Uri
+import android.os.Build
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import android.net.Uri
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.exclude
 import androidx.compose.foundation.layout.navigationBars
@@ -14,12 +14,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.Text
@@ -29,7 +30,9 @@ import androidx.compose.runtime.getValue
 import androidx.annotation.StringRes
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -60,6 +63,13 @@ import app.marmalade.tts.ui.screen.PrivacyPolicyScreen
 import app.marmalade.tts.ui.screen.SettingsScreen
 import app.marmalade.tts.ui.screen.SpeakScreen
 import app.marmalade.tts.ui.screen.VoicePickerScreen
+import app.marmalade.tts.ui.theme.MarmaladeMotion
+import app.marmalade.tts.ui.theme.MarmaladeToast
+import app.marmalade.tts.ui.theme.MarmaladeToastInk
+import app.marmalade.tts.ui.theme.ThemePreset
+import app.marmalade.tts.ui.theme.depth
+import app.marmalade.tts.ui.theme.riseIn
+import app.marmalade.tts.ui.theme.softShadow
 import app.marmalade.tts.ui.whatsnew.WhatsNewDialog
 
 // -----------------------------------------------------------------------------
@@ -243,6 +253,21 @@ private val NAV_TABS = listOf(
     ),
 )
 
+/** True for a bottom-bar tab; every other route is a detail page. */
+private fun isTabRoute(route: String?): Boolean = NAV_TABS.any { it.route == route }
+
+/**
+ * Whether [preset] renders the Marmalade palette: the preset itself, or
+ * System before Android 12, which has no Material You and falls back to it
+ * (the same rule as the wordmark colour in MarmaladeTtsTheme). There the
+ * selected tab's pill is toast with its ink in both modes (brand v0): the
+ * scheme's own indicator role (secondaryContainer) is the cream page colour
+ * in light mode, so the pill vanished.
+ */
+private fun usesMarmaladePalette(preset: ThemePreset): Boolean =
+    preset == ThemePreset.MARMALADE ||
+        (preset == ThemePreset.SYSTEM && Build.VERSION.SDK_INT < Build.VERSION_CODES.S)
+
 /**
  * A link the user shared, waiting to be opened in reader mode.
  * [sharedText] is the whole share payload; [url] is the link found inside it.
@@ -367,6 +392,15 @@ fun AppRoot(
         WhatsNewDialog(onDismiss = viewModel::dismissWhatsNew)
     }
 
+    val themePreset by viewModel.themePreset.collectAsStateWithLifecycle(
+        initialValue = ThemePreset.MARMALADE,
+    )
+    val depth = MaterialTheme.depth
+    // A detail page rises 8 dp into place as it fades in (#83); built here
+    // because riseIn() reads the density, which the NavHost's transition
+    // lambdas can't.
+    val detailEnter = riseIn()
+
     Scaffold(
         contentWindowInsets = if (readerOwnsBottomInset) {
             ScaffoldDefaults.contentWindowInsets
@@ -377,27 +411,49 @@ fun AppRoot(
         bottomBar = {
             AnimatedVisibility(
                 visible = showBottomBar,
-                enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+                enter = slideInVertically(
+                    animationSpec = tween(MarmaladeMotion.SLOW_MS, easing = MarmaladeMotion.Ease),
+                    initialOffsetY = { it },
+                ) + MarmaladeMotion.fadeEnter,
+                exit = slideOutVertically(
+                    animationSpec = tween(MarmaladeMotion.BASE_MS, easing = MarmaladeMotion.Ease),
+                    targetOffsetY = { it },
+                ) + MarmaladeMotion.fadeExit,
             ) {
-                NavigationBar {
-                    val backStackEntry = navController.currentBackStackEntryAsState().value
-                    NAV_TABS.forEach { tab ->
-                        val selected = backStackEntry?.destination?.hierarchy?.any {
-                            it.route == tab.route
-                        } == true
-                        val label = stringResource(tab.label)
-                        NavigationBarItem(
-                            selected = selected,
-                            onClick = { navController.navigateToTab(tab.route) },
-                            icon = {
-                                Icon(
-                                    imageVector = if (selected) tab.filledIcon else tab.outlinedIcon,
-                                    contentDescription = label,
-                                )
-                            },
-                            label = { Text(label) },
-                        )
+                // The bar sits on the page with a hairline above it and the
+                // soft bar shadow, not Material's tonal lift.
+                Column(Modifier.softShadow(depth.barShadow, RectangleShape)) {
+                    HorizontalDivider(color = depth.line)
+                    NavigationBar(tonalElevation = 0.dp) {
+                        val backStackEntry = navController.currentBackStackEntryAsState().value
+                        val itemColors = if (usesMarmaladePalette(themePreset)) {
+                            NavigationBarItemDefaults.colors(
+                                indicatorColor = MarmaladeToast,
+                                selectedIconColor = MarmaladeToastInk,
+                                // The label sits under the pill, on the bar.
+                                selectedTextColor = MaterialTheme.colorScheme.onSurface,
+                            )
+                        } else {
+                            NavigationBarItemDefaults.colors()
+                        }
+                        NAV_TABS.forEach { tab ->
+                            val selected = backStackEntry?.destination?.hierarchy?.any {
+                                it.route == tab.route
+                            } == true
+                            val label = stringResource(tab.label)
+                            NavigationBarItem(
+                                selected = selected,
+                                onClick = { navController.navigateToTab(tab.route) },
+                                icon = {
+                                    Icon(
+                                        imageVector = if (selected) tab.filledIcon else tab.outlinedIcon,
+                                        contentDescription = label,
+                                    )
+                                },
+                                label = { Text(label) },
+                                colors = itemColors,
+                            )
+                        }
                     }
                 }
             }
@@ -407,8 +463,14 @@ fun AppRoot(
             navController = navController,
             startDestination = Routes.Speak,
             modifier = Modifier.padding(innerPadding),
-            enterTransition = { fadeIn(animationSpec = tween(150)) },
-            exitTransition = { fadeOut(animationSpec = tween(150)) },
+            // Tabs crossfade; a detail page opening rises in. Going back only
+            // fades, so nothing ever slides sideways or rises on the way out.
+            enterTransition = {
+                if (isTabRoute(targetState.destination.route)) MarmaladeMotion.fadeEnter else detailEnter
+            },
+            exitTransition = { MarmaladeMotion.fadeExit },
+            popEnterTransition = { MarmaladeMotion.fadeEnter },
+            popExitTransition = { MarmaladeMotion.fadeExit },
         ) {
             composable(Routes.Speak) {
                 SpeakScreen(
