@@ -10,6 +10,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import app.marmalade.tts.ui.theme.MarmaladeDarkColors
+import app.marmalade.tts.ui.theme.MarmaladeToast
+import app.marmalade.tts.ui.theme.MarmaladeToastInk
+import app.marmalade.tts.ui.theme.depth
 
 /**
  * App-wide FilterChip with consistent fill-only styling — no borders.
@@ -19,7 +23,10 @@ import androidx.compose.ui.unit.dp
  * dark mode) without needing an outline.
  *
  * Selected: `primaryContainer` — the vibrant orange tint that reads
- * unambiguously as "this is the active choice."
+ * unambiguously as "this is the active choice." In dark mode on the
+ * Marmalade palette that role is an Orange 800 slab, so the selected chip
+ * is toast with its ink there instead (brand v0's selected chip, #83);
+ * other presets keep their own primaryContainer.
  *
  * No border on either state — the fill alone carries the chip shape,
  * which gives a cleaner UI than the default M3 outline-when-unselected
@@ -36,6 +43,10 @@ fun MarmaladeFilterChip(
     enabled: Boolean = true,
     leadingIcon: @Composable (() -> Unit)? = null,
 ) {
+    val scheme = MaterialTheme.colorScheme
+    val toast = MaterialTheme.depth.isDark && scheme.primaryContainer == MarmaladeDarkColors.primaryContainer
+    val selectedFill = if (toast) MarmaladeToast else scheme.primaryContainer
+    val selectedInk = if (toast) MarmaladeToastInk else scheme.onPrimaryContainer
     FilterChip(
         selected = selected,
         onClick = onClick,
@@ -44,11 +55,11 @@ fun MarmaladeFilterChip(
         enabled = enabled,
         leadingIcon = leadingIcon,
         colors = FilterChipDefaults.filterChipColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-            labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-            selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            containerColor = scheme.surfaceVariant,
+            labelColor = scheme.onSurfaceVariant,
+            selectedContainerColor = selectedFill,
+            selectedLabelColor = selectedInk,
+            selectedLeadingIconColor = selectedInk,
         ),
         border = null,
     )
