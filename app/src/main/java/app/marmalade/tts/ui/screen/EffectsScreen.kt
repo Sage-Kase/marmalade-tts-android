@@ -120,7 +120,9 @@ fun EffectsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),
-            contentPadding = PaddingValues(16.dp),
+            // Clear the FAB (as on Aliases), so the last effect's play and
+            // duplicate buttons are reachable at the bottom of the list.
+            contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
