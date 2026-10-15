@@ -25,9 +25,11 @@ internal object BenchDevice {
     fun thermal(context: Context): String {
         val pm = context.getSystemService(PowerManager::class.java)
         val headroom = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) pm.getThermalHeadroom(10) else Float.NaN
+        // currentThermalStatus is API 29; minSdk is 28 (Android 9 logs -1).
+        val status = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) pm.currentThermalStatus else -1
         val battery = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
         val tempC = (battery?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -10) ?: -10) / 10.0
-        return String.format(Locale.ROOT, "thermalStatus=%d headroom=%.2f batteryC=%.1f", pm.currentThermalStatus, headroom, tempC)
+        return String.format(Locale.ROOT, "thermalStatus=%d headroom=%.2f batteryC=%.1f", status, headroom, tempC)
     }
 
     // Developer-only, debug-build-only notification: English on purpose (the
