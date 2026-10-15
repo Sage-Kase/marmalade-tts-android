@@ -46,6 +46,10 @@ val MarmaladeLightColors = lightColorScheme(
     surfaceContainer = Color(0xFFFFEDD5),        // Orange 100 — nav bar
     surfaceContainerHigh = Color(0xFFFFEDD5),
     surfaceContainerHighest = Color(0xFFFFEDD5), // Orange 100 — cards
+    // Bright/Dim too (#83): unset, they fall back to the lavender baseline.
+    // Values match marmalade-android's shipped scheme.
+    surfaceBright = Color(0xFFFFF7ED),
+    surfaceDim = Color(0xFFEFE4D6),
     background = Color(0xFFFFF7ED),          // Orange 50
     onBackground = Color(0xFF1C1917),        // Stone 900
     error = Color(0xFFDC2626),               // Red 600
@@ -86,6 +90,8 @@ val MarmaladeDarkColors = darkColorScheme(
     surfaceContainer = Color(0xFF292524),    // Stone 800 — cards, nav bar
     surfaceContainerHigh = Color(0xFF332F2C),
     surfaceContainerHighest = Color(0xFF3D3835),
+    surfaceBright = Color(0xFF383430),
+    surfaceDim = Color(0xFF1C1917),
     background = Color(0xFF1A1A1A),
     onBackground = Color(0xFFFAFAF9),        // Stone 50
     error = Color(0xFFEF4444),
