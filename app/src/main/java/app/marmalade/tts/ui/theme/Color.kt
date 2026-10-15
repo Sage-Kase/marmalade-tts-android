@@ -27,7 +27,11 @@ val MarmaladeLightColors = lightColorScheme(
     surface = Color(0xFFFFF7ED),             // Orange 50
     onSurface = Color(0xFF1C1917),           // Stone 900
     surfaceVariant = Color(0xFFFFEDD5),      // Orange 100
-    onSurfaceVariant = Color(0xFF57534E),    // Stone 600
+    // Quiet text and hairlines are ink at a fixed strength (#83, webui
+    // #259): the same token reads right on the page, a card or a sheet.
+    // 64% ink is the quietest text (≥ 4.5:1 on every surface); dividers
+    // and outlined borders are 13% ink. MarmaladeDepth carries the rest.
+    onSurfaceVariant = Color(0xA31C1917),    // Stone 900 at 64%
     // The surfaceContainer family MUST be set explicitly. Material 3 fills
     // any role left unspecified from its *baseline* palette, which is
     // purple-tinted — and Card reads surfaceContainerLow, NavigationBar
@@ -57,7 +61,7 @@ val MarmaladeLightColors = lightColorScheme(
     errorContainer = Color(0xFFFEE2E2),
     onErrorContainer = Color(0xFF7F1D1D),
     outline = Color(0xFFA8A29E),             // Stone 400
-    outlineVariant = Color(0xFFD6D3D1),      // Stone 300
+    outlineVariant = Color(0x211C1917),      // Stone 900 at 13%
     inverseSurface = Color(0xFF1C1917),
     inverseOnSurface = Color(0xFFFAFAF9),
     inversePrimary = Color(0xFFFB923C),      // Orange 400
@@ -80,7 +84,7 @@ val MarmaladeDarkColors = darkColorScheme(
     surface = Color(0xFF1C1917),             // Stone deep — bars sit on the page
     onSurface = Color(0xFFFAFAF9),           // Stone 50
     surfaceVariant = Color(0xFF292524),      // Stone 800
-    onSurfaceVariant = Color(0xFFD6D3D1),    // Stone 300
+    onSurfaceVariant = Color(0xA3FAFAF9),    // Stone 50 at 64% (see light)
     // Same reason as the light scheme — see the note there. Warm-neutral
     // stone ladder rather than Material's baseline, which reads violet in
     // dark mode too. Per the brand scheme, dark mode gets no orange
@@ -101,7 +105,7 @@ val MarmaladeDarkColors = darkColorScheme(
     errorContainer = Color(0xFF7F1D1D),
     onErrorContainer = Color(0xFFFECACA),
     outline = Color(0xFF78716C),             // Stone 500
-    outlineVariant = Color(0xFF3D3D3D),
+    outlineVariant = Color(0x1CFAFAF9),      // Stone 50 at 11%
     inverseSurface = Color(0xFFFAFAF9),
     inverseOnSurface = Color(0xFF1C1917),
     inversePrimary = Color(0xFFC2410C),      // Orange 700

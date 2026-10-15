@@ -58,6 +58,13 @@ class DepthTest {
         LightDepth.entries.forEach { checkRamp(lightDepth(MarmaladeLightColors, it)) }
 
     @Test
+    fun theSchemesQuietTextIsTheDimStep() {
+        // Material components read onSurfaceVariant; it is the ramp's dim.
+        assertEquals(darkDepth(MarmaladeDarkColors).dim, MarmaladeDarkColors.onSurfaceVariant)
+        assertEquals(lightDepth(MarmaladeLightColors).dim, MarmaladeLightColors.onSurfaceVariant)
+    }
+
+    @Test
     fun flatLightPickHasNoCardShadow() {
         assertNull(lightDepth(MarmaladeLightColors, LightDepth.FLAT).cardShadow)
         assertTrue(lightDepth(MarmaladeLightColors, LightDepth.SOFT).cardShadow != null)
