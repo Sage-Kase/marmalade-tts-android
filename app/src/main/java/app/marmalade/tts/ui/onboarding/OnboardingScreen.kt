@@ -6,12 +6,20 @@ import android.os.Build
 import androidx.annotation.StringRes
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterExitState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.indication
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -31,14 +39,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuBoxScope
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -53,6 +58,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -63,6 +69,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -88,7 +96,14 @@ import app.marmalade.tts.perf.EngineFit
 import app.marmalade.tts.ui.components.EngineSpecColumn
 import app.marmalade.tts.ui.components.JarMascot
 import app.marmalade.tts.ui.components.JarMascotState
+import app.marmalade.tts.ui.components.MarmaladeCard
+import app.marmalade.tts.ui.components.MarmaladeMenu
+import app.marmalade.tts.ui.components.WorkingDots
 import app.marmalade.tts.ui.screen.installFailureText
+import app.marmalade.tts.ui.theme.MarmaladeMotion
+import app.marmalade.tts.ui.theme.MarmaladeToast
+import app.marmalade.tts.ui.theme.depth
+import app.marmalade.tts.ui.theme.riseIn
 
 // -----------------------------------------------------------------------------
 // Data flow
@@ -102,7 +117,7 @@ import app.marmalade.tts.ui.screen.installFailureText
 //     │   OnboardingViewModel
 //     │
 //     ├── Welcome step:   mascot + pitch + "Get started" → vm.next()
-//     ├── EnginePick step: spinner until vm.probeDone, then
+//     ├── EnginePick step: working dots until vm.probeDone, then
 //     │    cards + "Install selected"                    → vm.installSelected()
 //     ├── Installing step: progress per engine
 //     │    │
@@ -123,14 +138,18 @@ import app.marmalade.tts.ui.screen.installFailureText
 // -----------------------------------------------------------------------------
 
 /**
- * First-launch wizard. Three steps:
+ * First-launch wizard, one [OnboardingStep] at a time:
  *
  *  1. Welcome — explain what the app does.
  *  2. Engine picker — let the user choose which engines to download.
  *  3. Install progress — watch the bytes come down, then "Continue."
+ *  4. Create alias — name the first voice (or take the defaults).
+ *  5. Background, notifications — the battery exemption and (Android 13+)
+ *     the notification permission.
+ *  6. System default — pick Marmalade as the system TTS engine.
  *
  * Routing is owned by [OnboardingViewModel.step] — this composable is a
- * dumb switch over the current step value.
+ * dumb (animated) switch over the current step value.
  *
  * On the final "Continue" tap the VM flips `SettingsRepository.onboarded`
  * to true and the supplied [onComplete] callback navigates the host out
@@ -153,90 +172,114 @@ fun OnboardingScreen(
     val probeDone by viewModel.probeDone.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
+    // Each step arrives with the lab's rise (8 dp up and a fade) while the
+    // last one fades out (#83). Each content is keyed by its own step.
+    val stepEnter = riseIn()
     Scaffold { padding ->
-        when (step) {
-            OnboardingStep.Welcome -> WelcomeStep(
-                padding = padding,
-                onGetStarted = viewModel::next,
-            )
-            OnboardingStep.EnginePick -> EnginePickStep(
-                padding = padding,
-                cards = engines,
-                probePending = !probeDone,
-                selectedIds = selected,
-                onToggle = viewModel::toggle,
-                onInstall = viewModel::installSelected,
-                onBack = viewModel::back,
-                onSkip = {
-                    // Installs nothing (the selection set pre-selects the
-                    // recommended engines, so installSelected() here would
-                    // silently download them) and advances to CreateAlias.
-                    // The user still has to create an alias to finish
-                    // onboarding.
-                    viewModel.skipEngineInstall()
-                },
-            )
-            OnboardingStep.Installing -> InstallingStep(
-                padding = padding,
-                installStates = installStates,
-                allEngines = engines.map { it.descriptor },
-                selectedIds = selected,
-                onRetry = viewModel::retry,
-                onRemoveDownload = viewModel::removeDownload,
-                onContinue = {
-                    // Advance to the CreateAlias step. The wizard can no
-                    // longer be exited from here — the user must save an
-                    // alias (or accept "Use defaults") to finish.
-                    viewModel.next()
-                },
-            )
-            OnboardingStep.CreateAlias -> CreateAliasStep(
-                padding = padding,
-                editor = aliasEditor,
-                engines = aliasEngines,
-                voices = installedVoices,
-                aliasCreated = aliasCreated,
-                onSeedDefaults = viewModel::seedAliasDefaults,
-                onNameChange = viewModel::onAliasNameChange,
-                onEngineChange = viewModel::onAliasEngineChange,
-                onVoiceChange = viewModel::onAliasVoiceChange,
-                onSpeedChange = viewModel::onAliasSpeedChange,
-                onEffectChange = viewModel::onAliasEffectChange,
-                // saveAliasAndContinue + useDefaultsAndContinue now both
-                // advance to SystemDefault rather than completing — the
-                // user still needs to enable us as their system TTS
-                // engine before the system-TTS path actually routes here.
-                onSave = { viewModel.saveAliasAndContinue() },
-                onUseDefaults = { viewModel.useDefaultsAndContinue() },
-                onFinish = {
-                    // "Finish setup" branch when an alias already exists
-                    // (sideloaded data). Skip directly to SystemDefault
-                    // so the user still gets the system-TTS-pick prompt.
-                    if (viewModel.advanceToSystemDefault()) {
-                        // step has been moved; the screen recomposes
-                    }
-                },
-            )
-            OnboardingStep.BackgroundUnrestricted -> BackgroundUnrestrictedStep(
-                padding = padding,
-                onOpenSettings = {
-                    app.marmalade.tts.ui.openBatteryOptimizationRequest(context)
-                },
-                onContinue = viewModel::advancePastBackground,
-            )
-            OnboardingStep.NotificationPermission -> NotificationPermissionStep(
-                padding = padding,
-                onContinue = viewModel::advancePastNotifications,
-            )
-            OnboardingStep.SystemDefault -> SystemDefaultStep(
-                padding = padding,
-                onOpenSystemSettings = {
-                    app.marmalade.tts.ui.openSystemTtsSettings(context)
-                },
-                onFinish = {
-                    if (viewModel.finish()) onComplete()
-                },
-            )
+        AnimatedContent(
+            targetState = step,
+            transitionSpec = { (stepEnter togetherWith MarmaladeMotion.fadeExit).using(null) },
+            label = "onboardingStep",
+        ) { shown ->
+            // The outgoing step stays on screen while it fades. Its buttons call
+            // relative moves (vm.next()), so a quick second tap on "Get started"
+            // would skip the engine picker: it takes no input while it leaves.
+            val leaving = transition.targetState == EnterExitState.PostExit
+            Box(if (leaving) Modifier.fillMaxSize().blockTouches() else Modifier.fillMaxSize()) {
+                when (shown) {
+                    OnboardingStep.Welcome -> WelcomeStep(
+                        padding = padding,
+                        onGetStarted = viewModel::next,
+                    )
+                    OnboardingStep.EnginePick -> EnginePickStep(
+                        padding = padding,
+                        cards = engines,
+                        probePending = !probeDone,
+                        selectedIds = selected,
+                        onToggle = viewModel::toggle,
+                        onInstall = viewModel::installSelected,
+                        onBack = viewModel::back,
+                        onSkip = {
+                            // Installs nothing (the selection set pre-selects the
+                            // recommended engines, so installSelected() here would
+                            // silently download them) and advances to CreateAlias.
+                            // The user still has to create an alias to finish
+                            // onboarding.
+                            viewModel.skipEngineInstall()
+                        },
+                    )
+                    OnboardingStep.Installing -> InstallingStep(
+                        padding = padding,
+                        installStates = installStates,
+                        allEngines = engines.map { it.descriptor },
+                        selectedIds = selected,
+                        onRetry = viewModel::retry,
+                        onRemoveDownload = viewModel::removeDownload,
+                        onContinue = {
+                            // Advance to the CreateAlias step. The wizard can no
+                            // longer be exited from here — the user must save an
+                            // alias (or accept "Use defaults") to finish.
+                            viewModel.next()
+                        },
+                    )
+                    OnboardingStep.CreateAlias -> CreateAliasStep(
+                        padding = padding,
+                        editor = aliasEditor,
+                        engines = aliasEngines,
+                        voices = installedVoices,
+                        aliasCreated = aliasCreated,
+                        onSeedDefaults = viewModel::seedAliasDefaults,
+                        onNameChange = viewModel::onAliasNameChange,
+                        onEngineChange = viewModel::onAliasEngineChange,
+                        onVoiceChange = viewModel::onAliasVoiceChange,
+                        onSpeedChange = viewModel::onAliasSpeedChange,
+                        onEffectChange = viewModel::onAliasEffectChange,
+                        // saveAliasAndContinue + useDefaultsAndContinue now both
+                        // advance to SystemDefault rather than completing — the
+                        // user still needs to enable us as their system TTS
+                        // engine before the system-TTS path actually routes here.
+                        onSave = { viewModel.saveAliasAndContinue() },
+                        onUseDefaults = { viewModel.useDefaultsAndContinue() },
+                        onFinish = {
+                            // "Finish setup" branch when an alias already exists
+                            // (sideloaded data). Skip directly to SystemDefault
+                            // so the user still gets the system-TTS-pick prompt.
+                            if (viewModel.advanceToSystemDefault()) {
+                                // step has been moved; the screen recomposes
+                            }
+                        },
+                    )
+                    OnboardingStep.BackgroundUnrestricted -> BackgroundUnrestrictedStep(
+                        padding = padding,
+                        onOpenSettings = {
+                            app.marmalade.tts.ui.openBatteryOptimizationRequest(context)
+                        },
+                        onContinue = viewModel::advancePastBackground,
+                    )
+                    OnboardingStep.NotificationPermission -> NotificationPermissionStep(
+                        padding = padding,
+                        onContinue = viewModel::advancePastNotifications,
+                    )
+                    OnboardingStep.SystemDefault -> SystemDefaultStep(
+                        padding = padding,
+                        onOpenSystemSettings = {
+                            app.marmalade.tts.ui.openSystemTtsSettings(context)
+                        },
+                        onFinish = {
+                            if (viewModel.finish()) onComplete()
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Swallows every touch before the content under it sees one. */
+private fun Modifier.blockTouches(): Modifier = pointerInput(Unit) {
+    awaitPointerEventScope {
+        while (true) {
+            awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
         }
     }
 }
@@ -333,7 +376,9 @@ private fun EnginePickStep(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                CircularProgressIndicator()
+                // Working dots, not a spinning ring (#83). They keep the
+                // indicator's "in progress" semantics; the text says what.
+                WorkingDots()
                 Spacer(Modifier.height(16.dp))
                 Text(
                     text = stringResource(R.string.onboarding_checking_device),
@@ -436,12 +481,23 @@ private fun EngineCard(
     isBuiltIn: Boolean,
     onToggle: () -> Unit,
 ) {
-    // Light mode tints a ticked card deeper than the plain one (Orange 200
-    // over Orange 100): its secondaryContainer is the page colour, which made
-    // a ticked card look like the odd one out (Max, 2026-10-13: "Stronger tint").
+    // Every card is the shared MarmaladeCard: card fill, hairline edge, soft
+    // shadow (#83). A ticked card takes a toast fill, animated; the checkbox
+    // carries the state. In light mode that is full toast, deeper than the
+    // plain card (Max, 2026-10-13: "Stronger tint"); in dark mode the faint
+    // shared wash on stone, never a filled slab (it used to be a brown
+    // secondaryContainer card).
+    //
+    // The permanently-ticked built-in card keeps the plain fill: the wash
+    // means "you chose this", and Kitten isn't a choice (Max, 2026-08-08 —
+    // the loud terracotta card read as an error state in dark mode).
     val tinted = isSelected && !isBuiltIn
     val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
-    Card(
+    // The toggle sits on the card's outer modifier, outside the card's
+    // clip, so its ripple is drawn on the content inside instead, where it
+    // follows the rounded corners.
+    val interaction = remember { MutableInteractionSource() }
+    MarmaladeCard(
         modifier = Modifier
             .fillMaxWidth()
             .then(
@@ -454,30 +510,22 @@ private fun EngineCard(
                 } else {
                     Modifier.toggleable(
                         value = isSelected,
+                        interactionSource = interaction,
+                        indication = null,
                         role = Role.Checkbox,
                         onValueChange = { onToggle() },
                     )
                 },
             ),
-        // The permanently-ticked built-in card keeps the plain container:
-        // the selected tint means "you chose this", and Kitten isn't a
-        // choice (Max, 2026-08-08 — the loud terracotta card read as an
-        // error state in dark mode).
-        colors = if (tinted) {
-            CardDefaults.cardColors(
-                containerColor = if (isDark) {
-                    MaterialTheme.colorScheme.secondaryContainer
-                } else {
-                    MaterialTheme.colorScheme.primaryContainer
-                },
-            )
-        } else {
-            CardDefaults.cardColors()
-        },
+        selected = tinted,
+        // Light mode keeps the full toast Max asked for (2026-10-13, "Stronger
+        // tint"); dark takes the shared wash.
+        selectedFill = if (isDark) null else MarmaladeToast,
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .indication(interaction, ripple())
                 .padding(14.dp)
                 .height(IntrinsicSize.Min),
             // Top-aligned like the Engines tab cards — centering left the
@@ -542,7 +590,10 @@ private fun EngineCard(
                 )
                 }
                 Spacer(Modifier.size(12.dp))
-                VerticalDivider(modifier = Modifier.padding(vertical = 2.dp))
+                VerticalDivider(
+                    modifier = Modifier.padding(vertical = 2.dp),
+                    color = MaterialTheme.depth.line,
+                )
                 Spacer(Modifier.size(12.dp))
                 EngineSpecColumn(engine = engine)
         }
@@ -562,8 +613,9 @@ private fun RecommendedTag(onTintedCard: Boolean = false) {
         color = MaterialTheme.colorScheme.onTertiaryContainer,
         modifier = Modifier
             .clip(RoundedCornerShape(50))
-            // A ticked card in light mode is the pill's own Orange 200, which
-            // made the pill vanish; it takes the page's cream there instead.
+            // A ticked card in light mode is the pill's own Orange 200 (toast),
+            // which made the pill vanish; it takes the page's cream there
+            // instead.
             .background(
                 if (onTintedCard) {
                     MaterialTheme.colorScheme.background
@@ -661,7 +713,7 @@ private fun InstallingStep(
                         onRetry = { onRetry(engine.name) },
                         onRemoveDownload = { onRemoveDownload(engine.name) },
                     )
-                    HorizontalDivider()
+                    HorizontalDivider(color = MaterialTheme.depth.line)
                 }
             }
         }
@@ -744,12 +796,18 @@ private fun InstallRow(
         Spacer(Modifier.height(8.dp))
         when (state) {
             is InstallState.Downloading -> {
-                val fraction = if (state.totalBytes > 0L) {
+                val target = if (state.totalBytes > 0L) {
                     (state.bytesFetched.toFloat() / state.totalBytes.toFloat())
                         .coerceIn(0f, 1f)
                 } else {
                     0f
                 }
+                // Glides between progress reports instead of jumping (#83).
+                val fraction by animateFloatAsState(
+                    targetValue = target,
+                    animationSpec = MarmaladeMotion.slow(),
+                    label = "downloadProgress",
+                )
                 LinearProgressIndicator(
                     progress = { fraction },
                     modifier = Modifier.fillMaxWidth(),
@@ -762,11 +820,16 @@ private fun InstallRow(
                 )
             }
             is InstallState.Extracting -> {
-                val extractFraction = if (state.totalBytes > 0L) {
+                val extractTarget = if (state.totalBytes > 0L) {
                     (state.bytesExtracted.toFloat() / state.totalBytes.toFloat()).coerceIn(0f, 1f)
                 } else {
                     0f
                 }
+                val extractFraction by animateFloatAsState(
+                    targetValue = extractTarget,
+                    animationSpec = MarmaladeMotion.slow(),
+                    label = "extractProgress",
+                )
                 LinearProgressIndicator(
                     progress = { extractFraction },
                     modifier = Modifier.fillMaxWidth(),
@@ -989,7 +1052,7 @@ private fun OnboardingEngineDropdown(
                 .menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = true)
                 .fillMaxWidth(),
         )
-        ExposedDropdownMenu(
+        OnboardingExposedMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
         ) {
@@ -1044,7 +1107,7 @@ private fun OnboardingVoiceDropdown(
                 .menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = true)
                 .fillMaxWidth(),
         )
-        ExposedDropdownMenu(
+        OnboardingExposedMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
         ) {
@@ -1093,7 +1156,7 @@ private fun OnboardingEffectDropdown(
             },
             modifier = Modifier.fillMaxWidth(),
         )
-        DropdownMenu(
+        MarmaladeMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
         ) {
@@ -1108,6 +1171,29 @@ private fun OnboardingEffectDropdown(
             }
         }
     }
+}
+
+/**
+ * An exposed dropdown dressed like [MarmaladeMenu]: the raised surface step,
+ * a hairline edge, no tonal tint (#83).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ExposedDropdownMenuBoxScope.OnboardingExposedMenu(
+    expanded: Boolean,
+    onDismissRequest: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    ExposedDropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismissRequest,
+        shape = MaterialTheme.shapes.small,
+        containerColor = MaterialTheme.depth.raised,
+        tonalElevation = 0.dp,
+        shadowElevation = 8.dp,
+        border = BorderStroke(1.dp, MaterialTheme.depth.line2),
+        content = content,
+    )
 }
 
 @StringRes
