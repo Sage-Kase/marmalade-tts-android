@@ -81,6 +81,10 @@ fun MarmaladeCard(
         label = "cardFill",
     )
     val edge = border ?: BorderStroke(1.dp, depth.line2)
+    // Set, not derived: Surface derives its ink by matching the fill to a
+    // scheme role, and an animated or washed fill matches none, which left
+    // card text in whatever quiet ink surrounded the card.
+    val ink = MaterialTheme.colorScheme.onSurface
     val inner: @Composable () -> Unit = {
         Column(content = content)
     }
@@ -92,11 +96,19 @@ fun MarmaladeCard(
             modifier = shadowed,
             shape = shape,
             color = fill,
+            contentColor = ink,
             border = edge,
             content = inner,
         )
     } else {
-        Surface(modifier = shadowed, shape = shape, color = fill, border = edge, content = inner)
+        Surface(
+            modifier = shadowed,
+            shape = shape,
+            color = fill,
+            contentColor = ink,
+            border = edge,
+            content = inner,
+        )
     }
 }
 
