@@ -1,5 +1,7 @@
 package app.marmalade.tts.ui.components
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,18 +17,24 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.marmalade.tts.R
 import app.marmalade.tts.ui.MarmaladeIcons
 import app.marmalade.tts.ui.screen.CloudMark
+import app.marmalade.tts.ui.theme.MarmaladeMotion
+import app.marmalade.tts.ui.theme.depth
 
 /**
  * One row of a persona (alias) list, pre-resolved for display.
@@ -64,7 +72,7 @@ fun PersonaSheet(
     onCreate: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    MarmaladeSheet(onDismissRequest = onDismiss) {
         Text(
             text = stringResource(R.string.speak_sheet_title),
             style = MaterialTheme.typography.titleMedium,
@@ -82,13 +90,17 @@ fun PersonaSheet(
                 )
             }
         }
-        HorizontalDivider()
+        HorizontalDivider(
+            color = MaterialTheme.depth.line,
+            modifier = Modifier.padding(vertical = 4.dp),
+        )
         ListItem(
             headlineContent = { Text(stringResource(R.string.speak_pick_voice_directly)) },
             leadingContent = {
                 Icon(MarmaladeIcons.Speak, contentDescription = null)
             },
-            modifier = Modifier.clickable {
+            colors = SheetRowColors,
+            modifier = Modifier.sheetRow(MaterialTheme.shapes.small, Color.Transparent) {
                 onPickVoice()
                 onDismiss()
             },
@@ -98,7 +110,8 @@ fun PersonaSheet(
             leadingContent = {
                 Icon(Icons.Filled.Add, contentDescription = null)
             },
-            modifier = Modifier.clickable {
+            colors = SheetRowColors,
+            modifier = Modifier.sheetRow(MaterialTheme.shapes.small, Color.Transparent) {
                 onCreate()
                 onDismiss()
             },
@@ -107,9 +120,34 @@ fun PersonaSheet(
     }
 }
 
-/** One persona: its name (and "Primary"), model · voice, the cloud glyph, a check when [active]. */
+/**
+ * A row inside a sheet: inset from the sheet's edge on a rounded shape, so
+ * its wash and ripple read as a tile, not a stripe. The ListItem's own fill
+ * is cleared ([SheetRowColors]) so the sheet's surface shows through.
+ */
+private fun Modifier.sheetRow(shape: Shape, wash: Color, onClick: () -> Unit): Modifier = this
+    .padding(horizontal = 8.dp)
+    .clip(shape)
+    .background(wash)
+    .clickable(onClick = onClick)
+
+private val SheetRowColors
+    @Composable get() = ListItemDefaults.colors(containerColor = Color.Transparent)
+
+/**
+ * One persona: its name (and "Primary"), model · voice, the cloud glyph, a
+ * check when [active]. The active row also carries the toast wash.
+ */
 @Composable
 fun PersonaRow(persona: Persona, active: Boolean, onClick: () -> Unit) {
+    val selected = MaterialTheme.depth.selected
+    val wash by animateColorAsState(
+        // Fade the wash's own alpha: animating to Color.Transparent (black
+        // at 0) would pass through a muddy grey.
+        targetValue = if (active) selected else selected.copy(alpha = 0f),
+        animationSpec = MarmaladeMotion.fast(),
+        label = "personaWash",
+    )
     ListItem(
         headlineContent = {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -147,6 +185,7 @@ fun PersonaRow(persona: Persona, active: Boolean, onClick: () -> Unit) {
                 )
             }
         },
-        modifier = Modifier.clickable(onClick = onClick),
+        colors = SheetRowColors,
+        modifier = Modifier.sheetRow(MaterialTheme.shapes.small, wash, onClick),
     )
 }

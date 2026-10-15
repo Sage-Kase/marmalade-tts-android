@@ -21,7 +21,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -38,6 +37,8 @@ import app.marmalade.tts.R
 import app.marmalade.tts.data.LatencyBucket
 import app.marmalade.tts.data.latencyKeyFor
 import app.marmalade.tts.data.db.VoiceMeta
+import app.marmalade.tts.ui.components.MarmaladeSheet
+import app.marmalade.tts.ui.theme.MarmaladeMotion
 
 // -----------------------------------------------------------------------------
 // The drill-down voice picker
@@ -78,7 +79,7 @@ fun VoicePickerSheet(
     val source = tree.firstOrNull { it.name == state.source }
     val model = source?.models?.firstOrNull { it.name == state.model }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+    MarmaladeSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -135,12 +136,18 @@ fun VoicePickerSheet(
         Spacer(Modifier.height(8.dp))
 
         Box(modifier = Modifier.heightIn(min = 220.dp, max = 460.dp)) {
-            when {
-                state.searching -> SearchResults(tree, state.query, selectedVoiceId, latency, onPick)
-                tree.isEmpty() -> Empty(stringResource(R.string.voices_empty_none_installed))
-                model != null -> VoiceList(model.voices, selectedVoiceId, onPick)
-                source != null -> VoiceModelList(source, latency, SheetGutter, onSelectModel)
-                else -> VoiceSourceList(tree, latency, SheetGutter, onSelectSource)
+            VoiceDrillLevels(state) { shown ->
+                // Resolved from [shown], not the header's source/model: a list
+                // fading out keeps drawing its own level.
+                val shownSource = tree.firstOrNull { it.name == shown.source }
+                val shownModel = shownSource?.models?.firstOrNull { it.name == shown.model }
+                when {
+                    shown.searching -> SearchResults(tree, shown.query, selectedVoiceId, latency, onPick)
+                    tree.isEmpty() -> Empty(stringResource(R.string.voices_empty_none_installed))
+                    shownModel != null -> VoiceList(shownModel.voices, selectedVoiceId, onPick)
+                    shownSource != null -> VoiceModelList(shownSource, latency, SheetGutter, onSelectModel)
+                    else -> VoiceSourceList(tree, latency, SheetGutter, onSelectSource)
+                }
             }
         }
         Spacer(Modifier.height(16.dp))
@@ -212,6 +219,12 @@ private fun SearchResults(
                 // something the row above it didn't already.
                 badge = latency[latencyKeyFor(voice.id, voice.engine)],
                 onPick = onPick,
+                // Hits glide into place as the query narrows them.
+                modifier = Modifier.animateItem(
+                    fadeInSpec = MarmaladeMotion.base(),
+                    placementSpec = MarmaladeMotion.base(),
+                    fadeOutSpec = MarmaladeMotion.fast(),
+                ),
             )
         }
     }
@@ -224,9 +237,10 @@ private fun VoiceRow(
     subtitle: String?,
     badge: LatencyBucket? = null,
     onPick: (VoiceMeta) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable { onPick(voice) }
             .padding(horizontal = 24.dp, vertical = 12.dp),

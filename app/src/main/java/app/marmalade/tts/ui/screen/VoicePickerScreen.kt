@@ -51,6 +51,8 @@ import app.marmalade.tts.data.latencyKeyFor
 import app.marmalade.tts.install.EngineCatalog
 import app.marmalade.tts.ui.components.languageDisplayName
 import app.marmalade.tts.ui.components.qualityGradeLabelRes
+import app.marmalade.tts.ui.theme.MarmaladeMotion
+import app.marmalade.tts.ui.theme.depth
 
 // -----------------------------------------------------------------------------
 // Data flow
@@ -269,35 +271,41 @@ fun VoicePickerScreen(
                 viewModel.preview(voice, previewPhrase.format(voice.spokenName))
             }
 
-            when {
-                pickerState.searching -> SearchResults(
-                    hits = remember(tree, pickerState.query) {
-                        searchVoiceTree(tree, pickerState.query)
-                    },
-                    query = pickerState.query,
-                    selectedId = selectedId,
-                    playingId = playingId,
-                    latency = latency,
-                    previewEnabled = previewEnabled,
-                    onPick = onPick,
-                    onPreview = onPreview,
-                )
-                tree.isEmpty() -> VoicePickerEmpty(
-                    stringResource(R.string.voices_empty_none_installed),
-                    ScreenGutter,
-                )
-                model != null -> VoiceList(
-                    voices = model.voices,
-                    selectedId = selectedId,
-                    playingId = playingId,
-                    previewEnabled = previewEnabled,
-                    onPick = onPick,
-                    onPreview = onPreview,
-                )
-                source != null -> VoiceModelList(
-                    source, latency, ScreenGutter, viewModel::selectModel,
-                )
-                else -> VoiceSourceList(tree, latency, ScreenGutter, viewModel::selectSource)
+            VoiceDrillLevels(pickerState, Modifier.fillMaxSize()) { shown ->
+                // Resolved from [shown], not the title's source/model: a list
+                // fading out keeps drawing its own level.
+                val shownSource = tree.firstOrNull { it.name == shown.source }
+                val shownModel = shownSource?.models?.firstOrNull { it.name == shown.model }
+                when {
+                    shown.searching -> SearchResults(
+                        hits = remember(tree, shown.query) {
+                            searchVoiceTree(tree, shown.query)
+                        },
+                        query = shown.query,
+                        selectedId = selectedId,
+                        playingId = playingId,
+                        latency = latency,
+                        previewEnabled = previewEnabled,
+                        onPick = onPick,
+                        onPreview = onPreview,
+                    )
+                    tree.isEmpty() -> VoicePickerEmpty(
+                        stringResource(R.string.voices_empty_none_installed),
+                        ScreenGutter,
+                    )
+                    shownModel != null -> VoiceList(
+                        voices = shownModel.voices,
+                        selectedId = selectedId,
+                        playingId = playingId,
+                        previewEnabled = previewEnabled,
+                        onPick = onPick,
+                        onPreview = onPreview,
+                    )
+                    shownSource != null -> VoiceModelList(
+                        shownSource, latency, ScreenGutter, viewModel::selectModel,
+                    )
+                    else -> VoiceSourceList(tree, latency, ScreenGutter, viewModel::selectSource)
+                }
             }
         }
     }
@@ -338,7 +346,7 @@ private fun VoiceList(
                     onClick = { onPick(voice) },
                     onPreview = { onPreview(voice) },
                 )
-                HorizontalDivider()
+                HorizontalDivider(color = MaterialTheme.depth.line)
             }
         }
     }
@@ -365,20 +373,30 @@ private fun SearchResults(
     }
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         items(items = hits, key = { it.voice.id }) { (voice, path) ->
-            VoiceRow(
-                voice = voice,
-                isSelected = voice.id == selectedId,
-                isPreviewing = playingId == voice.id,
-                previewEnabled = previewEnabled(voice),
-                subtitle = path,
-                // Search is the one place the leaf rows come from different
-                // models, so it's the one place a per-voice badge says
-                // something the row above it didn't already.
-                badge = latency[latencyKeyFor(voice.id, voice.engine)],
-                onClick = { onPick(voice) },
-                onPreview = { onPreview(voice) },
-            )
-            HorizontalDivider()
+            // Hits glide into place as the query narrows them; the row and
+            // its divider move as one.
+            Column(
+                Modifier.animateItem(
+                    fadeInSpec = MarmaladeMotion.base(),
+                    placementSpec = MarmaladeMotion.base(),
+                    fadeOutSpec = MarmaladeMotion.fast(),
+                ),
+            ) {
+                VoiceRow(
+                    voice = voice,
+                    isSelected = voice.id == selectedId,
+                    isPreviewing = playingId == voice.id,
+                    previewEnabled = previewEnabled(voice),
+                    subtitle = path,
+                    // Search is the one place the leaf rows come from different
+                    // models, so it's the one place a per-voice badge says
+                    // something the row above it didn't already.
+                    badge = latency[latencyKeyFor(voice.id, voice.engine)],
+                    onClick = { onPick(voice) },
+                    onPreview = { onPreview(voice) },
+                )
+                HorizontalDivider(color = MaterialTheme.depth.line)
+            }
         }
     }
 }
