@@ -235,9 +235,9 @@ private fun VoiceRow(
     voice: VoiceMeta,
     selected: Boolean,
     subtitle: String?,
-    badge: LatencyBucket? = null,
     onPick: (VoiceMeta) -> Unit,
     modifier: Modifier = Modifier,
+    badge: LatencyBucket? = null,
 ) {
     Row(
         modifier = modifier
