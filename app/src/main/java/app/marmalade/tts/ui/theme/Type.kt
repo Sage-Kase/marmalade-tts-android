@@ -12,10 +12,9 @@ import app.marmalade.tts.R
 
 // =============================================================================
 // Marmalade typography — Manrope (body/headings), Momo Trust Display (the
-// "marmalade" wordmark; Fredoka is its fallback). Manrope + Fredoka are
-// variable (weights derived from the `wght` axis); Momo Trust Display ships a
-// single Regular master, so its wordmark weight is synthesized — same as the
-// web UI. All three are OFL-1.1 and bundled in the APK. Tokens locked in
+// "marmalade" wordmark). Manrope is variable (weights derived from the `wght`
+// axis); Momo Trust Display ships a single Regular master and is only ever
+// drawn at that weight. Both are OFL-1.1 and bundled in the APK. Tokens locked in
 // marmalade-design-scheme-v0 (2026-06-21); mirrors marmalade-android's Type.kt
 // minus Space Mono (this app has no code/mono surfaces).
 // =============================================================================
@@ -34,17 +33,15 @@ val Manrope = FontFamily(
     manrope(FontWeight.Bold),     // 700
 )
 
-/** Wordmark "marmalade" — Momo Trust Display, the brand display face (matches
- *  the marmalade-agent web UI); Fredoka is the fallback, reached only if the
- *  Momo resource is ever missing. Both sit in the Normal (400) slot — Momo
- *  ships a single Regular master, so the 600 requested at the call site is
- *  synthesized, exactly as the browser faux-bolds it on the web. Momo is first
- *  in the list, so it always wins over the bundled Fredoka. Always rendered
- *  lowercase, tracking 0. */
-val Wordmark = FontFamily(
-    Font(R.font.momo_trust_display, weight = FontWeight.Normal),
-    Font(R.font.fredoka_variable, weight = FontWeight.Normal),
-)
+/**
+ * Wordmark "marmalade" — Momo Trust Display, the brand's final wordmark face,
+ * as in the Marmalade Android app. Always rendered lowercase, tracking 0.
+ *
+ * The font is a single static 400 master: its weight is drawn in. Asking for
+ * more makes Compose synthesise a bold, smearing the real letters, so callers
+ * must NOT set a fontWeight on wordmark text (#83 P).
+ */
+val Wordmark = FontFamily(Font(R.font.momo_trust_display, FontWeight.Normal))
 
 /**
  * Material 3 typography with Manrope as the family across the board. Sizes
