@@ -1268,19 +1268,25 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   paused stays paused; logged `D/Narrator: voice change`). An alias the user
   picks in the reader (`pickAlias`, `ReaderPlaybackState.voicePicked`) wins for
   the rest of that article.
-  **The alias dial (#67, Max's design):** voice and speed are ONE control, the
-  transport bar's dial (`AliasDial` in ReaderScreen): who reads
-  (`ReaderViewModel.readingVoice`: the alias, or an installed voice's own name)
-  over the speed. It opens `ReaderDialSheet`: the alias rows (`PersonaRow`
+  **The alias dial (#67, Max's design; an icon since #81):** voice and speed
+  are ONE control, the transport bar's dial (`AliasDial` in ReaderScreen): a
+  speaking-person icon (`ic_reader_voice`, Material Symbols, credited in
+  NOTICE) with the speed on a `Badge` whenever it isn't 1× (`speedBadgeShown`).
+  It is a bare `clickable` (unbounded ripple, 48 dp), not an `IconButton`,
+  which clips content to its 40 dp state layer and would cut the badge off.
+  TalkBack reads one description, who reads
+  (`ReaderViewModel.readingVoice`: the alias, or an installed voice's own name;
+  "Reading speed" with neither) then the speed, and the badge is cleared from
+  semantics. It opens `ReaderDialSheet`: the alias rows (`PersonaRow`
   from `ui/components/PersonaSheet.kt`, the Speak screen's) then the alias
   editor's speed slider (`ui/components/SpeedSlider.kt`, shared since #71:
   0.5–2.0× in 0.1 steps); it stays open on a pick so the speed it brings
   shows. The slider applies on release (one `setSpeed` per drag), and always
   has a stop at the reading alias's own speed: off the 0.1 grid it drops its
   detents and snaps by hand (`snapSpeed`). A pick goes to
-  `ReaderPlaybackController.pickAlias`. The top bar is just "Reader". The left
-  flank takes the room the "N of M" readout doesn't need (the readout reserves
-  its widest value), so the transport sits a little right of centre.
+  `ReaderPlaybackController.pickAlias`. The top bar is just "Reader". Both
+  flanks take equal weight, so the transport is centred (#67's name-and-speed
+  dial had pushed it right of centre).
   **Speed is an override:** an alias switch or primary change brings the new
   alias's speed, unless the user set a speed in the reader. That override
   (`Narrator` `Session.speedOverride`: set when the user's speed differs from

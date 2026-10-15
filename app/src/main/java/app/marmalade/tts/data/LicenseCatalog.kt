@@ -510,7 +510,7 @@ object LicenseCatalog {
         ),
         Component(
             key = "material-icons",
-            name = "Material Design icons", role = "UI icons",
+            name = "Material Design icons and Material Symbols", role = "UI icons",
             shipsIn = "APK",
             licenseId = "Apache-2.0",
             copyright = listOf(
@@ -518,7 +518,8 @@ object LicenseCatalog {
                     "(https://github.com/google/material-design-icons)",
             ),
             note = "Drawn in the app from Material's path data: bug_report, " +
-                "description and shield as published; volume_up and cloud adapted.",
+                "description and shield as published; volume_up and cloud adapted; " +
+                "the reader's voice button is Material Symbols Rounded record_voice_over.",
         ),
         Component(
             key = "manrope",

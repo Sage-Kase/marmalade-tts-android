@@ -66,8 +66,9 @@ its entry here in the same change.
 - **Reader.** The screen that reads a shared web article aloud, paragraph by
   paragraph (a *block*).
 - **Alias dial.** The reader's control for who reads an article and how fast:
-  the alias name over the speed. It opens one sheet with the alias list and
-  the speed slider.
+  a speaking-person icon, with the speed on a badge whenever it isn't 1×
+  (#81; #67's dial showed the alias name over the speed). It opens one sheet
+  with the alias list and the speed slider.
 - **Speed override.** A reader speed the user set that differs from the
   reading alias's own speed. It survives alias switches until the user moves
   back to the alias's own speed. It applies to the current article only.

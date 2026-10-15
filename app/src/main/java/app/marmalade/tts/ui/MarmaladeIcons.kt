@@ -22,7 +22,8 @@ import androidx.compose.ui.unit.dp
  *
  * Speak, Cloud, Bug, LicenseDoc and Privacy come from Material Design icons
  * (Apache-2.0), credited in NOTICE.md, LICENSES/runtime-libraries.md and
- * LicenseCatalog ("material-icons"). A new Material glyph goes there too.
+ * LicenseCatalog ("material-icons"), as is res/drawable/ic_reader_voice.xml.
+ * A new Material glyph goes there too.
  */
 object MarmaladeIcons {
 

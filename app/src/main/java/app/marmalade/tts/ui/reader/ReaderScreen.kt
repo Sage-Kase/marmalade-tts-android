@@ -24,8 +24,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -37,6 +38,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
@@ -53,6 +56,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDrawerState
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -64,7 +68,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
@@ -83,7 +86,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -640,12 +642,11 @@ private fun PlaybackErrorLine(error: ReaderPlaybackError, palette: ReaderPalette
  * Three zones: "Aa" + the alias dial (the two per-reading settings) |
  * transport | "N of M".
  *
- * The transport sits in the middle rather than parked on one end — it's the
- * control the thumb goes for, and the readout is read, not pressed. The left
- * flank takes all the room the readout doesn't need, so the alias dial can
- * show an alias name ("Steady narrator") rather than its first six letters;
- * the transport sits a little right of centre for it (#67). The readout
- * reserves its widest value ("60 of 60") so nothing shifts as it counts.
+ * The transport is centred rather than parked on one end — it's the control
+ * the thumb goes for, and the readout is read, not pressed. Both flanks take
+ * equal weight so the centre stays centred whatever the readout grows to.
+ * (#67's dial named the alias and pushed the transport right of centre; the
+ * dial is an icon since #81, so the flanks are equal again.)
  *
  * Backward is not a seek — audio is synthesised one block at a time, so there
  * is nothing to scrub. It restarts the current block, or steps back a block if
@@ -679,8 +680,8 @@ private fun TransportBar(
                 modifier = Modifier.weight(1f),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // An IconButton, not a TextButton: 48 dp instead of 58 leaves
-                // the dial room for its alias name.
+                // An IconButton, not a TextButton: 48 dp, the same as the dial
+                // beside it.
                 IconButton(
                     onClick = onOpenDisplaySettings,
                     modifier = Modifier.semantics { contentDescription = displayLabel },
@@ -696,7 +697,6 @@ private fun TransportBar(
                     speed = playback.speed,
                     palette = palette,
                     onClick = onOpenDial,
-                    modifier = Modifier.weight(1f, fill = false),
                 )
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -734,33 +734,37 @@ private fun TransportBar(
                     )
                 }
             }
-            // The left cluster's inset is the row's 12dp plus the button's
-            // own content padding; the readout is bare text, so it needs
-            // the difference added back or it sits on the screen edge.
-            Box(modifier = Modifier.padding(start = 8.dp, end = 4.dp), contentAlignment = Alignment.CenterEnd) {
-                Text(
-                    text = stringResource(R.string.reader_progress, blockCount, blockCount),
-                    style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.alpha(0f).clearAndSetSemantics {},
-                )
-                Text(
-                    text = stringResource(
-                        R.string.reader_progress,
-                        playback.currentIndex + 1,
-                        blockCount,
-                    ),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = palette.muted,
-                )
-            }
+            Text(
+                text = stringResource(
+                    R.string.reader_progress,
+                    playback.currentIndex + 1,
+                    blockCount,
+                ),
+                style = MaterialTheme.typography.labelLarge,
+                color = palette.muted,
+                textAlign = TextAlign.End,
+                // The left cluster's inset is the row's 12dp plus the button's
+                // own content padding; the readout is bare text, so it needs
+                // the difference added back or it sits on the screen edge.
+                modifier = Modifier.weight(1f).padding(end = 4.dp),
+            )
         }
     }
 }
 
 /**
- * The alias dial (#67, Max's design): who reads the article over how fast,
- * one control that opens [ReaderDialSheet]. With no alias to name (no primary
- * alias yet) it shows the speed alone.
+ * The alias dial (#67; an icon since #81, Max's pick "I1"): who reads the
+ * article and how fast, one control that opens [ReaderDialSheet]. A speaking
+ * person, with the speed on a badge whenever it isn't 1× ([speedBadgeShown]).
+ *
+ * A plain bar button like Aa and previous/next: no fill, an unbounded ripple,
+ * 48 dp. Not an [IconButton], which clips its content to its 40 dp state layer
+ * and would cut the badge off. The badge sits a little right of Material's
+ * spot so it doesn't cover the icon's sound waves.
+ *
+ * TalkBack hears what the #67 dial's text said: the alias name (or "Reading
+ * speed" with no alias yet) and the speed, then "Change voice" as the action.
+ * The badge is cleared so the speed isn't read twice.
  */
 @Composable
 private fun AliasDial(
@@ -768,44 +772,54 @@ private fun AliasDial(
     speed: Float,
     palette: ReaderPalette,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier,
 ) {
     val speedText = stringResource(R.string.reader_speed_value, formatSpeed(speed))
-    Row(
-        modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(palette.background)
+    val name = voice?.name ?: stringResource(R.string.reader_speed_open)
+    Box(
+        modifier = Modifier
             .clickable(
+                interactionSource = null,
+                indication = ripple(bounded = false, radius = 20.dp),
                 onClickLabel = stringResource(R.string.speak_change_voice),
                 role = Role.Button,
                 onClick = onClick,
             )
-            .padding(horizontal = 10.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            // One description, name then speed, as the #67 dial's two text
+            // lines were read; the icon and badge add nothing to it.
+            .semantics { contentDescription = "$name, $speedText" }
+            .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+            .padding(horizontal = 12.dp),
+        contentAlignment = Alignment.Center,
     ) {
-        if (voice == null) {
+        BadgedBox(
+            badge = {
+                if (speedBadgeShown(speed)) {
+                    Badge(
+                        modifier = Modifier
+                            .offset(x = 11.dp, y = (-2).dp)
+                            .clearAndSetSemantics {},
+                        containerColor = palette.text,
+                        contentColor = palette.background,
+                    ) {
+                        Text(speedText)
+                    }
+                }
+            },
+        ) {
             Icon(
-                painter = painterResource(R.drawable.ic_reader_speed),
-                contentDescription = stringResource(R.string.reader_speed_open),
+                painter = painterResource(R.drawable.ic_reader_voice),
+                contentDescription = null,
                 tint = palette.text,
-                modifier = Modifier.size(18.dp),
             )
-            Spacer(Modifier.width(4.dp))
-            Text(speedText, style = MaterialTheme.typography.labelLarge, color = palette.text)
-        } else {
-            Column {
-                Text(
-                    text = voice.name,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = palette.text,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(speedText, style = MaterialTheme.typography.labelSmall, color = palette.muted)
-            }
         }
     }
 }
+
+/**
+ * Whether the alias dial shows its speed badge: only when the badge wouldn't
+ * read "1×". At 1× the bar stays a plain icon; the sheet still shows the speed.
+ */
+internal fun speedBadgeShown(speed: Float): Boolean = formatSpeed(speed) != formatSpeed(1f)
 
 /**
  * One article block. The highlight background is the whole point of the row
