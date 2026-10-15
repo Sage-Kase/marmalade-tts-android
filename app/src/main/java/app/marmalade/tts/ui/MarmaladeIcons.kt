@@ -19,6 +19,10 @@ import androidx.compose.ui.unit.dp
  * The path data is lifted verbatim from the internal speak-screen design
  * lab, so what shipped and what was signed off are the same drawing. If the
  * lab changes, change these with it.
+ *
+ * Speak, Cloud, Bug, LicenseDoc and Privacy come from Material Design icons
+ * (Apache-2.0), credited in NOTICE.md, LICENSES/runtime-libraries.md and
+ * LicenseCatalog ("material-icons"). A new Material glyph goes there too.
  */
 object MarmaladeIcons {
 

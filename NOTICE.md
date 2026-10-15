@@ -122,6 +122,7 @@ folder.
 | open_jtalk dictionary | Japanese MeCab dictionary | Engine bundle | Modified BSD |
 | lexicon-zh (Mandarin G2P) | Han→IPA Mandarin lexicon | Engine bundle | **CC-BY-SA-4.0** (CC-CEDICT-derived via pypinyin — see [`LICENSES/kokoro-direct.md`](LICENSES/kokoro-direct.md)) |
 | AndroidX / Compose / Kotlin / Hilt / Room | App framework | APK | Apache-2.0 |
+| Material Design icons (google/material-design-icons) | UI glyphs drawn from Material's path data (see [`LICENSES/runtime-libraries.md`](LICENSES/runtime-libraries.md)) | APK (source) | Apache-2.0 |
 | Manrope + Momo Trust Display + Fredoka fonts | Brand typography | APK | OFL-1.1 (see [`LICENSES/fonts.md`](LICENSES/fonts.md)) |
 
 Full per-component notices, file lists, and upstream URLs are in
