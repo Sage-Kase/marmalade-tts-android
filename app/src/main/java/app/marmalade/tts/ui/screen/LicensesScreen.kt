@@ -36,9 +36,11 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.marmalade.tts.R
 import app.marmalade.tts.data.LicenseCatalog
+import app.marmalade.tts.ui.theme.depth
 
 // -----------------------------------------------------------------------------
 // Open-source licenses
@@ -110,7 +112,7 @@ fun LicensesScreen(
             })
 
             LicenseCatalog.groupedByLicense().forEach { (license, members) ->
-                HorizontalDivider()
+                HorizontalDivider(color = MaterialTheme.depth.line)
                 SectionHeader(license.id)
                 members.forEach { component ->
                     ComponentRow(
@@ -153,7 +155,10 @@ private fun PostureSection(onOpenSource: () -> Unit) {
                 contentDescription = null,
             )
         },
-        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = ListItemDefaults.colors(
+            containerColor = MaterialTheme.depth.page,
+            trailingIconColor = MaterialTheme.depth.faint,
+        ),
     )
 }
 
@@ -182,14 +187,20 @@ private fun ComponentRow(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                // Full ink, a step above the dim copyright lines; not the
+                // accent, which put a column of orange text on stone in dark
+                // mode (#83). The whole row is the tap target.
                 Text(
                     text = stringResource(R.string.settings_licenses_view_full),
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
             }
         },
-        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = ListItemDefaults.colors(
+            containerColor = MaterialTheme.depth.page,
+            trailingIconColor = MaterialTheme.depth.faint,
+        ),
     )
 }
 
@@ -274,16 +285,18 @@ fun LicenseTextScreen(
 }
 
 /**
- * Section label — same style as the Settings screen's. Kept local (it's
- * file-private there) rather than coupling the two screens; matches the
- * codebase's "spell small helpers out locally" idiom.
+ * Section label — same style as the Settings screen's: the quiet dim-ink
+ * label, never the accent (#83). Kept local (it's file-private there) rather
+ * than coupling the two screens; matches the codebase's "spell small helpers
+ * out locally" idiom.
  */
 @Composable
 private fun SectionHeader(label: String) {
     Text(
         text = label,
-        style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.primary,
+        style = MaterialTheme.typography.labelLarge,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.depth.dim,
         modifier = Modifier
             .semantics { heading() }
             .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),

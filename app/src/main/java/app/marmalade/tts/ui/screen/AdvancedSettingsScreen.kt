@@ -32,12 +32,14 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.marmalade.tts.R
 import app.marmalade.tts.install.EngineCatalog
 import app.marmalade.tts.ui.MarmaladeFilterChip
+import app.marmalade.tts.ui.theme.depth
 
 // -----------------------------------------------------------------------------
 // Advanced settings — a leaf detail screen off Settings (nav bar hidden).
@@ -93,7 +95,7 @@ fun AdvancedSettingsScreen(
             // Nothing for it to reveal in the Play build — see
             // EngineCatalog.developerModeRevealsAnything.
             if (EngineCatalog.developerModeRevealsAnything()) {
-                HorizontalDivider()
+                HorizontalDivider(color = MaterialTheme.depth.line)
 
                 DeveloperEnginesSection(
                     checked = showDeveloperEngines,
@@ -102,7 +104,7 @@ fun AdvancedSettingsScreen(
             }
 
             if (onNavigateToBenchmark != null) {
-                HorizontalDivider()
+                HorizontalDivider(color = MaterialTheme.depth.line)
                 BenchmarkSection(onClick = onNavigateToBenchmark)
             }
         }
@@ -201,7 +203,10 @@ private fun DeveloperEnginesSection(
         trailingContent = {
             Switch(checked = checked, onCheckedChange = null)
         },
-        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = ListItemDefaults.colors(
+            containerColor = MaterialTheme.depth.page,
+            trailingIconColor = MaterialTheme.depth.faint,
+        ),
     )
 }
 
@@ -226,18 +231,23 @@ private fun BenchmarkSection(onClick: () -> Unit) {
                 contentDescription = null,
             )
         },
-        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = ListItemDefaults.colors(
+            containerColor = MaterialTheme.depth.page,
+            trailingIconColor = MaterialTheme.depth.faint,
+        ),
     )
 }
 
 // Same local copy LicensesScreen keeps — SectionHeader is file-private
-// per screen rather than shared, so screens stay self-contained.
+// per screen rather than shared, so screens stay self-contained. The quiet
+// dim-ink label, never the accent (#83).
 @Composable
 private fun SectionHeader(label: String) {
     Text(
         text = label,
-        style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.primary,
+        style = MaterialTheme.typography.labelLarge,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.depth.dim,
         modifier = Modifier
             .semantics { heading() }
             .padding(

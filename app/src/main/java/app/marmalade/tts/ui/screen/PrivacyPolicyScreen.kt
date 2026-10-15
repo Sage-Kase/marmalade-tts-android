@@ -43,6 +43,7 @@ import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import app.marmalade.tts.R
+import app.marmalade.tts.ui.theme.depth
 
 // -----------------------------------------------------------------------------
 // In-app privacy policy
@@ -124,11 +125,10 @@ private fun MarkdownBlockView(block: MdBlock) {
                     MaterialTheme.typography.titleMedium
                 },
                 fontWeight = FontWeight.Bold,
-                color = if (block.level == 1) {
-                    MaterialTheme.colorScheme.onSurface
-                } else {
-                    MaterialTheme.colorScheme.primary
-                },
+                // Ink at every level: a primary-coloured ## heading was orange
+                // text on stone in dark mode (#83). Size and weight carry the
+                // hierarchy.
+                color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier
                     .semantics { heading() }
                     .padding(bottom = 6.dp),
@@ -155,10 +155,7 @@ private fun MarkdownBlockView(block: MdBlock) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier
                 .padding(vertical = 6.dp)
-                .background(
-                    MaterialTheme.colorScheme.surfaceVariant,
-                    RoundedCornerShape(8.dp),
-                )
+                .background(MaterialTheme.depth.card, RoundedCornerShape(8.dp))
                 .padding(12.dp),
         )
     }
