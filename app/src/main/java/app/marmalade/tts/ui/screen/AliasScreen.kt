@@ -31,9 +31,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
 import androidx.compose.material3.CenterAlignedTopAppBar
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -43,7 +41,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -62,8 +59,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -91,7 +90,14 @@ import app.marmalade.tts.data.VoicePath
 import app.marmalade.tts.data.db.VoiceMeta
 import app.marmalade.tts.lang.LangDetector
 import app.marmalade.tts.install.EngineCatalog
+import app.marmalade.tts.ui.components.MarmaladeCard
+import app.marmalade.tts.ui.components.MarmaladeMenu
+import app.marmalade.tts.ui.components.MarmaladeSheet
 import app.marmalade.tts.ui.components.SpeedSlider
+import app.marmalade.tts.ui.theme.MarmaladeMotion
+import app.marmalade.tts.ui.theme.MarmaladeToast
+import app.marmalade.tts.ui.theme.MarmaladeToastInk
+import app.marmalade.tts.ui.theme.depth
 import kotlin.math.roundToInt
 
 // -----------------------------------------------------------------------------
@@ -229,6 +235,14 @@ fun AliasScreen(
                 ) {
                     items(items = orderedAliases, key = { it.name }) { alias ->
                         AliasCard(
+                            // Keyed by name, so a new alias fades in, a deleted
+                            // one fades out and the rest slide into place (as
+                            // does a card the ordering above moves).
+                            modifier = Modifier.animateItem(
+                                fadeInSpec = MarmaladeMotion.base(),
+                                placementSpec = MarmaladeMotion.slow(),
+                                fadeOutSpec = MarmaladeMotion.fast(),
+                            ),
                             alias = alias,
                             isPrimary = alias.id == primaryAliasId,
                             effectName = effects.firstOrNull { it.id == alias.effectId }?.name
@@ -382,11 +396,11 @@ private fun AliasCard(
     routedApps: List<AppAliasMapping>,
     onOpenEditor: () -> Unit,
     onOpenRouting: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onOpenEditor),
+    MarmaladeCard(
+        modifier = modifier.fillMaxWidth(),
+        onClick = onOpenEditor,
     ) {
         Column(modifier = Modifier.padding(vertical = 12.dp)) {
             // The star used to sit in its own leading column, which left a
@@ -470,13 +484,16 @@ private fun RoutingStrip(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val shape = RoundedCornerShape(12.dp)
+    val shape = MaterialTheme.shapes.small
+    val depth = MaterialTheme.depth
 
     // A non-primary alias with no routes has nothing to report, so it gets an
     // invitation instead of an empty state. The primary always has something
     // to say — it is the fallback for every unrouted app.
     if (routedApps.isEmpty() && !isPrimary) {
-        val outline = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+        // Ghost ink, not a hairline: a dash broken into gaps needs a little
+        // more weight than a solid edge to read at all.
+        val outline = depth.ghost
         Row(
             modifier = modifier
                 .fillMaxWidth()
@@ -531,9 +548,13 @@ private fun RoutingStrip(
     // the user hasn't routed elsewhere — so opening the app picker from here
     // could only ever produce a no-op assignment. Non-primary aliases keep
     // the affordance.
+    //
+    // The agent-cards lab's "pointer" row: a faint ink wash with a hairline,
+    // so it reads as a panel set into the card rather than a second card.
     Surface(
         shape = shape,
-        color = MaterialTheme.colorScheme.surfaceVariant,
+        color = depth.hover,
+        border = BorderStroke(1.dp, depth.line),
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
@@ -610,17 +631,20 @@ private const val MAX_STRIP_ICONS = 4
  */
 @Composable
 private fun AllAppsIcon(size: Dp) {
+    // Orange in light; toast in dark, where bright orange is off-brand.
+    // Flat with a hairline like the real tiles beside it (see AppIconTile).
+    val dark = MaterialTheme.depth.isDark
     Surface(
         shape = RoundedCornerShape(size / 4),
-        color = MaterialTheme.colorScheme.primary,
-        shadowElevation = 2.dp,
+        color = if (dark) MarmaladeToast else MaterialTheme.colorScheme.primary,
+        border = BorderStroke(1.dp, MaterialTheme.depth.line),
         modifier = Modifier.size(size),
     ) {
         Box(contentAlignment = Alignment.Center) {
             Icon(
                 imageVector = Icons.Filled.Star,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onPrimary,
+                tint = if (dark) MarmaladeToastInk else MaterialTheme.colorScheme.onPrimary,
                 modifier = Modifier.size(size * 0.6f),
             )
         }
@@ -661,7 +685,7 @@ private fun AliasEditorSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+    MarmaladeSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
             modifier = Modifier
                 .verticalScroll(rememberScrollState())
@@ -973,16 +997,18 @@ private fun PickerField(
         // landing on the control would otherwise announce the value alone
         // ("Aria", not "Voice: Aria"). Name the control explicitly.
         val spoken = if (supporting != null) "$value, $supporting" else value
+        // The raised step of the surface ramp with a hairline: it sits up off
+        // the sheet like the lab's voice row. Only an error colours the edge.
         Surface(
             onClick = onClick,
-            shape = RoundedCornerShape(12.dp),
-            color = MaterialTheme.colorScheme.surface,
+            shape = MaterialTheme.shapes.small,
+            color = MaterialTheme.depth.raised,
             border = BorderStroke(
                 width = 1.dp,
                 color = if (isError) {
                     MaterialTheme.colorScheme.error
                 } else {
-                    MaterialTheme.colorScheme.outline
+                    MaterialTheme.depth.line2
                 },
             ),
             modifier = Modifier
@@ -1142,7 +1168,7 @@ private fun PhonemizationLanguageDropdown(
             },
             modifier = Modifier.fillMaxWidth(),
         )
-        DropdownMenu(
+        MarmaladeMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
         ) {
@@ -1280,7 +1306,18 @@ private fun FallbackPicker(
                     .menuAnchor(MenuAnchorType.PrimaryNotEditable)
                     .fillMaxWidth(),
             )
-            ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            // Dressed like MarmaladeMenu (raised step, hairline, no tonal
+            // tint), which can't stand in here: the exposed menu anchors to
+            // its text field through this box's scope.
+            ExposedDropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+                shape = MaterialTheme.shapes.small,
+                containerColor = MaterialTheme.depth.raised,
+                tonalElevation = 0.dp,
+                shadowElevation = 8.dp,
+                border = BorderStroke(1.dp, MaterialTheme.depth.line2),
+            ) {
                 for (alias in candidates) {
                     DropdownMenuItem(
                         text = { Text(alias.name) },
@@ -1300,18 +1337,21 @@ private fun FallbackPicker(
  * The "PRIMARY" badge. A small caps pill rather than an [AssistChip] —
  * AssistChip is a 32dp-tall interactive control, and using one for a
  * non-interactive label made it compete with the alias name it sits next to.
+ *
+ * Primary orange in light; toast in dark, where bright orange is off-brand.
  */
 @Composable
 private fun PrimaryPill() {
+    val dark = MaterialTheme.depth.isDark
     Surface(
         shape = PillShape,
-        color = MaterialTheme.colorScheme.primary,
+        color = if (dark) MarmaladeToast else MaterialTheme.colorScheme.primary,
     ) {
         Text(
             text = stringResource(R.string.alias_primary_pill),
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onPrimary,
+            color = if (dark) MarmaladeToastInk else MaterialTheme.colorScheme.onPrimary,
             modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp),
         )
     }
@@ -1323,7 +1363,11 @@ private fun PrimaryPill() {
  * Hand-rolled rather than [AssistChip] for the same reason as [PrimaryPill]:
  * these are labels, not buttons (the whole card is the tap target), and the
  * Material chip's minimum height made three of them dominate the card.
- * [filled] marks the one chip that carries real information.
+ *
+ * [filled] marks the one chip that carries real information: toast in light
+ * (the scheme's primaryContainer), a toast wash with toast text in dark, so
+ * it stays quieter than the solid PRIMARY pill above it. The rest are quiet
+ * outlines: a hairline edge and dim text.
  */
 @Composable
 private fun MetaChip(
@@ -1332,23 +1376,21 @@ private fun MetaChip(
     /** Cloud glyph ahead of the label. Shared with the Speak screen's row. */
     leadingCloud: Boolean = false,
 ) {
+    val depth = MaterialTheme.depth
+    val dark = MaterialTheme.depth.isDark
     Surface(
         shape = PillShape,
-        color = if (filled) {
-            MaterialTheme.colorScheme.primaryContainer
-        } else {
-            MaterialTheme.colorScheme.surface.copy(alpha = 0f)
+        color = when {
+            !filled -> Color.Transparent
+            dark -> depth.selected
+            else -> MaterialTheme.colorScheme.primaryContainer
         },
-        border = if (filled) {
-            null
-        } else {
-            BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.45f))
-        },
+        border = if (filled) null else BorderStroke(1.dp, depth.line2),
     ) {
-        val ink = if (filled) {
-            MaterialTheme.colorScheme.onPrimaryContainer
-        } else {
-            MaterialTheme.colorScheme.onSurfaceVariant
+        val ink = when {
+            !filled -> depth.dim
+            dark -> MarmaladeToast
+            else -> MaterialTheme.colorScheme.onPrimaryContainer
         }
         Row(
             verticalAlignment = Alignment.CenterVertically,

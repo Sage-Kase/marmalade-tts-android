@@ -6,7 +6,10 @@ import android.graphics.Canvas
 import android.graphics.drawable.AdaptiveIconDrawable
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,7 +31,6 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -57,6 +59,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.marmalade.tts.R
 import app.marmalade.tts.data.db.AppAliasMapping
+import app.marmalade.tts.ui.components.MarmaladeSheet
+import app.marmalade.tts.ui.theme.MarmaladeMotion
+import app.marmalade.tts.ui.theme.depth
 
 // -----------------------------------------------------------------------------
 // Per-alias routing sheet — "which apps speak as <alias>?"
@@ -116,7 +121,7 @@ fun AppRoutingSheet(
             .sortedByDescending { it.packageName in initiallyRouted }
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+    MarmaladeSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(modifier = Modifier.padding(horizontal = 24.dp)) {
             Text(
                 text = stringResource(
@@ -211,9 +216,20 @@ private fun AppRoutingRow(
     enabled: Boolean,
     onToggle: () -> Unit,
 ) {
+    // A ticked row gets the toast wash of the lab's active row, so the
+    // alias's apps stand out from the roster, not only by their checkbox.
+    // Off is the same toast at zero alpha, not Color.Transparent (black), so
+    // the fade doesn't pass through a muddy brown.
+    val selected = MaterialTheme.depth.selected
+    val wash by animateColorAsState(
+        targetValue = if (checked) selected else selected.copy(alpha = 0f),
+        animationSpec = MarmaladeMotion.fast(),
+        label = "routingRowWash",
+    )
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .background(wash)
             .toggleable(
                 value = checked,
                 enabled = enabled,
@@ -292,7 +308,7 @@ fun rememberAppLabels(packageNames: List<String>): List<String> {
 
 /**
  * The one launcher-tile look every app icon in this feature wears: rounded
- * square, soft shadow, icon bled to the edges.
+ * square, hairline edge, icon bled to the edges.
  *
  * Icons arrive in two incompatible shapes. A legacy icon is a square bitmap
  * with its own baked background; an `AdaptiveIconDrawable` paints itself
@@ -310,10 +326,13 @@ private fun AppIconTile(drawable: Drawable?, size: Dp) {
     // share one cache-free path.
     val sizePx = with(LocalDensity.current) { size.roundToPx() }
     val painter = drawable?.let { rememberDrawablePainter(it, sizePx) }
+    // Flat, edged with a hairline: the theme's soft shadows are sized for
+    // cards and pull in by more than a 30-40 dp tile is wide, so they would
+    // draw nothing here. The hairline keeps a white icon off a light page.
     Surface(
         shape = RoundedCornerShape(size / 4),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        shadowElevation = 2.dp,
+        color = MaterialTheme.depth.raised,
+        border = BorderStroke(1.dp, MaterialTheme.depth.line),
         modifier = Modifier.size(size),
     ) {
         if (painter != null) {
