@@ -509,6 +509,19 @@ object LicenseCatalog {
                 "the jsr305 annotations (BSD)).",
         ),
         Component(
+            key = "material-icons",
+            name = "Material Design icons and Material Symbols", role = "UI icons",
+            shipsIn = "APK",
+            licenseId = "Apache-2.0",
+            copyright = listOf(
+                "Material Design icons by Google " +
+                    "(https://github.com/google/material-design-icons)",
+            ),
+            note = "Drawn in the app from Material's path data: bug_report, " +
+                "description and shield as published; volume_up and cloud adapted; " +
+                "the reader's voice button is Material Symbols Rounded record_voice_over.",
+        ),
+        Component(
             key = "manrope",
             name = "Manrope", role = "Brand font (body / headings)",
             shipsIn = "APK",

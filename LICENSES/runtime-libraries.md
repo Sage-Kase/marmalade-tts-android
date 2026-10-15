@@ -117,6 +117,23 @@ Database**, so those tables are compiled into `libespeak-ng.so` too.
 - **Text:** espeak-ng's `COPYING.UCD`, reproduced verbatim in the APK at
   `assets/licenses/unicode.txt`.
 
+## 6. Material Design icons and Material Symbols — google/material-design-icons
+
+- **Role:** UI glyphs drawn in-tree from Material's path data rather than
+  pulled from `material-icons-extended`. In `ui/MarmaladeIcons.kt`:
+  `bug_report` (outlined), `description` and `shield` unchanged;
+  `volume_up` (the Speak tab) and `cloud` adapted (redrawn arcs, a
+  cropped viewport). And `res/drawable/ic_reader_voice.xml`, the reader's
+  alias dial: Material Symbols Rounded `record_voice_over`, unchanged.
+- **Upstream:** https://github.com/google/material-design-icons
+  (checked at commit 49d4db3)
+- **License:** Apache-2.0
+- **Notice:** The icons are published by Google. The repository has no
+  NOTICE file and its LICENSE carries no copyright line beyond the
+  Apache-2.0 template.
+
+The Apache-2.0 text ships in the APK at `assets/licenses/Apache-2.0.txt`.
+
 ## Android / Jetpack / Kotlin dependencies
 
 The app also depends on standard AndroidX / Jetpack Compose, Kotlin

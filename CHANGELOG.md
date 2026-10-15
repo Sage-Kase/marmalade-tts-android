@@ -7,9 +7,10 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 - **Choose who reads an article**: the reader's speed button is now a
-  voice and speed button. It names the alias reading the article and the
-  speed; tap it to pick another of your aliases or another speed in one
-  place. The paragraph being read starts again in the new voice, and your
+  voice and speed button, a speaking-person icon with the speed on a small
+  badge whenever it isn't 1×. Tap it to pick another of your aliases or
+  another speed in one place; the play controls sit in the middle of the
+  bar. The paragraph being read starts again in the new voice, and your
   pick stays for the rest of the article even if you change your primary
   alias. The speed is set with the same slider as in the alias editor. A
   new alias reads at its own speed, unless you chose a speed in the reader:
