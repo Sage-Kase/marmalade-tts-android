@@ -10,10 +10,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
-import app.marmalade.tts.ui.theme.MarmaladeDarkColors
+import app.marmalade.tts.ui.components.isMarmaladeDark
 import app.marmalade.tts.ui.theme.MarmaladeToast
 import app.marmalade.tts.ui.theme.MarmaladeToastInk
-import app.marmalade.tts.ui.theme.depth
 
 /**
  * App-wide FilterChip with consistent fill-only styling — no borders.
@@ -24,7 +23,7 @@ import app.marmalade.tts.ui.theme.depth
  *
  * Selected: `primaryContainer` — the vibrant orange tint that reads
  * unambiguously as "this is the active choice." In dark mode on the
- * Marmalade palette that role is an Orange 800 slab, so the selected chip
+ * Marmalade palette that role is a rich brown slab, so the selected chip
  * is toast with its ink there instead (brand v0's selected chip, #83);
  * other presets keep their own primaryContainer.
  *
@@ -44,7 +43,7 @@ fun MarmaladeFilterChip(
     leadingIcon: @Composable (() -> Unit)? = null,
 ) {
     val scheme = MaterialTheme.colorScheme
-    val toast = MaterialTheme.depth.isDark && scheme.primaryContainer == MarmaladeDarkColors.primaryContainer
+    val toast = isMarmaladeDark()
     val selectedFill = if (toast) MarmaladeToast else scheme.primaryContainer
     val selectedInk = if (toast) MarmaladeToastInk else scheme.onPrimaryContainer
     FilterChip(

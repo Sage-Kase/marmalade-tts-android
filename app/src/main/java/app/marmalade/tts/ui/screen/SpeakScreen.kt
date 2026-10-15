@@ -63,6 +63,7 @@ import app.marmalade.tts.ui.components.LiveDot
 import app.marmalade.tts.ui.components.Persona
 import app.marmalade.tts.ui.components.PersonaSheet
 import app.marmalade.tts.ui.components.WorkingDots
+import app.marmalade.tts.ui.components.accentButtonColors
 import app.marmalade.tts.ui.theme.LocalWordmarkColor
 import app.marmalade.tts.ui.theme.MarmaladeMotion
 import app.marmalade.tts.ui.theme.Wordmark
@@ -275,6 +276,7 @@ fun SpeakScreen(
             Button(
                 onClick = { if (isSpeaking) viewModel.cancel() else viewModel.speak() },
                 enabled = canSpeak,
+                colors = accentButtonColors(),
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Crossfade(

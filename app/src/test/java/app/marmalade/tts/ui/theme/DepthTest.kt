@@ -79,6 +79,21 @@ class DepthTest {
     }
 
     @Test
+    fun darkSchemeSpendsNoOrange() {
+        // Brand v0: no orange on stone. The accent roles are toast, the
+        // containers rich brown (Orange 400-800 are the oranges we used to ship).
+        val oranges = listOf(0xFFFB923C, 0xFFF97316, 0xFFEA580C, 0xFFC2410C, 0xFF9A3412).map { Color(it) }
+        val s = MarmaladeDarkColors
+        val fills = listOf(
+            s.primary, s.secondary, s.tertiary, s.primaryContainer, s.secondaryContainer,
+            s.tertiaryContainer, s.surfaceTint, s.inversePrimary,
+        )
+        fills.forEach { assertFalse("$it is orange", it in oranges) }
+        assertEquals(MarmaladeToast, s.primary)
+        assertEquals(MarmaladeRichBrown, s.primaryContainer)
+    }
+
+    @Test
     fun reducedMotionIsAnAnimatorScaleOfZero() {
         assertTrue(isReducedMotion(0f))
         assertFalse(isReducedMotion(1f))

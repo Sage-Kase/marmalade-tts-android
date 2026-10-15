@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.progressSemantics
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.ButtonColors
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -28,6 +30,7 @@ import androidx.compose.material3.SheetState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -38,7 +41,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.PopupProperties
+import app.marmalade.tts.ui.theme.MarmaladeDarkColors
 import app.marmalade.tts.ui.theme.MarmaladeMotion
+import app.marmalade.tts.ui.theme.MarmaladeRichBrown
+import app.marmalade.tts.ui.theme.MarmaladeToast
 import app.marmalade.tts.ui.theme.depth
 import app.marmalade.tts.ui.theme.rememberReducedMotion
 import app.marmalade.tts.ui.theme.softShadow
@@ -111,6 +117,29 @@ fun MarmaladeCard(
         )
     }
 }
+
+/**
+ * True in dark mode on the Marmalade palette (or its pre-12 System
+ * fallback), where orange gives way to toast and rich brown. Other presets
+ * keep their own accent.
+ */
+@Composable
+@ReadOnlyComposable
+fun isMarmaladeDark(): Boolean =
+    MaterialTheme.depth.isDark && MaterialTheme.colorScheme.primary == MarmaladeDarkColors.primary
+
+/**
+ * The accent button (brand v0): the one most important action on a screen.
+ * Orange in light; rich brown with toast ink in Marmalade dark, where a
+ * plain filled button is the toast default.
+ */
+@Composable
+fun accentButtonColors(): ButtonColors =
+    if (isMarmaladeDark()) {
+        ButtonDefaults.buttonColors(containerColor = MarmaladeRichBrown, contentColor = MarmaladeToast)
+    } else {
+        ButtonDefaults.buttonColors()
+    }
 
 /**
  * The app's bottom sheet: the sheet step of the surface ramp, the warm

@@ -99,6 +99,7 @@ import app.marmalade.tts.ui.components.JarMascotState
 import app.marmalade.tts.ui.components.MarmaladeCard
 import app.marmalade.tts.ui.components.MarmaladeMenu
 import app.marmalade.tts.ui.components.WorkingDots
+import app.marmalade.tts.ui.components.accentButtonColors
 import app.marmalade.tts.ui.screen.installFailureText
 import app.marmalade.tts.ui.theme.MarmaladeMotion
 import app.marmalade.tts.ui.theme.MarmaladeToast
@@ -322,6 +323,7 @@ private fun WelcomeStep(
         Spacer(Modifier.height(32.dp))
         Button(
             onClick = onGetStarted,
+            colors = accentButtonColors(),
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text(stringResource(R.string.onboarding_get_started))
@@ -441,6 +443,7 @@ private fun EnginePickStep(
                 // nothing, so there is no selection to get wrong.
                 Button(
                     onClick = onInstall,
+                    colors = accentButtonColors(),
                     enabled = !probePending && selectedIds.isNotEmpty(),
                 ) {
                     Text(
@@ -721,6 +724,7 @@ private fun InstallingStep(
         Spacer(Modifier.height(12.dp))
         Button(
             onClick = onContinue,
+            colors = accentButtonColors(),
             enabled = allDone || rowsToShow.isEmpty(),
             modifier = Modifier.fillMaxWidth(),
         ) {
@@ -997,6 +1001,7 @@ private fun CreateAliasStep(
         // the VM validates on save and surfaces the failure inline.
         Button(
             onClick = onSave,
+            colors = accentButtonColors(),
             modifier = Modifier.fillMaxWidth(),
         ) { Text(stringResource(R.string.onboarding_alias_save)) }
         Spacer(Modifier.height(8.dp))
@@ -1304,11 +1309,13 @@ private fun BackgroundUnrestrictedStep(
         if (isAllowed) {
             Button(
                 onClick = onContinue,
+                colors = accentButtonColors(),
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(stringResource(R.string.onboarding_continue)) }
         } else {
             Button(
                 onClick = onOpenSettings,
+                colors = accentButtonColors(),
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(stringResource(R.string.onboarding_background_allow)) }
             Spacer(Modifier.height(8.dp))
@@ -1403,11 +1410,13 @@ private fun NotificationPermissionStep(
         if (granted) {
             Button(
                 onClick = onContinue,
+                colors = accentButtonColors(),
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(stringResource(R.string.onboarding_continue)) }
         } else {
             Button(
                 onClick = { launcher.launch(Manifest.permission.POST_NOTIFICATIONS) },
+                colors = accentButtonColors(),
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(stringResource(R.string.onboarding_notifications_allow)) }
             Spacer(Modifier.height(8.dp))
@@ -1497,6 +1506,7 @@ private fun SystemDefaultStep(
             Spacer(Modifier.height(24.dp))
             Button(
                 onClick = onFinish,
+                colors = accentButtonColors(),
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(stringResource(R.string.onboarding_finish)) }
         } else {
@@ -1510,6 +1520,7 @@ private fun SystemDefaultStep(
             Spacer(Modifier.height(24.dp))
             Button(
                 onClick = onOpenSystemSettings,
+                colors = accentButtonColors(),
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(stringResource(R.string.onboarding_system_open_settings)) }
             Spacer(Modifier.height(8.dp))
