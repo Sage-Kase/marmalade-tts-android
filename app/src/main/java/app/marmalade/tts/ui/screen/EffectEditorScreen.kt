@@ -128,8 +128,13 @@ fun EffectEditorScreen(
             return@Scaffold
         }
 
+        // Each block travels with its key in one list. The list's builder may
+        // run again on a newer chain before this composition does, so a key
+        // lambda reading a separate keys list indexed past its end (a crash on
+        // adding a block).
         val blockKeys = remember { BlockKeys() }
-        val keys = blockKeys.keysFor(state.blocks)
+        val chain = state.blocks
+        val keyed = chain.zip(blockKeys.keysFor(chain))
 
         LazyColumn(
             modifier = Modifier
@@ -175,7 +180,7 @@ fun EffectEditorScreen(
                 )
             }
 
-            if (state.blocks.isEmpty()) {
+            if (keyed.isEmpty()) {
                 item(key = "chainEmpty") {
                     Text(
                         text = stringResource(R.string.effects_chain_empty),
@@ -190,13 +195,13 @@ fun EffectEditorScreen(
                 }
             } else {
                 itemsIndexed(
-                    items = state.blocks,
-                    key = { index, _ -> keys[index] },
-                ) { index, block ->
+                    items = keyed,
+                    key = { _, (_, key) -> key },
+                ) { index, (block, _) ->
                     BlockCard(
                         block = block,
                         index = index,
-                        count = state.blocks.size,
+                        count = keyed.size,
                         onChange = { viewModel.updateBlock(index, it) },
                         onRemove = { viewModel.removeBlock(index) },
                         onMoveUp = { viewModel.moveUp(index) },
