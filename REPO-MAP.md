@@ -105,9 +105,9 @@ screen off runs in its own foreground service, in the `foreground` cpuset
 session to its own engine while it plays (`TopAppHold`), so it runs top-app
 too, and `REFERENCE_COST` predicts that path. README next to the script.
 
-**Headless emulator on chocolate (#34):** `scripts/emulator/emulator.sh`
+**Headless emulator on the build machine (#34):** `scripts/emulator/emulator.sh`
 (`provision` / `start` / `stop`, piped over ssh:
-`ssh chocolate 'bash -s' -- start < scripts/emulator/emulator.sh`) boots
+`ssh "$BUILD_HOST" 'bash -s' -- start < scripts/emulator/emulator.sh`) boots
 an API 35 x86_64 AVD with no window or audio as `emulator-5580`. Only the
 debug build carries x86_64, so it runs debug builds, not the R8 rc. Bundles
 are sideloaded by extracting a tarball into `files/engines/` with `run-as`
@@ -334,7 +334,7 @@ When investigating **{concern}**, start at **{files}**:
     (English 0.61 s normal; Spanish 40% slow pieces), so the thread rule
     stays 4 unpinned; the `kokoro.affinity` knob remains for A/Bs.
   Scripts, parts and results: `~/coding/scratch/kokoro-planner-k16/`
-  (README.md; corpus, teacher store and checkpoints on chocolate, same path;
+  (README.md; corpus, teacher store and checkpoints on the build machine, same path;
   lab `tts-training-research/kokoro-planner-lab.html`).
 - **Debug-only pickable engines (`BuildTypeEngines`, issue #9)**: a
   prototype engine can be made selectable like any other voice in the DEBUG
@@ -377,7 +377,7 @@ When investigating **{concern}**, start at **{files}**:
 - **Bundle containers** (#65): publish bundles as tar.gz. The installer
   reads tar.gz and tar.bz2 (by magic bytes), but bzip2 goes through
   commons-compress's pure-Java decoder: Pocket's 225 MB unpacked in 15 s as
-  tar.bz2 and 1.8 s as tar.gz on chocolate's emulator, the rest of the
+  tar.bz2 and 1.8 s as tar.gz on the build machine's emulator, the rest of the
   install (sha256, swap, layout check) under 0.3 s. Every install logs one
   line, `EngineInstaller: Installed <engine> from <file>: fetch+sha256 … ms,
   unpack … ms, swap … ms, check … ms`. To repack a bundle in another
@@ -746,7 +746,7 @@ When investigating **{concern}**, start at **{files}**:
     the encoder graph from the previous bundle and swaps in the new
     speaker projection (initializer `val_419`, `[32,1024]` = W^T). Export
     tooling, configs and checks: `~/coding/scratch/pocket-2026-09/` on
-    chocolate (`tools/`, `README` in `export/` on marmalade); the exporter
+    the build machine (`tools/`, `README` in `export/` on marmalade); the exporter
     run on 2026-04 reproduces v21's graphs exactly.
   - Debug knobs (`EngineDevKnobs`): `pocket.xnnpack`, `pocket.spin`,
     `pocket.<text|enc|dec|main|flow>.threads` (`PocketSessionPlan`),
@@ -1624,7 +1624,7 @@ write Marmalade code.
   `kitten.onnx` (since #10 shipped cut in two, see "Kitten streams") is an fp32 Kokoro `KModel` (hidden 128, 2 layers, a 256-wide
   decoder, the same ALBERT and 178-symbol vocab) and was trained through this
   same `CustomSTFT`. A PyTorch rebuild loading the ONNX weights matches it to
-  fp32 rounding (identical durations), and fine-tunes on chocolate. Rebuild,
+  fp32 rounding (identical durations), and fine-tunes on the build machine. Rebuild,
   weight map, Kokoro→Kitten teacher pipeline and measured training cost:
   `~/coding/scratch/kitten-trainable-k0/README.md`.
   **Kitten nano is band-limited to ~8 kHz** (nothing above 7.8 kHz; Kokoro

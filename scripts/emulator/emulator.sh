@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # A headless Android emulator for this app's debug build (x86_64), meant for
-# chocolate (KVM, no JDK, so no sdkmanager/avdmanager). Runs on the emulator
+# the build machine (KVM, no JDK, so no sdkmanager/avdmanager). Runs on the emulator
 # host itself; from marmalade, pipe it over ssh:
 #
-#   ssh chocolate 'bash -s' -- provision < scripts/emulator/emulator.sh   # once
-#   ssh chocolate 'bash -s' -- start     < scripts/emulator/emulator.sh   # boots, prints the serial
-#   ssh chocolate 'bash -s' -- stop      < scripts/emulator/emulator.sh   # always, when done
+#   ssh "$BUILD_HOST" 'bash -s' -- provision < scripts/emulator/emulator.sh   # once
+#   ssh "$BUILD_HOST" 'bash -s' -- start     < scripts/emulator/emulator.sh   # boots, prints the serial
+#   ssh "$BUILD_HOST" 'bash -s' -- stop      < scripts/emulator/emulator.sh   # always, when done
 #
 # provision  download the pinned emulator + system image from Google (checksums
 #            below) into $ANDROID_HOME and write the AVD. Idempotent.

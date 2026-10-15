@@ -1,7 +1,8 @@
-# Headless emulator (chocolate)
+# Headless emulator (build machine)
 
-`emulator.sh` runs the app's debug build in an Android emulator on chocolate,
-with no window and no audio. It needs no phone, so it's free for long runs:
+`emulator.sh` runs the app's debug build in an Android emulator on a separate
+build machine (a Linux box with KVM, reached over ssh as `$BUILD_HOST`), with
+no window and no audio. It needs no phone, so it's free for long runs:
 every language of an engine, A/B renders of two bundles, a quick check that a
 build starts. It is a check of the app's path (phonemizer, which graphs load,
 streaming, crashes), not of phone-exact audio: x86 ONNX Runtime kernels round
@@ -16,24 +17,24 @@ the Pixel 6a.
 From marmalade (the script runs on the emulator host, piped over ssh):
 
 ```bash
-ssh chocolate 'bash -s' -- provision < scripts/emulator/emulator.sh   # once per host
-ssh chocolate 'bash -s' -- start     < scripts/emulator/emulator.sh   # ~1 min; prints emulator-5580
-ssh chocolate 'bash -s' -- stop      < scripts/emulator/emulator.sh   # always, when done
+ssh "$BUILD_HOST" 'bash -s' -- provision < scripts/emulator/emulator.sh   # once per host
+ssh "$BUILD_HOST" 'bash -s' -- start     < scripts/emulator/emulator.sh   # ~1 min; prints emulator-5580
+ssh "$BUILD_HOST" 'bash -s' -- stop      < scripts/emulator/emulator.sh   # always, when done
 ```
 
 - `provision` downloads the pinned emulator (36.6.11) and system image
   (Android 15 / API 35, x86_64, no Play Store) from Google, checks their
   sha256, and writes the AVD `marmalade-tts-emu` (4 cores, 4 GB, Pixel 6
   screen). It needs `/dev/kvm` and the SDK's platform-tools, nothing else:
-  chocolate has no JDK, so `sdkmanager`/`avdmanager` aren't used.
+  the build machine has no JDK, so `sdkmanager`/`avdmanager` aren't used.
 - `start --wipe` factory-resets the AVD first. Otherwise its data (installed
   app, sideloaded bundles) survives a stop.
-- Before starting, check chocolate isn't running a game
+- Before starting, check the build machine isn't busy (e.g. running a game)
   (`pgrep -af "[r]eaper SteamLaunch|[G]ameThread"`).
 
 ## Use it
 
-Use chocolate's adb: `~/Android/Sdk/platform-tools/adb -s emulator-5580`.
+Use the build machine's adb: `~/Android/Sdk/platform-tools/adb -s emulator-5580`.
 Build the APK on marmalade (`assembleFdroidDebug`, under the Gradle lock) and
 copy it over.
 
@@ -70,6 +71,6 @@ copy it over.
 ## Precedent
 
 #34 rendered every Kokoro language, v23 against v26, this way and scored the
-clips with Whisper on chocolate. Its driver scripts are in
+clips with Whisper on the build machine. Its driver scripts are in
 `~/coding/scratch/kokoro-v26-langs-34/` (`put_bundle.sh`, `render.py`,
 `wer.py`).
