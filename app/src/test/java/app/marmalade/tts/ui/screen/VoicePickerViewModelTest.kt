@@ -2,6 +2,7 @@ package app.marmalade.tts.ui.screen
 
 import androidx.lifecycle.SavedStateHandle
 import app.marmalade.tts.audio.SpeechPlayer
+import app.marmalade.tts.data.CloudApiVoiceCatalog
 import app.marmalade.tts.data.KittenDirectVoiceCatalog
 import app.marmalade.tts.data.SettingsRepository
 import app.marmalade.tts.data.VitsVoiceCatalog
@@ -17,6 +18,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -58,18 +60,96 @@ class VoicePickerViewModelTest {
     fun previewSendsCannedPhraseThroughPlayer() = runTest {
         val player = RecordingPlayer()
         val settings = FakeSettings(initialId = KittenDirectVoiceCatalog.DEFAULT_VOICE_ID)
-        val voice = KittenDirectVoiceCatalog.voices.first { it.displayName == "Bella" }
         val vm = newViewModel(settings = settings, player = player)
 
-        vm.preview(voice)
+        vm.togglePreview(bella)
 
-        // 1 cancel before preview + the speak call itself.
-        assertTrue(player.cancelCount >= 1)
         assertEquals(1, player.calls.size)
         val (text, voiceId) = player.calls.single()
         assertEquals("kitten-direct-v0_8:Bella", voiceId)
         // Phrase contains the voice's name so the user hears who is speaking.
         assertTrue("expected name in '$text'", text.contains("Bella"))
+    }
+
+    // -- Sample play/stop and the cloud guard (#88) ----------------------------
+
+    private val bella = KittenDirectVoiceCatalog.voices.first { it.displayName == "Bella" }
+    private val leo = KittenDirectVoiceCatalog.voices.first { it.displayName == "Leo" }
+
+    /** A VM whose samples play until stopped, so Playing is observable. */
+    private fun previewingViewModel(player: RecordingPlayer): VoicePickerViewModel {
+        player.holdUntilCancel = true
+        return newViewModel(
+            settings = FakeSettings(initialId = KittenDirectVoiceCatalog.DEFAULT_VOICE_ID),
+            player = player,
+        )
+    }
+
+    @Test
+    fun `a second tap on the playing voice stops it`() = runTest {
+        val player = RecordingPlayer()
+        val vm = previewingViewModel(player)
+
+        vm.togglePreview(bella)
+        assertEquals(PreviewState.Playing(bella.id), vm.previewState.value)
+        val cancelsBefore = player.cancelCount
+        vm.togglePreview(bella)
+
+        assertEquals(PreviewState.Idle, vm.previewState.value)
+        assertEquals(cancelsBefore + 1, player.cancelCount)
+        assertEquals("the stop tap speaks nothing", 1, player.calls.size)
+    }
+
+    @Test
+    fun `another voice takes over from the one playing`() = runTest {
+        val player = RecordingPlayer()
+        val vm = previewingViewModel(player)
+
+        vm.togglePreview(bella)
+        val cancelsBefore = player.cancelCount
+        vm.togglePreview(leo)
+
+        assertEquals(PreviewState.Playing(leo.id), vm.previewState.value)
+        assertTrue("Bella's sample is cancelled", player.cancelCount > cancelsBefore)
+        assertEquals(listOf(bella.id, leo.id), player.calls.map { it.voiceId })
+    }
+
+    @Test
+    fun `picking a voice stops its sample`() = runTest {
+        val player = RecordingPlayer()
+        val vm = previewingViewModel(player)
+        vm.togglePreview(bella)
+
+        vm.selectVoice(leo.id)
+
+        assertEquals(PreviewState.Idle, vm.previewState.value)
+    }
+
+    @Test
+    fun `cloud voices get no sample`() = runTest {
+        // A cloud sample would spend the user's provider credit unasked.
+        val player = RecordingPlayer()
+        val vm = previewingViewModel(player)
+
+        assertFalse(vm.canPreview(PICKER_CLOUD_VOICE))
+        assertTrue(vm.canPreview(bella))
+        vm.togglePreview(PICKER_CLOUD_VOICE)
+
+        assertTrue("nothing may reach a provider", player.calls.isEmpty())
+        assertEquals(PreviewState.Idle, vm.previewState.value)
+    }
+
+    @Test
+    fun `stopping with nothing playing leaves the player alone`() = runTest {
+        // cancel() stops the player's in-flight request, which with no sample
+        // playing is someone else's (a Speak-screen read).
+        val player = RecordingPlayer()
+        val vm = previewingViewModel(player)
+
+        vm.stopPreview()
+        vm.selectVoice(leo.id)
+
+        assertEquals(0, player.cancelCount)
     }
 
     @Test
@@ -252,3 +332,13 @@ private class PickerFakeInstaller(
     override suspend fun verifyPack(packId: String): InstallState =
         if (packId in installedPacks) InstallState.Installed else InstallState.NotInstalled
 }
+
+/** A cloud voice row; [VoicePathResolver] recognises it from the id alone. */
+private val PICKER_CLOUD_VOICE = VoiceMeta(
+    id = CloudApiVoiceCatalog.voiceId("venice", "tts-kokoro", "af_sky"),
+    engine = CloudApiVoiceCatalog.ENGINE,
+    displayName = "af_sky",
+    languageCode = "en-US",
+    sampleRate = 24_000,
+    gender = null,
+)
