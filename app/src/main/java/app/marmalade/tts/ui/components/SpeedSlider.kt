@@ -21,7 +21,7 @@ import kotlin.math.abs
 // able to land on it exactly. On the 0.1 grid it already does; a speed off the
 // grid (1.25×, say) gets a stop of its own, and the slider
 // drops its detents to snap by hand (Slider's `steps` are evenly spaced).
-// Its track draws the stops per SliderMarks (#84), and each new stop ticks.
+// Its track shows no stop marks (#84), and each new stop ticks.
 // The onboarding alias step uses it too.
 // -----------------------------------------------------------------------------
 
@@ -76,7 +76,7 @@ fun SpeedSlider(
         onValueChangeFinished = onValueChangeFinished,
         valueRange = VoiceAlias.MIN_SPEED..VoiceAlias.MAX_SPEED,
         steps = if (extraStop == null || onGrid(extraStop)) STEPS else 0,
-        track = { SteppedSliderTrack(it, mark = 1f) },
+        track = { SteppedSliderTrack(it) },
         modifier = modifier.semantics {
             contentDescription = label
             stateDescription = valueText

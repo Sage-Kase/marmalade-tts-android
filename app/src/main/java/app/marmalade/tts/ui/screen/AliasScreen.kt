@@ -952,8 +952,8 @@ private fun ExpressivenessSlider(
             // One detent per STEP; Slider's `steps` counts only the ones
             // between the endpoints (0.2 to 0.7 has 4).
             steps = ((Expressiveness.MAX - Expressiveness.MIN) / Expressiveness.STEP).roundToInt() - 1,
-            // Marks per SliderMarks (#84); ONE_MARK keeps Pocket's default.
-            track = { SteppedSliderTrack(it, mark = Expressiveness.POCKET_DEFAULT) },
+            // A clean track, no stop marks (#84).
+            track = { SteppedSliderTrack(it) },
             modifier = Modifier.semantics {
                 contentDescription = description
                 stateDescription = valueText
@@ -992,7 +992,7 @@ private fun ExpressivenessSlider(
 /**
  * The alias editor's single voice field.
  *
- * Shows the voice name with its collapsed path underneath — "Kitten Nano"
+ * Shows the voice name with its collapsed path underneath — "Kitten TTS Nano"
  * for an on-device voice, "Venice › ElevenLabs Turbo v2.5" for a cloud one.
  * Identical for both kinds: the editor deliberately does not branch on
  * whether a voice needs the network, which is what keeps one code path for

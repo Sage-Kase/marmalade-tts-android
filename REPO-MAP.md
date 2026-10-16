@@ -1417,15 +1417,14 @@ and `MarmaladeSynthService` is its foreground host. System TTS
     skipped); the Effects and Engines screens are as before #83 (I and J
     skipped). Light-mode alias cards stay the plain Material `Card`, dark
     ones are `MarmaladeCard` (`AliasCard` branches on `depth.isDark`).
-  - Round-2 picks pending in the #83 lab (one-line changes once Max picks):
-    `LIGHT_TICK` in `ui/onboarding/OnboardingScreen.kt` (how a ticked
-    engine card shows in light mode: FAINT_WASH / TOAST_EDGE /
-    CHECKBOX_ONLY) and `SLIDER_MARKS` in `ui/components/SliderMarks.kt`.
+  - Round-2 picks (Max, 2026-10-16): a ticked engine card in light mode
+    takes a faint toast wash (`LIGHT_TICK_WASH` in
+    `ui/onboarding/OnboardingScreen.kt`); stepped sliders show no marks.
 - `ui/components/SliderMarks.kt` (#84) — `SteppedSliderTrack`, the track of
   every stepped slider (`SpeedSlider`, the alias editor's expressiveness):
-  Material's dot per detent read as a dotted line. Per `SLIDER_MARKS` it
-  draws no marks, one mark at the natural value, or faint dots; each new
-  stop gives a `TextHandleMove` haptic tick. Onboarding's speed slider is
+  Material's dot per detent read as a dotted line, so it draws no marks
+  (Max's pick over one mark at 1× or faint dots); each new stop gives a
+  `TextHandleMove` haptic tick. Onboarding's speed slider is
   the shared `SpeedSlider`.
 
 ## Data flow (mermaid-free, just text)

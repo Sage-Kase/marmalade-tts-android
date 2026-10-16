@@ -485,8 +485,9 @@ private fun EngineCard(
     // shadow (#83). The checkbox carries the state; a ticked card only warms
     // a little, animated. In dark mode that is the faint shared wash on
     // stone, never a filled slab (it used to be a brown secondaryContainer
-    // card); in light mode it is [LIGHT_TICK] (full toast was "too orange",
-    // Max in the #83 lab, reversing 2026-10-13's "Stronger tint").
+    // card); in light mode a faint toast wash (full toast was "too orange",
+    // Max in the #83 lab, reversing 2026-10-13's "Stronger tint"; he picked
+    // the faint wash over a toast edge or the checkbox alone).
     //
     // The permanently-ticked built-in card keeps the plain fill: the wash
     // means "you chose this", and Kitten isn't a choice (Max, 2026-08-08 —
@@ -518,12 +519,7 @@ private fun EngineCard(
                 },
             ),
         selected = tinted,
-        selectedFill = if (isDark) null else MarmaladeToast.copy(alpha = LIGHT_TICK.washAlpha).compositeOver(MaterialTheme.depth.card),
-        border = if (tinted && !isDark && LIGHT_TICK == LightTick.TOAST_EDGE) {
-            BorderStroke(1.5.dp, LightTickEdge)
-        } else {
-            null
-        },
+        selectedFill = if (isDark) null else MarmaladeToast.copy(alpha = LIGHT_TICK_WASH).compositeOver(MaterialTheme.depth.card),
     ) {
         Row(
             modifier = Modifier
@@ -603,22 +599,8 @@ private fun EngineCard(
     }
 }
 
-/**
- * How a ticked engine card shows in light mode (#83 M, Max picks in the lab):
- * a faint toast wash over the card, the wash plus a thin toast edge, or no
- * change at all (the checkbox alone). Each keeps the Recommended pill legible.
- */
-internal enum class LightTick(val washAlpha: Float) {
-    FAINT_WASH(0.35f),
-    TOAST_EDGE(0.20f),
-    CHECKBOX_ONLY(0f),
-}
-
-/** The shipped light-mode pick. */
-internal val LIGHT_TICK = LightTick.FAINT_WASH
-
-/** Orange 300: the toast family a step deeper, so a thin edge reads on the Orange 100 card. */
-private val LightTickEdge = Color(0xFFFDBA74)
+/** How strongly a ticked engine card warms in light mode (#83 M). */
+private const val LIGHT_TICK_WASH = 0.35f
 
 /**
  * Small "Recommended" pill. Toast-family container (never the precious accent
