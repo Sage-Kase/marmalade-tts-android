@@ -11,6 +11,12 @@ This project follows [Semantic Versioning](https://semver.org/).
   that voice. Tap it again, pick a voice or close the picker to stop it.
   Cloud voices have no sample button, so nothing is sent to a provider
   unless you choose that voice.
+- **Setup lets you hear the voices**: the last part of setup no longer asks
+  you to fill in an alias form. It lists the voices on your phone, each with
+  a speaker button to hear it, with one already picked for you: voices in
+  your phone's language first, from the engine the phone check recommends.
+  Tap "Use" and that voice becomes your first alias, named after it. Speed
+  and effects are in Aliases whenever you want them.
 
 ### Changed
 - **A more polished look**: cards, sheets and menus sit on soft layered
@@ -25,6 +31,15 @@ This project follows [Semantic Versioning](https://semver.org/).
 - **Cleaner sliders**: the speed and expressiveness sliders no longer draw
   a row of dots along the track. They still stop at the same values, with
   a light tap at each one.
+- **Voice samples on the Voices screen**: the sample button is a speaker
+  that turns into a stop button while it plays, and only one voice plays at
+  a time. Cloud voices no longer have one, so a sample never spends your
+  provider credit.
+- **Effect sliders in light mode**: the effect editor's sliders show their
+  track again against the light background.
+- **Background step for everyone**: setup asks everyone about running in
+  the background, which keeps long reads going with the screen off. It is
+  still one tap to skip.
 
 ## [1.2.0] - 2026-10-13
 
