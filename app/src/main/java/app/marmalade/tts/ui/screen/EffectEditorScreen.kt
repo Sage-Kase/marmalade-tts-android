@@ -5,7 +5,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -14,8 +13,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -28,11 +25,13 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -56,9 +55,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.marmalade.tts.R
 import app.marmalade.tts.audio.EffectBlock
-import app.marmalade.tts.ui.components.MarmaladeCard
-import app.marmalade.tts.ui.components.WorkingDots
-import app.marmalade.tts.ui.theme.MarmaladeMotion
 
 // -----------------------------------------------------------------------------
 //   EffectEditorScreen — full-screen chain builder (a detail route; AppRoot
@@ -69,13 +65,9 @@ import app.marmalade.tts.ui.theme.MarmaladeMotion
 //   Save (top bar) persists + pops back; Preview synthesizes a sample with the
 //   current chain.
 //
-//   Each block is one MarmaladeCard with its own sliders. Reordering is up/down
+//   Each block is one OutlinedCard with its own sliders. Reordering is up/down
 //   arrows (not drag) — accessible, no extra deps, and a chain is rarely more
 //   than a handful of blocks so a full DnD affordance would be overkill.
-//   The body is a LazyColumn so each block can carry Modifier.animateItem():
-//   an added block fades in, a removed one fades out and a moved one slides.
-//   The chain is plain data with no ids, so [BlockKeys] infers which block is
-//   which between edits.
 // -----------------------------------------------------------------------------
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -124,171 +116,80 @@ fun EffectEditorScreen(
                     .fillMaxSize()
                     .padding(innerPadding),
                 contentAlignment = Alignment.Center,
-            ) { WorkingDots() }
+            ) { CircularProgressIndicator() }
             return@Scaffold
         }
 
-        // Each block travels with its key in one list. The list's builder may
-        // run again on a newer chain before this composition does, so a key
-        // lambda reading a separate keys list indexed past its end (a crash on
-        // adding a block).
-        val blockKeys = remember { BlockKeys() }
-        val chain = state.blocks
-        val keyed = chain.zip(blockKeys.keysFor(chain))
-
-        LazyColumn(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
-            contentPadding = PaddingValues(16.dp),
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item(key = "name") {
-                OutlinedTextField(
-                    value = state.name,
-                    onValueChange = viewModel::onNameChange,
-                    label = { Text(stringResource(R.string.effects_name)) },
-                    singleLine = true,
-                    isError = state.nameError,
-                    supportingText = if (state.nameError) {
-                        {
-                            Text(
-                                stringResource(R.string.effects_name_error),
-                                color = MaterialTheme.colorScheme.error,
-                            )
-                        }
-                    } else {
-                        null
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
+            OutlinedTextField(
+                value = state.name,
+                onValueChange = viewModel::onNameChange,
+                label = { Text(stringResource(R.string.effects_name)) },
+                singleLine = true,
+                isError = state.nameError,
+                supportingText = if (state.nameError) {
+                    {
+                        Text(
+                            stringResource(R.string.effects_name_error),
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                } else {
+                    null
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
 
-            item(key = "chainHeading") {
+            Text(
+                text = stringResource(R.string.effects_chain),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.semantics { heading() },
+            )
+            Text(
+                text = stringResource(R.string.effects_chain_help),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            if (state.blocks.isEmpty()) {
                 Text(
-                    text = stringResource(R.string.effects_chain),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.semantics { heading() },
-                )
-            }
-            item(key = "chainHelp") {
-                Text(
-                    text = stringResource(R.string.effects_chain_help),
-                    style = MaterialTheme.typography.bodySmall,
+                    text = stringResource(R.string.effects_chain_empty),
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-            }
-
-            if (keyed.isEmpty()) {
-                item(key = "chainEmpty") {
-                    Text(
-                        text = stringResource(R.string.effects_chain_empty),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.animateItem(
-                            fadeInSpec = MarmaladeMotion.base(),
-                            placementSpec = MarmaladeMotion.slow(),
-                            fadeOutSpec = MarmaladeMotion.fast(),
-                        ),
-                    )
-                }
             } else {
-                itemsIndexed(
-                    items = keyed,
-                    key = { _, (_, key) -> key },
-                ) { index, (block, _) ->
+                state.blocks.forEachIndexed { index, block ->
                     BlockCard(
                         block = block,
                         index = index,
-                        count = keyed.size,
+                        count = state.blocks.size,
                         onChange = { viewModel.updateBlock(index, it) },
                         onRemove = { viewModel.removeBlock(index) },
                         onMoveUp = { viewModel.moveUp(index) },
                         onMoveDown = { viewModel.moveDown(index) },
-                        modifier = Modifier.animateItem(
-                            fadeInSpec = MarmaladeMotion.base(),
-                            placementSpec = MarmaladeMotion.slow(),
-                            fadeOutSpec = MarmaladeMotion.fast(),
-                        ),
                     )
                 }
             }
 
-            // The rows below the chain slide down or up as blocks come and go.
-            item(key = "addBlock") {
-                AddBlockButton(
-                    onAdd = viewModel::addBlock,
-                    modifier = Modifier.animateItem(
-                        fadeInSpec = null,
-                        placementSpec = MarmaladeMotion.slow(),
-                        fadeOutSpec = null,
-                    ),
-                )
-            }
+            AddBlockButton(onAdd = viewModel::addBlock)
 
-            item(key = "preview") {
-                val previewText = stringResource(R.string.effects_preview_text)
-                PreviewRow(
-                    preview = state.preview,
-                    onPreview = { viewModel.preview(previewText) },
-                    onStop = viewModel::stopPreview,
-                    // A wider gap above Preview than between the other rows
-                    // (the old Column's spacer: 12 + 4 + 12 dp in all).
-                    modifier = Modifier
-                        .animateItem(
-                            fadeInSpec = null,
-                            placementSpec = MarmaladeMotion.slow(),
-                            fadeOutSpec = null,
-                        )
-                        .padding(top = 16.dp),
-                )
-            }
+            Spacer(Modifier.height(4.dp))
+
+            val previewText = stringResource(R.string.effects_preview_text)
+            PreviewRow(
+                preview = state.preview,
+                onPreview = { viewModel.preview(previewText) },
+                onStop = viewModel::stopPreview,
+            )
         }
-    }
-}
-
-/**
- * Stable LazyColumn keys for the chain's blocks. The chain is plain data (two
- * default Reverb blocks are equal), so identity is inferred by diffing each new
- * chain against the last: the editor only ever appends one block, removes one,
- * swaps two neighbours or changes one in place, and anything else (the first
- * load) mints fresh keys. Remembered per screen; keys never reach the ViewModel.
- */
-internal class BlockKeys {
-    private var blocks: List<EffectBlock> = emptyList()
-    private var keys: List<Int> = emptyList()
-    private var next = 0
-
-    fun keysFor(current: List<EffectBlock>): List<Int> {
-        if (current !== blocks) {
-            keys = reconcile(blocks, keys, current)
-            blocks = current
-        }
-        return keys
-    }
-
-    private fun reconcile(old: List<EffectBlock>, oldKeys: List<Int>, new: List<EffectBlock>): List<Int> {
-        when (new.size - old.size) {
-            1 -> if (new.subList(0, old.size) == old) return oldKeys + next++
-            -1 -> {
-                val removed = old.indices.first { it >= new.size || old[it] != new[it] }
-                return oldKeys.filterIndexed { i, _ -> i != removed }
-            }
-            0 -> {
-                val changed = old.indices.filter { old[it] != new[it] }
-                val swapped = changed.size == 2 &&
-                    changed[1] == changed[0] + 1 &&
-                    old[changed[0]] == new[changed[1]] &&
-                    old[changed[1]] == new[changed[0]]
-                if (!swapped) return oldKeys
-                return oldKeys.toMutableList().apply {
-                    this[changed[0]] = oldKeys[changed[1]]
-                    this[changed[1]] = oldKeys[changed[0]]
-                }
-            }
-        }
-        return List(new.size) { next++ }
     }
 }
 
@@ -297,9 +198,8 @@ private fun PreviewRow(
     preview: EffectPreviewState,
     onPreview: () -> Unit,
     onStop: () -> Unit,
-    modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier) {
+    Column {
         if (preview is EffectPreviewState.Playing) {
             OutlinedButton(onClick = onStop, modifier = Modifier.fillMaxWidth()) {
                 Text(stringResource(R.string.effects_stop))
@@ -332,9 +232,8 @@ private fun BlockCard(
     onRemove: () -> Unit,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
-    modifier: Modifier = Modifier,
 ) {
-    MarmaladeCard(modifier = modifier.fillMaxWidth()) {
+    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -674,9 +573,9 @@ private fun LabeledSlider(
  * to the top of the screen; a modal sidesteps anchor positioning entirely.
  */
 @Composable
-private fun AddBlockButton(onAdd: (EffectBlock) -> Unit, modifier: Modifier = Modifier) {
+private fun AddBlockButton(onAdd: (EffectBlock) -> Unit) {
     var showPicker by remember { mutableStateOf(false) }
-    OutlinedButton(onClick = { showPicker = true }, modifier = modifier.fillMaxWidth()) {
+    OutlinedButton(onClick = { showPicker = true }, modifier = Modifier.fillMaxWidth()) {
         Icon(Icons.Filled.Add, contentDescription = null)
         Spacer(Modifier.width(8.dp))
         Text(stringResource(R.string.effects_add_block))

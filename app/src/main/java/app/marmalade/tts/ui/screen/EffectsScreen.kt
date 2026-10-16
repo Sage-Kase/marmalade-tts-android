@@ -1,6 +1,5 @@
 package app.marmalade.tts.ui.screen
 
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -23,6 +22,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -31,6 +31,7 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -47,16 +48,12 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.marmalade.tts.R
 import app.marmalade.tts.audio.EffectBlock
-import app.marmalade.tts.ui.components.MarmaladeCard
-import app.marmalade.tts.ui.theme.MarmaladeMotion
-import app.marmalade.tts.ui.theme.depth
 
 // -----------------------------------------------------------------------------
 //   EffectsScreen
@@ -129,18 +126,11 @@ fun EffectsScreen(
                 Text(
                     text = stringResource(R.string.effects_intro),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.depth.dim,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             items(items = effects, key = { it.id }) { card ->
                 EffectCardItem(
-                    // A new or duplicated effect rises into its place and the
-                    // rest slide to make room; a deleted one fades out.
-                    modifier = Modifier.animateItem(
-                        fadeInSpec = MarmaladeMotion.base(),
-                        placementSpec = MarmaladeMotion.slow(),
-                        fadeOutSpec = MarmaladeMotion.fast(),
-                    ),
                     card = card,
                     isPlaying = preview.playingId == card.id,
                     error = previewErrorFor(preview, card.id),
@@ -203,17 +193,8 @@ private fun EffectCardItem(
     onEdit: () -> Unit,
     onDuplicate: () -> Unit,
     onDelete: () -> Unit,
-    modifier: Modifier = Modifier,
 ) {
-    // Control glyphs sit at the faint ink step so the chain stays the card's
-    // content; the play glyph comes up to full ink while it is playing.
-    val iconTint = MaterialTheme.depth.faint
-    val playTint by animateColorAsState(
-        targetValue = if (isPlaying) MaterialTheme.colorScheme.onSurface else iconTint,
-        animationSpec = MarmaladeMotion.fast(),
-        label = "playTint",
-    )
-    MarmaladeCard(modifier = modifier.fillMaxWidth()) {
+    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -223,9 +204,10 @@ private fun EffectCardItem(
                     modifier = Modifier.weight(1f),
                 )
                 if (card.isBuiltin) {
-                    QuietPill(
-                        label = stringResource(R.string.effects_builtin),
-                        style = MaterialTheme.typography.labelSmall,
+                    AssistChip(
+                        onClick = {},
+                        enabled = false,
+                        label = { Text(stringResource(R.string.effects_builtin)) },
                     )
                 }
             }
@@ -237,10 +219,10 @@ private fun EffectCardItem(
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 if (card.chain.isEmpty()) {
-                    QuietPill(stringResource(R.string.effects_chip_none))
+                    BlockChip(stringResource(R.string.effects_chip_none))
                 } else {
                     for (block in card.chain) {
-                        QuietPill(blockChipLabel(block))
+                        BlockChip(blockChipLabel(block))
                     }
                 }
             }
@@ -266,7 +248,6 @@ private fun EffectCardItem(
                             },
                             card.name,
                         ),
-                        tint = playTint,
                     )
                 }
                 if (!card.isBuiltin) {
@@ -277,7 +258,6 @@ private fun EffectCardItem(
                                 R.string.effects_edit_card,
                                 card.name,
                             ),
-                            tint = iconTint,
                         )
                     }
                 }
@@ -288,7 +268,6 @@ private fun EffectCardItem(
                             R.string.effects_duplicate_card,
                             card.name,
                         ),
-                        tint = iconTint,
                     )
                 }
                 if (!card.isBuiltin) {
@@ -315,6 +294,11 @@ private fun EffectCardItem(
     }
 }
 
+// Outlined chip to match the Engines screen idiom (border, no fill), but tinted
+// with the theme accent (`primary`) so the blocks keep an orange identity and
+// read as the card's primary content — distinct from the muted, gray "Built-in"
+// AssistChip tag. `primary` is theme-aware, so the chips track the user's chosen
+// accent (orange by default, blue under Midnight, etc.).
 /**
  * Material "stop" glyph — a filled square. Hand-built for the same reason as
  * [ContentCopyIcon]: core has no stop icon and the extended set is multi-MB.
@@ -427,26 +411,17 @@ private fun blockChipLabel(block: EffectBlock): String = when (block) {
     is EffectBlock.Monotone -> stringResource(R.string.effects_chip_monotone, block.targetHz.toInt())
 }
 
-/**
- * A display-only pill: no fill, a hairline edge and dim text (the brand's
- * unselectable chip). Used for each block of the chain and for the "Built-in"
- * tag. It never spends the accent (#83): the card's content is the chain's
- * wording, not an orange outline around it.
- */
 @Composable
-private fun QuietPill(
-    label: String,
-    style: TextStyle = MaterialTheme.typography.labelMedium,
-) {
+private fun BlockChip(label: String) {
     Surface(
         color = Color.Transparent,
-        contentColor = MaterialTheme.depth.dim,
+        contentColor = MaterialTheme.colorScheme.primary,
         shape = MaterialTheme.shapes.small,
-        border = BorderStroke(1.dp, MaterialTheme.depth.line2),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
     ) {
         Text(
             text = label,
-            style = style,
+            style = MaterialTheme.typography.labelMedium,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
         )
     }
