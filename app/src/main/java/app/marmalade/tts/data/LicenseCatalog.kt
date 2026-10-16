@@ -541,16 +541,6 @@ object LicenseCatalog {
                     "(https://github.com/typeassociates/MomoTrustDisplay)",
             ),
         ),
-        Component(
-            key = "fredoka",
-            name = "Fredoka", role = "Brand font (wordmark fallback)",
-            shipsIn = "APK",
-            licenseId = "OFL-1.1",
-            copyright = listOf(
-                "Copyright 2016 The Fredoka Project Authors " +
-                    "(https://github.com/hafontia/Fredoka-One)",
-            ),
-        ),
     )
 
     /** Look up a [License] by id, or null if unknown. */

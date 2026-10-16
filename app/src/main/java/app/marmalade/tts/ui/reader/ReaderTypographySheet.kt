@@ -13,13 +13,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -32,6 +29,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import app.marmalade.tts.R
 import app.marmalade.tts.ui.MarmaladeFilterChip
+import app.marmalade.tts.ui.components.MarmaladeSheet
+import app.marmalade.tts.ui.theme.depth
 
 // -----------------------------------------------------------------------------
 // Reader display sheet — background, font, size. Three controls, no more.
@@ -45,7 +44,6 @@ import app.marmalade.tts.ui.MarmaladeFilterChip
 /** Diameter of a background swatch — big enough to be a comfortable tap target. */
 private val SWATCH_SIZE = 44.dp
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReaderTypographySheet(
     prefs: ReaderDisplayPrefs,
@@ -55,10 +53,7 @@ fun ReaderTypographySheet(
     onFontSizeStep: (Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(),
-    ) {
+    MarmaladeSheet(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -142,7 +137,7 @@ private fun BackgroundSwatches(
                             color = if (isSelected) {
                                 MaterialTheme.colorScheme.primary
                             } else {
-                                MaterialTheme.colorScheme.outlineVariant
+                                MaterialTheme.depth.line2
                             },
                             shape = CircleShape,
                         ),

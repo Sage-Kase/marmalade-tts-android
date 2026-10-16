@@ -444,7 +444,7 @@ class SpeakViewModelTest {
         val loading = vm.playbackState.value
         assertTrue("Expected Loading, got $loading", loading is PlaybackState.Loading)
         assertEquals(
-            "Kitten Nano (v0.8)",
+            "Kitten TTS Nano",
             (loading as PlaybackState.Loading).engineDisplayName,
         )
         assertTrue("Player must not be asked to speak mid-load", player.calls.isEmpty())

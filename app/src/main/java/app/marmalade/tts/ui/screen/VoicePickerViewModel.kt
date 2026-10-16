@@ -1,12 +1,9 @@
 package app.marmalade.tts.ui.screen
 
-import androidx.annotation.StringRes
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import app.marmalade.tts.R
 import app.marmalade.tts.audio.SpeechPlayer
-import app.marmalade.tts.audio.SynthesizerException
 import app.marmalade.tts.data.InstalledVoiceAssets
 import app.marmalade.tts.data.KokoroDirectVoiceCatalog
 import app.marmalade.tts.data.LatencyBucket
@@ -52,11 +49,11 @@ import kotlinx.coroutines.launch
 //     ├── previewState ◄──── VoicePickerViewModel.previewState
 //     │                          ▲
 //     │                          │
-//     │                  Synthesizer.speak(previewPhrase, voiceId)
+//     │                  VoicePreviewer → Synthesizer.speak(previewPhrase, voiceId)
 //     │
 //     └── actions
 //          ├── selectVoice(id) ──► SettingsRepository.setDefaultVoiceId
-//          ├── preview(voice)  ──► Synthesizer.speak(...)
+//          ├── preview(voice)  ──► VoicePreviewer.play → Synthesizer.speak(...)
 //          └── refresh()       ──► installer.verify() for each catalog engine
 //
 //   Per-pack filtering: a pack-based engine (VITS Marmalade) verifies as
@@ -72,37 +69,6 @@ import kotlinx.coroutines.launch
 //     voices regardless of install state. Now we list voices only for
 //     engines whose installer reports Installed.
 // -----------------------------------------------------------------------------
-
-/**
- * UI state for the per-row Preview button.
- *
- * Kept separate from the screen-level playback state because previewing
- * is intentionally a transient affordance — tapping Preview should not
- * block the rest of the picker from being interactive.
- */
-sealed class PreviewState {
-    object Idle : PreviewState()
-
-    /** Indicates which voice is currently being previewed (by voice ID). */
-    data class Playing(val voiceId: String) : PreviewState()
-
-    /**
-     * Engine assets aren't bundled. Same condition as
-     * [PlaybackState.ModelMissing]. [engineName] is the engine the failed
-     * preview belonged to (`"kokoro"` / `"kitten"`) so the UI copy can
-     * name the missing engine specifically instead of hardcoding one.
-     */
-    data class ModelMissing(val engineName: String) : PreviewState()
-
-    /**
-     * [message] is the engine's own user-facing detail; when it has none,
-     * the UI renders [fallbackRes] instead.
-     */
-    data class Error(
-        val message: String?,
-        @StringRes val fallbackRes: Int,
-    ) : PreviewState()
-}
 
 /**
  * ViewModel for [VoicePickerScreen].
@@ -170,9 +136,6 @@ class VoicePickerViewModel @Inject constructor(
             started = SharingStarted.Eagerly,
             initialValue = KokoroDirectVoiceCatalog.DEFAULT_VOICE_ID,
         )
-
-    private val _previewState = MutableStateFlow<PreviewState>(PreviewState.Idle)
-    val previewState: StateFlow<PreviewState> = _previewState.asStateFlow()
 
     /**
      * The same source › model › voice tree the alias editor's sheet browses
@@ -343,44 +306,16 @@ class VoicePickerViewModel @Inject constructor(
         }
     }
 
+    private val previewer = VoicePreviewer(synthesizer, viewModelScope)
+    val previewState: StateFlow<PreviewState> = previewer.state
+
     /**
      * Play a short canned phrase in [voice] so the user can hear what they
      * sound like before committing. Phrasing the sentence with the voice's
      * own name doubles as a small bit of personality.
      */
-    /**
-     * Monotonic token for the latest [preview]. A superseded preview's
-     * coroutine still completes (Synthesizer.speak returns success on
-     * cancellation) — without the token check it would overwrite the
-     * NEW preview's Playing chip with its own terminal state.
-     * Main-thread only (UI callback + viewModelScope), so a plain var.
-     */
-    private var previewGeneration = 0L
-
     fun preview(voice: VoiceMeta, phrase: String = "Hello, I'm ${voice.spokenName}.") {
-        // Don't stack previews — cancel anything in flight first.
-        synthesizer.cancel()
-        val generation = ++previewGeneration
-        _previewState.value = PreviewState.Playing(voice.id)
-
-        viewModelScope.launch {
-            val result = synthesizer.speak(phrase, voice.id)
-            if (generation != previewGeneration) return@launch // superseded
-            _previewState.value = result.fold(
-                onSuccess = { PreviewState.Idle },
-                onFailure = { err ->
-                    when (err) {
-                        is SynthesizerException.ModelMissing ->
-                            PreviewState.ModelMissing(voice.engine)
-                        is SynthesizerException.SynthesisFailed -> PreviewState.Error(
-                            err.message,
-                            R.string.voices_error_preview_failed,
-                        )
-                        else -> PreviewState.Error(err.message, R.string.voices_error_unknown)
-                    }
-                },
-            )
-        }
+        previewer.play(voice, phrase)
     }
 
     override fun onCleared() {

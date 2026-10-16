@@ -1,11 +1,13 @@
 package app.marmalade.tts.ui.screen
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -16,23 +18,15 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.Button
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -54,7 +48,6 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -62,14 +55,19 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.marmalade.tts.R
-import app.marmalade.tts.data.db.VoiceAlias
 import app.marmalade.tts.data.db.VoiceMeta
 import app.marmalade.tts.install.EngineCatalog
 import app.marmalade.tts.ui.MarmaladeIcons
+import app.marmalade.tts.ui.components.LiveDot
 import app.marmalade.tts.ui.components.Persona
 import app.marmalade.tts.ui.components.PersonaSheet
+import app.marmalade.tts.ui.components.WorkingDots
 import app.marmalade.tts.ui.theme.LocalWordmarkColor
+import app.marmalade.tts.ui.theme.MarmaladeMotion
 import app.marmalade.tts.ui.theme.Wordmark
+import app.marmalade.tts.ui.theme.depth
+import app.marmalade.tts.ui.theme.riseIn
+import app.marmalade.tts.ui.theme.softShadow
 
 // -----------------------------------------------------------------------------
 // Data flow
@@ -182,13 +180,13 @@ fun SpeakScreen(
         topBar = {
             CenterAlignedTopAppBar(
                 // Brand wordmark per marmalade-design-scheme-v0: always
-                // lowercase, Momo Trust Display 600, orange in light / cream in
-                // dark (LocalWordmarkColor carries the mode-aware swap).
+                // lowercase, Momo Trust Display at its own 400 (no fontWeight:
+                // see Wordmark), orange in light / cream in dark
+                // (LocalWordmarkColor carries the mode-aware swap).
                 title = {
                     Text(
                         text = stringResource(R.string.speak_wordmark),
                         fontFamily = Wordmark,
-                        fontWeight = FontWeight.SemiBold,
                         fontSize = 22.sp,
                         color = LocalWordmarkColor.current,
                         // Brand wordmark, not a screen title — cosmetic like
@@ -217,15 +215,23 @@ fun SpeakScreen(
         ) {
             Spacer(Modifier.height(8.dp))
 
-            // Small animated mascot — drawable switches with playback state.
-            val mascotRes = if (isSpeaking) R.drawable.mascot_speaking else R.drawable.mascot_happy
-            Image(
-                painter = painterResource(id = mascotRes),
-                // Decorative: the status line below says whether we're
-                // speaking, so the mascot is a redundant first swipe stop.
-                contentDescription = null,
-                modifier = Modifier.size(64.dp),
-            )
+            // Small animated mascot — the drawable crossfades with playback
+            // state.
+            Crossfade(
+                targetState = isSpeaking,
+                animationSpec = MarmaladeMotion.base(),
+                label = "mascot",
+            ) { speaking ->
+                Image(
+                    painter = painterResource(
+                        id = if (speaking) R.drawable.mascot_speaking else R.drawable.mascot_happy,
+                    ),
+                    // Decorative: the status line below says whether we're
+                    // speaking, so the mascot is a redundant first swipe stop.
+                    contentDescription = null,
+                    modifier = Modifier.size(64.dp),
+                )
+            }
 
             Spacer(Modifier.height(16.dp))
 
@@ -270,52 +276,59 @@ fun SpeakScreen(
                 enabled = canSpeak,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text(
-                    stringResource(
-                        if (isSpeaking) R.string.speak_button_stop else R.string.speak_button_speak,
-                    ),
-                )
+                Crossfade(
+                    targetState = isSpeaking,
+                    animationSpec = MarmaladeMotion.base(),
+                    label = "speakLabel",
+                ) { speaking ->
+                    Text(
+                        stringResource(
+                            if (speaking) R.string.speak_button_stop else R.string.speak_button_speak,
+                        ),
+                    )
+                }
             }
 
             Spacer(Modifier.height(12.dp))
 
             // Status line — single source of truth for "what's going on."
+            // A new status rises in as the old one fades (#83). Keyed on the
+            // state's kind, so a Loading for another engine or a new error
+            // message updates in place rather than replaying the rise.
             val installCta = installCtaFor(currentVoice)
-            Box(modifier = Modifier.fillMaxWidth()) {
-                if (isModelMissing) {
-                    // Make the missing-engine state actionable: a text button
-                    // that routes the user straight to the Engines screen.
-                    TextButton(
-                        onClick = onNavigateToEngines,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .semantics { liveRegion = LiveRegionMode.Polite },
-                    ) {
-                        Text(
-                            text = installCta,
-                            color = MaterialTheme.colorScheme.error,
-                            textAlign = TextAlign.Center,
-                        )
-                    }
-                } else {
-                    // Composed only when there is something to say: the Idle
-                    // state's empty string used to leave an empty-but-focusable
-                    // TalkBack target under the Speak button (Max, 2026-08-09).
-                    // Appearing with liveRegion still announces the new status.
-                    val status = statusText(playbackState, installCta)
-                    if (status.isNotEmpty()) {
-                        Text(
-                            text = status,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = when (playbackState) {
-                                is PlaybackState.Error -> MaterialTheme.colorScheme.error
-                                else -> MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                            textAlign = TextAlign.Center,
+            val statusEnter = riseIn(MarmaladeMotion.BASE_MS)
+            AnimatedContent(
+                targetState = playbackState,
+                transitionSpec = { statusEnter togetherWith MarmaladeMotion.fadeExit },
+                contentKey = { it::class },
+                label = "status",
+                modifier = Modifier.fillMaxWidth(),
+            ) { state ->
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    if (state is PlaybackState.ModelMissing) {
+                        // Make the missing-engine state actionable: a text button
+                        // that routes the user straight to the Engines screen.
+                        TextButton(
+                            onClick = onNavigateToEngines,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .semantics { liveRegion = LiveRegionMode.Polite },
-                        )
+                        ) {
+                            Text(
+                                text = installCta,
+                                color = MaterialTheme.colorScheme.error,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                    } else {
+                        // Composed only when there is something to say: the Idle
+                        // state's empty string used to leave an empty-but-focusable
+                        // TalkBack target under the Speak button (Max, 2026-08-09).
+                        // Appearing with liveRegion still announces the new status.
+                        val status = statusText(state, installCta)
+                        if (status.isNotEmpty()) {
+                            StatusLine(state, status)
+                        }
                     }
                 }
             }
@@ -335,11 +348,56 @@ fun SpeakScreen(
 }
 
 /**
+ * One status message, centred. Speaking leads with a pulsing live dot and a
+ * cold engine load with the working dots; both are decoration, so only the
+ * text carries semantics (and the live region that announces it).
+ */
+@Composable
+private fun StatusLine(state: PlaybackState, status: String) {
+    val color = when (state) {
+        is PlaybackState.Error -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // The marks are the lab's peach running dot (tertiary: peach in
+        // dark, deep amber in light), small beside the text.
+        when (state) {
+            is PlaybackState.Speaking -> {
+                LiveDot()
+                Spacer(Modifier.width(8.dp))
+            }
+            is PlaybackState.Loading -> {
+                WorkingDots(dotSize = 5.dp, announce = false)
+                Spacer(Modifier.width(8.dp))
+            }
+            else -> Unit
+        }
+        Text(
+            text = status,
+            style = MaterialTheme.typography.bodyMedium,
+            color = color,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .weight(1f, fill = false)
+                .semantics { liveRegion = LiveRegionMode.Polite },
+        )
+    }
+}
+
+/**
  * The single control that names the current persona and opens the picker.
  *
  * 56 dp, one tap target, reads left to right: who, then what they sound
  * like, then whether it needs the network. Fixed height regardless of how
  * many personas exist — the property the chip row did not have.
+ *
+ * It sits on the raised step of the surface ramp (#83): the highest fill,
+ * a hairline edge and the soft card shadow, so it reads as the one thing on
+ * the page you can pick up.
  */
 @Composable
 private fun CurrentVoiceRow(
@@ -347,11 +405,16 @@ private fun CurrentVoiceRow(
     onClick: () -> Unit,
 ) {
     val shape = MaterialTheme.shapes.medium
+    val depth = MaterialTheme.depth
     Surface(
         onClick = onClick,
         shape = shape,
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
+        color = depth.raised,
+        border = BorderStroke(1.dp, depth.line2),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 56.dp)
+            .softShadow(depth.cardShadow, shape),
     ) {
         Row(
             // fillMaxWidth, not fillMaxSize: the Surface's height is now a
@@ -365,7 +428,7 @@ private fun CurrentVoiceRow(
             Icon(
                 imageVector = MarmaladeIcons.Speak,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = depth.faint,
                 modifier = Modifier.size(24.dp),
             )
             Spacer(Modifier.width(12.dp))
@@ -398,7 +461,7 @@ private fun CurrentVoiceRow(
             Icon(
                 imageVector = Icons.Filled.KeyboardArrowDown,
                 contentDescription = stringResource(R.string.speak_change_voice),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = depth.faint,
             )
         }
     }

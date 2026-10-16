@@ -96,7 +96,14 @@ fun MarmaladeTtsTheme(
         else -> colorScheme.primary
     }
 
-    CompositionLocalProvider(LocalWordmarkColor provides wordmarkColor) {
+    val depth = remember(colorScheme, darkTheme) {
+        if (darkTheme) darkDepth(colorScheme) else lightDepth(colorScheme)
+    }
+
+    CompositionLocalProvider(
+        LocalWordmarkColor provides wordmarkColor,
+        LocalMarmaladeDepth provides depth,
+    ) {
         MaterialTheme(
             colorScheme = colorScheme,
             shapes = MarmaladeTtsShapes,

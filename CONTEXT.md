@@ -12,7 +12,10 @@ its entry here in the same change.
 
 - **Engine.** A text-to-speech model family the app runs on the phone:
   Kitten, Kokoro, Kokoro German, Pocket and VITS, plus Android's own system
-  voices. Code: `EngineDescriptor` in `install/EngineCatalog.kt`.
+  voices. Code: `EngineDescriptor` in `install/EngineCatalog.kt`. The UI
+  names each by its short name (`displayName`: "Pocket TTS", "Kokoro");
+  the version or date (`releaseName`) shows only under About on the
+  engine's detail screen (#85). Nothing keys on either: code uses the id.
 - **Voice.** One speaker an engine can speak as, e.g. Kokoro "Heart" or
   Pocket "Alba".
 - **Alias.** A user-named bundle of a voice, a speed and an effect, e.g.
@@ -75,6 +78,9 @@ its entry here in the same change.
 - **One-shot.** A single utterance, e.g. a "Speak" or share-sheet request, as
   opposed to an **article session** in the reader. Both run through the
   `Narrator`, and all audio plays through `MarmaladeSynthService`.
+- **Preview.** A voice speaking a short sample ("Hello, I'm Heart.") from a
+  picker row, so the user hears it before choosing. On-device voices only in
+  the alias editor's picker: a cloud sample would cost money unasked.
 - **RTF (real-time factor).** Seconds of compute per second of audio. Below 1
   keeps up; the app warns above 0.6 at the chosen speed.
 - **Chunk mode.** What an engine that can't keep up switches to: it renders

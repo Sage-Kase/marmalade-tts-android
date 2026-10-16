@@ -33,7 +33,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CenterAlignedTopAppBar
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -43,7 +42,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -52,6 +50,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -62,9 +61,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -91,7 +94,15 @@ import app.marmalade.tts.data.VoicePath
 import app.marmalade.tts.data.db.VoiceMeta
 import app.marmalade.tts.lang.LangDetector
 import app.marmalade.tts.install.EngineCatalog
+import app.marmalade.tts.ui.components.MarmaladeCard
+import app.marmalade.tts.ui.components.MarmaladeMenu
+import app.marmalade.tts.ui.components.MarmaladeSheet
 import app.marmalade.tts.ui.components.SpeedSlider
+import app.marmalade.tts.ui.components.SteppedSliderTrack
+import app.marmalade.tts.ui.theme.MarmaladeMotion
+import app.marmalade.tts.ui.theme.MarmaladeToast
+import app.marmalade.tts.ui.theme.MarmaladeToastInk
+import app.marmalade.tts.ui.theme.depth
 import kotlin.math.roundToInt
 
 // -----------------------------------------------------------------------------
@@ -147,6 +158,7 @@ fun AliasScreen(
     val pickerState by viewModel.pickerState.collectAsStateWithLifecycle()
     val voiceLatency by viewModel.voiceLatency.collectAsStateWithLifecycle()
     val showSpeedWarning by viewModel.showSpeedWarning.collectAsStateWithLifecycle()
+    val previewState by viewModel.previewState.collectAsStateWithLifecycle()
 
     val mappings by routingViewModel.mappings.collectAsStateWithLifecycle()
     val installedApps by routingViewModel.installedApps.collectAsStateWithLifecycle()
@@ -184,6 +196,12 @@ fun AliasScreen(
     // freshly-installed engine appears in the editor's picker without a restart.
     LaunchedEffect(Unit) {
         viewModel.refresh()
+    }
+
+    // Leaving the screen with the picker open (a tab switch) keeps the VM and
+    // the open sheet for the way back, but the voice sample stops here.
+    DisposableEffect(Unit) {
+        onDispose { viewModel.stopPreview() }
     }
 
     Scaffold(
@@ -229,6 +247,14 @@ fun AliasScreen(
                 ) {
                     items(items = orderedAliases, key = { it.name }) { alias ->
                         AliasCard(
+                            // Keyed by name, so a new alias fades in, a deleted
+                            // one fades out and the rest slide into place (as
+                            // does a card the ordering above moves).
+                            modifier = Modifier.animateItem(
+                                fadeInSpec = MarmaladeMotion.base(),
+                                placementSpec = MarmaladeMotion.slow(),
+                                fadeOutSpec = MarmaladeMotion.fast(),
+                            ),
                             alias = alias,
                             isPrimary = alias.id == primaryAliasId,
                             effectName = effects.firstOrNull { it.id == alias.effectId }?.name
@@ -285,6 +311,7 @@ fun AliasScreen(
     }
 
     if (pickerState.isOpen) {
+        val previewPhrase = stringResource(R.string.voices_preview_phrase)
         VoicePickerSheet(
             state = pickerState,
             tree = voiceTree,
@@ -296,6 +323,13 @@ fun AliasScreen(
             onPick = viewModel::pickVoice,
             onBack = viewModel::pickerBack,
             onDismiss = viewModel::dismissVoicePicker,
+            previewState = previewState,
+            canPreview = viewModel::canPreview,
+            onTogglePreview = { voice ->
+                // spokenName, not displayName — espeak reads a Kokoro flag
+                // emoji out loud ("United States Adam").
+                viewModel.togglePreview(voice, previewPhrase.format(voice.spokenName))
+            },
         )
     }
 
@@ -382,75 +416,92 @@ private fun AliasCard(
     routedApps: List<AppAliasMapping>,
     onOpenEditor: () -> Unit,
     onOpenRouting: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onOpenEditor),
-    ) {
-        Column(modifier = Modifier.padding(vertical = 12.dp)) {
-            // The star used to sit in its own leading column, which left a
-            // 48dp empty gutter down the left of every card and made the
-            // whole row read lopsided. Inline with the name it reads as what
-            // it is — a property of the alias, not a separate control column.
-            Column(modifier = Modifier.padding(horizontal = 14.dp)) {
-                // Pill sits hard right rather than trailing the name:
-                // it's a status badge, not part of the title, and a fixed
-                // corner keeps it in the same place regardless of how long
-                // the alias name is.
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    // The name takes all the slack so the pill is pushed to
-                    // the edge. It used to be weight(fill = false) followed by
-                    // a weighted Spacer, which made two weighted siblings
-                    // split the leftover evenly — landing the pill mid-card.
-                    Text(
-                        text = alias.name,
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                    if (isPrimary) PrimaryPill()
-                }
-                Text(
-                    text = voicePath.summary,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    // Whether an alias needs the network decides whether it
-                    // can fail, so it leads — and it's the only filled chip,
-                    // which is what makes it readable at a glance in a row
-                    // of otherwise identical outlines.
-                    MetaChip(
-                        text = stringResource(
-                            if (voicePath.isCloud) {
-                                R.string.alias_chip_cloud
-                            } else {
-                                R.string.alias_chip_on_device
-                            },
-                        ),
-                        filled = true,
-                        leadingCloud = voicePath.isCloud,
-                    )
-                    MetaChip(text = stringResource(R.string.alias_speed_chip, alias.speed))
-                    MetaChip(text = effectName)
-                }
-            }
-            Spacer(Modifier.height(10.dp))
-            RoutingStrip(
-                aliasName = alias.name,
-                routedApps = routedApps,
-                isPrimary = isPrimary,
-                onClick = onOpenRouting,
-                modifier = Modifier.padding(horizontal = 12.dp),
-            )
+    // Dark mode gets the lab's card (hairline, soft shadow); light mode keeps
+    // the plain Material card it had, by Max's pick in the #83 lab (G).
+    if (MaterialTheme.depth.isDark) {
+        MarmaladeCard(modifier = modifier.fillMaxWidth(), onClick = onOpenEditor) {
+            AliasCardBody(alias, isPrimary, effectName, voicePath, routedApps, onOpenRouting)
         }
+    } else {
+        Card(modifier = modifier.fillMaxWidth().clickable(onClick = onOpenEditor)) {
+            AliasCardBody(alias, isPrimary, effectName, voicePath, routedApps, onOpenRouting)
+        }
+    }
+}
+
+@Composable
+private fun AliasCardBody(
+    alias: VoiceAlias,
+    isPrimary: Boolean,
+    effectName: String,
+    voicePath: VoicePath,
+    routedApps: List<AppAliasMapping>,
+    onOpenRouting: () -> Unit,
+) {
+    Column(modifier = Modifier.padding(vertical = 12.dp)) {
+        // The star used to sit in its own leading column, which left a
+        // 48dp empty gutter down the left of every card and made the
+        // whole row read lopsided. Inline with the name it reads as what
+        // it is — a property of the alias, not a separate control column.
+        Column(modifier = Modifier.padding(horizontal = 14.dp)) {
+            // Pill sits hard right rather than trailing the name:
+            // it's a status badge, not part of the title, and a fixed
+            // corner keeps it in the same place regardless of how long
+            // the alias name is.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // The name takes all the slack so the pill is pushed to
+                // the edge. It used to be weight(fill = false) followed by
+                // a weighted Spacer, which made two weighted siblings
+                // split the leftover evenly — landing the pill mid-card.
+                Text(
+                    text = alias.name,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                if (isPrimary) PrimaryPill()
+            }
+            Text(
+                text = voicePath.summary,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                // Whether an alias needs the network decides whether it
+                // can fail, so it leads — and it's the only filled chip,
+                // which is what makes it readable at a glance in a row
+                // of otherwise identical outlines.
+                MetaChip(
+                    text = stringResource(
+                        if (voicePath.isCloud) {
+                            R.string.alias_chip_cloud
+                        } else {
+                            R.string.alias_chip_on_device
+                        },
+                    ),
+                    filled = true,
+                    leadingCloud = voicePath.isCloud,
+                )
+                MetaChip(text = stringResource(R.string.alias_speed_chip, alias.speed))
+                MetaChip(text = effectName)
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        RoutingStrip(
+            aliasName = alias.name,
+            routedApps = routedApps,
+            isPrimary = isPrimary,
+            onClick = onOpenRouting,
+            modifier = Modifier.padding(horizontal = 12.dp),
+        )
     }
 }
 
@@ -470,13 +521,17 @@ private fun RoutingStrip(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val shape = RoundedCornerShape(12.dp)
+    val shape = MaterialTheme.shapes.small
+    val depth = MaterialTheme.depth
 
     // A non-primary alias with no routes has nothing to report, so it gets an
     // invitation instead of an empty state. The primary always has something
     // to say — it is the fallback for every unrouted app.
     if (routedApps.isEmpty() && !isPrimary) {
-        val outline = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+        // Ghost ink in dark, not a hairline: a dash broken into gaps needs a
+        // little more weight than a solid edge to read at all. Light keeps
+        // its original outline (#83 G).
+        val outline = if (depth.isDark) depth.ghost else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
         Row(
             modifier = modifier
                 .fillMaxWidth()
@@ -531,9 +586,14 @@ private fun RoutingStrip(
     // the user hasn't routed elsewhere — so opening the app picker from here
     // could only ever produce a no-op assignment. Non-primary aliases keep
     // the affordance.
+    //
+    // Dark: the agent-cards lab's "pointer" row, a faint ink wash with a
+    // hairline, so it reads as a panel set into the card rather than a second
+    // card. Light keeps its original tonal panel (#83 G).
     Surface(
         shape = shape,
-        color = MaterialTheme.colorScheme.surfaceVariant,
+        color = if (depth.isDark) depth.hover else MaterialTheme.colorScheme.surfaceVariant,
+        border = if (depth.isDark) BorderStroke(1.dp, depth.line) else null,
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
@@ -610,17 +670,22 @@ private const val MAX_STRIP_ICONS = 4
  */
 @Composable
 private fun AllAppsIcon(size: Dp) {
+    // Orange with a small lift in light, as it always was; toast in dark,
+    // where bright orange is off-brand, flat with a hairline like the real
+    // tiles beside it (see AppIconTile).
+    val dark = MaterialTheme.depth.isDark
     Surface(
         shape = RoundedCornerShape(size / 4),
-        color = MaterialTheme.colorScheme.primary,
-        shadowElevation = 2.dp,
+        color = if (dark) MarmaladeToast else MaterialTheme.colorScheme.primary,
+        shadowElevation = if (dark) 0.dp else 2.dp,
+        border = if (dark) BorderStroke(1.dp, MaterialTheme.depth.line) else null,
         modifier = Modifier.size(size),
     ) {
         Box(contentAlignment = Alignment.Center) {
             Icon(
                 imageVector = Icons.Filled.Star,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onPrimary,
+                tint = if (dark) MarmaladeToastInk else MaterialTheme.colorScheme.onPrimary,
                 modifier = Modifier.size(size * 0.6f),
             )
         }
@@ -661,7 +726,7 @@ private fun AliasEditorSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+    MarmaladeSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
             modifier = Modifier
                 .verticalScroll(rememberScrollState())
@@ -875,13 +940,20 @@ private fun ExpressivenessSlider(
             text = stringResource(R.string.alias_expressiveness_label, valueText),
             style = MaterialTheme.typography.bodyMedium,
         )
+        val haptics = LocalHapticFeedback.current
+        val shown = value ?: Expressiveness.POCKET_DEFAULT
         Slider(
-            value = value ?: Expressiveness.POCKET_DEFAULT,
-            onValueChange = { onChange(it) },
+            value = shown,
+            onValueChange = {
+                if (it != shown) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onChange(it)
+            },
             valueRange = Expressiveness.MIN..Expressiveness.MAX,
             // One detent per STEP; Slider's `steps` counts only the ones
             // between the endpoints (0.2 to 0.7 has 4).
             steps = ((Expressiveness.MAX - Expressiveness.MIN) / Expressiveness.STEP).roundToInt() - 1,
+            // A clean track, no stop marks (#84).
+            track = { SteppedSliderTrack(it) },
             modifier = Modifier.semantics {
                 contentDescription = description
                 stateDescription = valueText
@@ -920,7 +992,7 @@ private fun ExpressivenessSlider(
 /**
  * The alias editor's single voice field.
  *
- * Shows the voice name with its collapsed path underneath — "Kitten Nano"
+ * Shows the voice name with its collapsed path underneath — "Kitten TTS Nano"
  * for an on-device voice, "Venice › ElevenLabs Turbo v2.5" for a cloud one.
  * Identical for both kinds: the editor deliberately does not branch on
  * whether a voice needs the network, which is what keeps one code path for
@@ -973,16 +1045,18 @@ private fun PickerField(
         // landing on the control would otherwise announce the value alone
         // ("Aria", not "Voice: Aria"). Name the control explicitly.
         val spoken = if (supporting != null) "$value, $supporting" else value
+        // The raised step of the surface ramp with a hairline: it sits up off
+        // the sheet like the lab's voice row. Only an error colours the edge.
         Surface(
             onClick = onClick,
-            shape = RoundedCornerShape(12.dp),
-            color = MaterialTheme.colorScheme.surface,
+            shape = MaterialTheme.shapes.small,
+            color = MaterialTheme.depth.raised,
             border = BorderStroke(
                 width = 1.dp,
                 color = if (isError) {
                     MaterialTheme.colorScheme.error
                 } else {
-                    MaterialTheme.colorScheme.outline
+                    MaterialTheme.depth.line2
                 },
             ),
             modifier = Modifier
@@ -1142,7 +1216,7 @@ private fun PhonemizationLanguageDropdown(
             },
             modifier = Modifier.fillMaxWidth(),
         )
-        DropdownMenu(
+        MarmaladeMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
         ) {
@@ -1280,7 +1354,18 @@ private fun FallbackPicker(
                     .menuAnchor(MenuAnchorType.PrimaryNotEditable)
                     .fillMaxWidth(),
             )
-            ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            // Dressed like MarmaladeMenu (raised step, hairline, no tonal
+            // tint), which can't stand in here: the exposed menu anchors to
+            // its text field through this box's scope.
+            ExposedDropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+                shape = MaterialTheme.shapes.small,
+                containerColor = MaterialTheme.depth.raised,
+                tonalElevation = 0.dp,
+                shadowElevation = 8.dp,
+                border = BorderStroke(1.dp, MaterialTheme.depth.line2),
+            ) {
                 for (alias in candidates) {
                     DropdownMenuItem(
                         text = { Text(alias.name) },
@@ -1300,18 +1385,21 @@ private fun FallbackPicker(
  * The "PRIMARY" badge. A small caps pill rather than an [AssistChip] —
  * AssistChip is a 32dp-tall interactive control, and using one for a
  * non-interactive label made it compete with the alias name it sits next to.
+ *
+ * Primary orange in light; toast in dark, where bright orange is off-brand.
  */
 @Composable
 private fun PrimaryPill() {
+    val dark = MaterialTheme.depth.isDark
     Surface(
         shape = PillShape,
-        color = MaterialTheme.colorScheme.primary,
+        color = if (dark) MarmaladeToast else MaterialTheme.colorScheme.primary,
     ) {
         Text(
             text = stringResource(R.string.alias_primary_pill),
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onPrimary,
+            color = if (dark) MarmaladeToastInk else MaterialTheme.colorScheme.onPrimary,
             modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp),
         )
     }
@@ -1323,7 +1411,11 @@ private fun PrimaryPill() {
  * Hand-rolled rather than [AssistChip] for the same reason as [PrimaryPill]:
  * these are labels, not buttons (the whole card is the tap target), and the
  * Material chip's minimum height made three of them dominate the card.
- * [filled] marks the one chip that carries real information.
+ *
+ * [filled] marks the one chip that carries real information: toast in light
+ * (the scheme's primaryContainer), a toast wash with toast text in dark, so
+ * it stays quieter than the solid PRIMARY pill above it. The rest are quiet
+ * outlines: a hairline edge and dim text.
  */
 @Composable
 private fun MetaChip(
@@ -1332,23 +1424,25 @@ private fun MetaChip(
     /** Cloud glyph ahead of the label. Shared with the Speak screen's row. */
     leadingCloud: Boolean = false,
 ) {
+    val depth = MaterialTheme.depth
+    val dark = MaterialTheme.depth.isDark
     Surface(
         shape = PillShape,
-        color = if (filled) {
-            MaterialTheme.colorScheme.primaryContainer
-        } else {
-            MaterialTheme.colorScheme.surface.copy(alpha = 0f)
+        color = when {
+            !filled -> Color.Transparent
+            dark -> depth.selected
+            else -> MaterialTheme.colorScheme.primaryContainer
         },
-        border = if (filled) {
-            null
-        } else {
-            BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.45f))
+        border = when {
+            filled -> null
+            dark -> BorderStroke(1.dp, depth.line2)
+            else -> BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.45f))
         },
     ) {
-        val ink = if (filled) {
-            MaterialTheme.colorScheme.onPrimaryContainer
-        } else {
-            MaterialTheme.colorScheme.onSurfaceVariant
+        val ink = when {
+            !filled -> depth.dim
+            dark -> MarmaladeToast
+            else -> MaterialTheme.colorScheme.onPrimaryContainer
         }
         Row(
             verticalAlignment = Alignment.CenterVertically,

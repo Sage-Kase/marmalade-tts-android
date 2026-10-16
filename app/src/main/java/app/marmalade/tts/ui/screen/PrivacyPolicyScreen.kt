@@ -43,6 +43,7 @@ import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import app.marmalade.tts.R
+import app.marmalade.tts.ui.theme.depth
 
 // -----------------------------------------------------------------------------
 // In-app privacy policy
@@ -124,6 +125,7 @@ private fun MarkdownBlockView(block: MdBlock) {
                     MaterialTheme.typography.titleMedium
                 },
                 fontWeight = FontWeight.Bold,
+                // Section titles (##) stay orange like Settings' (Max, #83).
                 color = if (block.level == 1) {
                     MaterialTheme.colorScheme.onSurface
                 } else {
@@ -155,10 +157,7 @@ private fun MarkdownBlockView(block: MdBlock) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier
                 .padding(vertical = 6.dp)
-                .background(
-                    MaterialTheme.colorScheme.surfaceVariant,
-                    RoundedCornerShape(8.dp),
-                )
+                .background(MaterialTheme.depth.card, RoundedCornerShape(8.dp))
                 .padding(12.dp),
         )
     }

@@ -1,11 +1,10 @@
 # Bundled fonts — third-party license notice
 
-Three fonts ship inside the APK (`app/src/main/res/font/`) for the
+Two fonts ship inside the APK (`app/src/main/res/font/`) for the
 Marmalade brand typography (marmalade-design-scheme-v0): Manrope (variable)
-for body and headings, Momo Trust Display for the "marmalade" wordmark, and
-Fredoka (variable) as the wordmark fallback.
+for body and headings, and Momo Trust Display for the "marmalade" wordmark.
 
-All three are licensed under the **SIL Open Font License, Version 1.1** —
+Both are licensed under the **SIL Open Font License, Version 1.1** —
 full text in [`full-texts/OFL-1.1.txt`](full-texts/OFL-1.1.txt). The OFL
 permits bundling, redistribution, and commercial use; it does not extend
 its terms to the app's code (fonts remain under OFL, the surrounding
@@ -29,15 +28,6 @@ espeak-ng — see [`../NOTICE.md`](../NOTICE.md)).
 - **License:** SIL Open Font License 1.1
 - **Notice:** Copyright 2024 The Momo Trust Project Authors
   (https://github.com/typeassociates/MomoTrustDisplay)
-
-## 3. Fredoka (wordmark fallback)
-
-- **File:** `fredoka_variable.ttf`
-- **Upstream:** https://github.com/hafontia/Fredoka-One
-- **Distribution:** Google Fonts (https://fonts.google.com/specimen/Fredoka)
-- **License:** SIL Open Font License 1.1
-- **Notice:** Copyright 2016 The Fredoka Project Authors
-  (https://github.com/hafontia/Fredoka-One)
 
 Copyright lines are taken verbatim from each bundled TTF's name table
 (nameID 0), so the notice matches the exact font revision we ship.

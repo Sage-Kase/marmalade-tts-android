@@ -1320,7 +1320,7 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   order (#63). The verdict also ticks the recommended engine to install,
   unless the user already toggled a card; the built-in Kitten always stays
   in the selection (its install step waits for the offline seed).
-  The step shows only a spinner ("Checking your phone…") and disables
+  The step shows only working dots ("Checking your phone…") and disables
   Install until `probeDone` (#76): set when the check gives a verdict, no
   verdict (`recommend` returned null) or throws, or after `PROBE_WAIT_MS`
   (20 s from onboarding's start, seed wait included; the real check is a
@@ -1375,10 +1375,57 @@ and `MarmaladeSynthService` is its foreground host. System TTS
 
 ### Theme
 - `ui/theme/Theme.kt` — `MarmaladeTtsTheme(darkTheme, themePreset, content)`
-  + `resolveThemeIsDark(mode, isSystemDark)` helper
+  + `resolveThemeIsDark(mode, isSystemDark)` helper; provides the depth
+  tokens below
 - `ui/theme/Color.kt` — palette + `ThemePreset` enum
   (`SYSTEM / MARMALADE / MIDNIGHT / FOREST / BERRY`); MARMALADE is
-  the default since v0.1.10
+  the default since v0.1.10. `MarmaladeToast` / `MarmaladeToastInk` are the
+  v0 toast pair (the dark-mode stand-in for orange). Every surfaceContainer
+  role plus surfaceBright/Dim is set in both schemes: an unset one falls back
+  to Material's lavender (`DepthTest` checks). Dark is the agent-cards lab's
+  stone ramp (#83): page/bars #1C1917, sheets #221E1C, nav bar #24201E, cards
+  #292524 (surfaceContainerHigh), menus #2F2A28 (Highest).
+  `onSurfaceVariant` is ink at 64% and `outlineVariant` ink at 13% (light) /
+  11% (dark), so quiet text and dividers read the same on any surface.
+- **Depth and motion layer (#83)**, ported from the design-lab agent-cards
+  lab and the webui's #259 tokens. Spend these; don't hand-pick colours,
+  shadows or durations on a screen:
+  - `ui/theme/Depth.kt` — `MaterialTheme.depth`: the text ramp (`dim` is the
+    quietest text, ≥ 4.5:1; `faint` glyphs/icons only; `ghost` decoration),
+    hairlines (`line`, `line2`), `hover`, `selected` (toast wash), surfaces
+    (`page`, `card`, `raised`, `sheet`, `scrim`), shadows (`cardShadow`,
+    `menuShadow`, `barShadow`) and `isDark`. `Modifier.softShadow(shadow,
+    shape)` draws a CSS-style shadow (offset, blur, spread) with a framework
+    shadow layer; Compose 1.7 has none. `LIGHT_DEPTH` is the light-mode pick
+    (FLAT / SOFT / LIFTED; Max chooses in the #83 lab).
+  - `ui/theme/Motion.kt` — one easing (0.2, 0.8, 0.2, 1) and 150/200/320 ms
+    (`MarmaladeMotion.fast/base/slow`), `expand`/`collapse`/`fadeEnter`/
+    `fadeExit`, `riseIn()` (8 dp up + fade). Compose already scales finite
+    animations by the system animator scale ("Remove animations" = 0), so
+    only endless loops check `rememberReducedMotion()`.
+  - `ui/components/Surfaces.kt` — the parts screens use: `MarmaladeCard`
+    (card fill, hairline, soft shadow, animated toast wash when `selected`;
+    never an accent border), `MarmaladeSheet` (use for every bottom sheet; a
+    `ListItem` inside needs a transparent container or it paints the page
+    colour over the sheet), `MarmaladeMenu` (an `ExposedDropdownMenu` can't
+    use it: dress it the same by hand), `chevronAngle`, `WorkingDots` (Max
+    rejected spinning rings; it carries the old indicator's "in progress"
+    semantics) and `LiveDot`.
+  - Max's #83 picks (round 1, 2026-10-16) that shape what screens spend:
+    section titles stay the orange accent in both modes (Settings, Advanced,
+    Licences, privacy `##`); dark mode keeps its orange accents (O was
+    skipped); the Effects and Engines screens are as before #83 (I and J
+    skipped). Light-mode alias cards stay the plain Material `Card`, dark
+    ones are `MarmaladeCard` (`AliasCard` branches on `depth.isDark`).
+  - Round-2 picks (Max, 2026-10-16): a ticked engine card in light mode
+    takes a faint toast wash (`LIGHT_TICK_WASH` in
+    `ui/onboarding/OnboardingScreen.kt`); stepped sliders show no marks.
+- `ui/components/SliderMarks.kt` (#84) — `SteppedSliderTrack`, the track of
+  every stepped slider (`SpeedSlider`, the alias editor's expressiveness):
+  Material's dot per detent read as a dotted line, so it draws no marks
+  (Max's pick over one mark at 1× or faint dots); each new stop gives a
+  `TextHandleMove` haptic tick. Onboarding's speed slider is
+  the shared `SpeedSlider`.
 
 ## Data flow (mermaid-free, just text)
 
@@ -1602,6 +1649,17 @@ write Marmalade code.
   CREDITS.md / LICENSES/ when a voice or pack is added: `VoiceCreditsTest`
   fails for an offered voice or pack without one. Only "Voice donor" and
   "model by" are translated; names and licence names are shown as written.
+- **Voice previews** (#86): both pickers audition a voice through
+  `ui/screen/VoicePreview.kt` (`VoicePreviewer` + `PreviewState`), owned by
+  `VoicePickerViewModel` and `AliasViewModel`; it plays via `SpeechPlayer`,
+  so the audio comes from `MarmaladeSynthService`. One sample at a time, and
+  a generation token stops a superseded sample's completion from clobbering
+  the new state. The alias editor's sheet makes it a play/stop toggle that
+  stops when the sheet or the editor closes, or the screen leaves (a
+  `DisposableEffect` in `AliasScreen`), and offers none on cloud voices
+  (`AliasViewModel.canPreview`). `stop()` calls `SpeechPlayer.cancel()` only
+  while a sample plays: `cancel()` stops the player's one in-flight request,
+  which otherwise belongs to someone else (a Speak-screen read).
 - **`kokoro-int8-multi-lang-v1_0` is an unblessed power-user export**
   — added to sherpa-onnx releases by PR #2137 but never included in
   the team's own APK build script (`scripts/apk/generate-tts-apk-script.py`).

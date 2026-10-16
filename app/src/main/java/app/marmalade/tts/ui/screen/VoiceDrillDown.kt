@@ -1,5 +1,9 @@
 package app.marmalade.tts.ui.screen
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -31,6 +35,8 @@ import app.marmalade.tts.R
 import app.marmalade.tts.data.LatencyBucket
 import app.marmalade.tts.data.latencyKeyFor
 import app.marmalade.tts.ui.components.languageDisplayName
+import app.marmalade.tts.ui.theme.MarmaladeMotion
+import app.marmalade.tts.ui.theme.depth
 
 // -----------------------------------------------------------------------------
 // The voice drill-down: shared level-1 and level-2 lists
@@ -44,6 +50,31 @@ import app.marmalade.tts.ui.components.languageDisplayName
 // [horizontalPadding] differs because a bottom sheet and a full screen have
 // different gutters (24dp vs 16dp); everything else is identical.
 // -----------------------------------------------------------------------------
+
+/**
+ * The drill-down's body, crossfading when the level changes (into a source,
+ * a model, search, or back out). Typing a search, or the tree updating,
+ * stays on the same level and swaps in place, so only a real move between
+ * lists fades. [content] gets the state it should draw: the outgoing list
+ * keeps drawing the level it was.
+ */
+@Composable
+fun VoiceDrillLevels(
+    state: VoicePickerState,
+    modifier: Modifier = Modifier,
+    content: @Composable (VoicePickerState) -> Unit,
+) {
+    AnimatedContent(
+        targetState = state,
+        transitionSpec = {
+            (MarmaladeMotion.fadeEnter togetherWith MarmaladeMotion.fadeExit) using
+                SizeTransform { _, _ -> tween(MarmaladeMotion.SLOW_MS, easing = MarmaladeMotion.Ease) }
+        },
+        contentKey = { if (it.searching) null else it.source to it.model },
+        label = "voiceDrillLevel",
+        modifier = modifier,
+    ) { content(it) }
+}
 
 @Composable
 fun VoiceSourceList(
@@ -153,7 +184,7 @@ fun VoiceDrillRow(
         Icon(
             imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            tint = MaterialTheme.depth.faint,
         )
     }
 }
@@ -182,7 +213,7 @@ fun VoiceLatencyChip(bucket: LatencyBucket?) {
         border = if (filled) {
             null
         } else {
-            BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.45f))
+            BorderStroke(1.dp, MaterialTheme.depth.line2)
         },
         modifier = Modifier.padding(end = 8.dp),
     ) {

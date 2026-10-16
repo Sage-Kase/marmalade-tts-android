@@ -21,7 +21,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -35,9 +34,13 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.marmalade.tts.R
+import app.marmalade.tts.ui.MarmaladeIcons
 import app.marmalade.tts.data.LatencyBucket
 import app.marmalade.tts.data.latencyKeyFor
 import app.marmalade.tts.data.db.VoiceMeta
+import app.marmalade.tts.ui.components.MarmaladeSheet
+import app.marmalade.tts.ui.theme.MarmaladeMotion
+import app.marmalade.tts.ui.theme.depth
 
 // -----------------------------------------------------------------------------
 // The drill-down voice picker
@@ -55,10 +58,21 @@ import app.marmalade.tts.data.db.VoiceMeta
 // Search cuts across all three levels, because when you know the voice's name
 // you shouldn't have to remember which model owns it. Search results carry
 // their full path as a subtitle, which is what disambiguates the two Alices.
+//
+// Each on-device voice row has a play/stop button (#86), the Voices screen's
+// audition: its own tap target, so hearing a voice never picks it. Cloud rows
+// have none — a sample would send text to a provider, at a cost, unasked.
 // -----------------------------------------------------------------------------
 
 /** The sheet's horizontal gutter, wider than the full screen's. */
 private val SheetGutter = 24.dp
+
+/** What the voice rows need for their play/stop button. */
+private class RowPreview(
+    val state: PreviewState,
+    val canPreview: (VoiceMeta) -> Boolean,
+    val onToggle: (VoiceMeta) -> Unit,
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -73,12 +87,16 @@ fun VoicePickerSheet(
     onPick: (VoiceMeta) -> Unit,
     onBack: () -> Unit,
     onDismiss: () -> Unit,
+    previewState: PreviewState,
+    canPreview: (VoiceMeta) -> Boolean,
+    onTogglePreview: (VoiceMeta) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val preview = RowPreview(previewState, canPreview, onTogglePreview)
     val source = tree.firstOrNull { it.name == state.source }
     val model = source?.models?.firstOrNull { it.name == state.model }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+    MarmaladeSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -135,12 +153,20 @@ fun VoicePickerSheet(
         Spacer(Modifier.height(8.dp))
 
         Box(modifier = Modifier.heightIn(min = 220.dp, max = 460.dp)) {
-            when {
-                state.searching -> SearchResults(tree, state.query, selectedVoiceId, latency, onPick)
-                tree.isEmpty() -> Empty(stringResource(R.string.voices_empty_none_installed))
-                model != null -> VoiceList(model.voices, selectedVoiceId, onPick)
-                source != null -> VoiceModelList(source, latency, SheetGutter, onSelectModel)
-                else -> VoiceSourceList(tree, latency, SheetGutter, onSelectSource)
+            VoiceDrillLevels(state) { shown ->
+                // Resolved from [shown], not the header's source/model: a list
+                // fading out keeps drawing its own level.
+                val shownSource = tree.firstOrNull { it.name == shown.source }
+                val shownModel = shownSource?.models?.firstOrNull { it.name == shown.model }
+                when {
+                    shown.searching ->
+                        SearchResults(tree, shown.query, selectedVoiceId, latency, preview, onPick)
+                    tree.isEmpty() -> Empty(stringResource(R.string.voices_empty_none_installed))
+                    shownModel != null ->
+                        VoiceList(shownModel.voices, selectedVoiceId, preview, onPick)
+                    shownSource != null -> VoiceModelList(shownSource, latency, SheetGutter, onSelectModel)
+                    else -> VoiceSourceList(tree, latency, SheetGutter, onSelectSource)
+                }
             }
         }
         Spacer(Modifier.height(16.dp))
@@ -161,6 +187,7 @@ private fun Empty(text: String) {
 private fun VoiceList(
     voices: List<VoiceMeta>,
     selectedVoiceId: String,
+    preview: RowPreview,
     onPick: (VoiceMeta) -> Unit,
 ) {
     if (voices.isEmpty()) {
@@ -178,7 +205,7 @@ private fun VoiceList(
                 }
             }
             items(items = section.voices, key = { it.id }) { voice ->
-                VoiceRow(voice, voice.id == selectedVoiceId, subtitle = null, onPick = onPick)
+                VoiceRow(voice, voice.id == selectedVoiceId, subtitle = null, preview, onPick)
             }
         }
     }
@@ -194,6 +221,7 @@ private fun SearchResults(
     query: String,
     selectedVoiceId: String,
     latency: Map<String, LatencyBucket>,
+    preview: RowPreview,
     onPick: (VoiceMeta) -> Unit,
 ) {
     val hits = remember(tree, query) { searchVoiceTree(tree, query) }
@@ -207,11 +235,18 @@ private fun SearchResults(
                 voice = voice,
                 selected = voice.id == selectedVoiceId,
                 subtitle = path,
+                preview = preview,
                 // Search is the one place the leaf rows come from different
                 // models, so it's the one place a per-voice badge says
                 // something the row above it didn't already.
                 badge = latency[latencyKeyFor(voice.id, voice.engine)],
                 onPick = onPick,
+                // Hits glide into place as the query narrows them.
+                modifier = Modifier.animateItem(
+                    fadeInSpec = MarmaladeMotion.base(),
+                    placementSpec = MarmaladeMotion.base(),
+                    fadeOutSpec = MarmaladeMotion.fast(),
+                ),
             )
         }
     }
@@ -222,14 +257,20 @@ private fun VoiceRow(
     voice: VoiceMeta,
     selected: Boolean,
     subtitle: String?,
-    badge: LatencyBucket? = null,
+    preview: RowPreview,
     onPick: (VoiceMeta) -> Unit,
+    modifier: Modifier = Modifier,
+    badge: LatencyBucket? = null,
 ) {
+    val canPreview = preview.canPreview(voice)
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable { onPick(voice) }
-            .padding(horizontal = 24.dp, vertical = 12.dp),
+            // The play button brings its own 48 dp target and inner padding,
+            // so the row's end padding shrinks to keep its icon on the gutter.
+            .padding(start = 24.dp, end = if (canPreview) 12.dp else 24.dp)
+            .padding(vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -251,6 +292,31 @@ private fun VoiceRow(
                 contentDescription = stringResource(R.string.voices_selected),
                 tint = MaterialTheme.colorScheme.primary,
             )
+        }
+        if (canPreview) {
+            val state = preview.state
+            val playing = (state as? PreviewState.Playing)?.voiceId == voice.id
+            // Separate tap target from the row: hearing a voice never picks it.
+            // Disabled for an engine whose last preview found its model
+            // missing, as on the Voices screen.
+            val enabled = (state as? PreviewState.ModelMissing)?.engineName != voice.engine
+            IconButton(onClick = { preview.onToggle(voice) }, enabled = enabled) {
+                Icon(
+                    // A speaker, not a play arrow (Max, #83 lab round 2): it plays a sample.
+                    imageVector = if (playing) StopIcon else MarmaladeIcons.Speak,
+                    // spokenName keeps TalkBack from announcing a flag emoji.
+                    contentDescription = if (playing) {
+                        stringResource(R.string.effects_stop_card, voice.spokenName)
+                    } else {
+                        stringResource(R.string.voices_preview, voice.spokenName)
+                    },
+                    tint = when {
+                        playing -> MaterialTheme.colorScheme.primary
+                        enabled -> MaterialTheme.depth.faint
+                        else -> MaterialTheme.depth.ghost
+                    },
+                )
+            }
         }
     }
 }

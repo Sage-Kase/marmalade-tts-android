@@ -3,6 +3,8 @@ package app.marmalade.tts.ui.components
 import androidx.compose.material3.Slider
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -19,6 +21,8 @@ import kotlin.math.abs
 // able to land on it exactly. On the 0.1 grid it already does; a speed off the
 // grid (1.25×, say) gets a stop of its own, and the slider
 // drops its detents to snap by hand (Slider's `steps` are evenly spaced).
+// Its track shows no stop marks (#84), and each new stop ticks.
+// The onboarding alias step uses it too.
 // -----------------------------------------------------------------------------
 
 /** Detents between the ends: 15 intervals of 0.1× (Slider's `steps` excludes the endpoints). */
@@ -61,12 +65,18 @@ fun SpeedSlider(
     /** One more stop the slider must be able to land on exactly (the reader's alias speed). */
     extraStop: Float? = null,
 ) {
+    val haptics = LocalHapticFeedback.current
     Slider(
         value = value.coerceIn(VoiceAlias.MIN_SPEED, VoiceAlias.MAX_SPEED),
-        onValueChange = { onValueChange(snapSpeed(it, extraStop)) },
+        onValueChange = {
+            val stop = snapSpeed(it, extraStop)
+            if (stop != value) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            onValueChange(stop)
+        },
         onValueChangeFinished = onValueChangeFinished,
         valueRange = VoiceAlias.MIN_SPEED..VoiceAlias.MAX_SPEED,
         steps = if (extraStop == null || onGrid(extraStop)) STEPS else 0,
+        track = { SteppedSliderTrack(it) },
         modifier = modifier.semantics {
             contentDescription = label
             stateDescription = valueText

@@ -23,7 +23,6 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
@@ -50,6 +49,7 @@ import app.marmalade.tts.service.KeepaliveMode
 import app.marmalade.tts.ui.MarmaladeFilterChip
 import app.marmalade.tts.ui.MarmaladeIcons
 import app.marmalade.tts.ui.theme.ThemePreset
+import app.marmalade.tts.ui.theme.depth
 import app.marmalade.tts.ui.whatsnew.WhatsNewDialog
 
 // -----------------------------------------------------------------------------
@@ -144,6 +144,9 @@ fun SettingsScreen(
             )
         },
     ) { innerPadding ->
+        // Section breaks are the quiet row hairline, not the stronger
+        // outlineVariant edge (#83).
+        val line = MaterialTheme.depth.line
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -157,26 +160,26 @@ fun SettingsScreen(
                 onModeSelected = viewModel::setThemeMode,
             )
 
-            HorizontalDivider()
+            HorizontalDivider(color = line)
 
             SystemDefaultSection()
 
-            HorizontalDivider()
+            HorizontalDivider(color = line)
 
             KeepaliveSection(
                 current = keepaliveMode,
                 onSelect = viewModel::setKeepaliveMode,
             )
 
-            HorizontalDivider()
+            HorizontalDivider(color = line)
 
             AdvancedRow(onClick = onNavigateToAdvanced)
 
-            HorizontalDivider()
+            HorizontalDivider(color = line)
 
             SupportSection()
 
-            HorizontalDivider()
+            HorizontalDivider(color = line)
 
             AboutSection(
                 onNavigateToLicenses = onNavigateToLicenses,
@@ -266,7 +269,7 @@ private fun SystemDefaultSection() {
                 contentDescription = null,
             )
         },
-        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = settingsRowColors(),
     )
 }
 
@@ -347,7 +350,7 @@ private fun AdvancedRow(onClick: () -> Unit) {
                 contentDescription = null,
             )
         },
-        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = settingsRowColors(),
     )
 }
 
@@ -364,11 +367,12 @@ private fun SupportSection() {
         supporting = stringResource(R.string.settings_support_dev_desc),
         url = "https://github.com/sponsors/maxwhipw",
         leading = {
-            // A vector heart (not an emoji), tinted primary so the row pops.
+            // A vector heart (not an emoji). Quiet like the other row icons:
+            // a primary tint put orange on stone in dark mode (#83).
             Icon(
                 imageVector = Icons.Filled.Favorite,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
+                tint = MaterialTheme.depth.faint,
             )
         },
     )
@@ -392,7 +396,7 @@ private fun SupportSection() {
             deviceModel = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}",
         ),
         leading = {
-            Icon(imageVector = MarmaladeIcons.Bug, contentDescription = null)
+            Icon(imageVector = MarmaladeIcons.Bug, contentDescription = null, tint = MaterialTheme.depth.faint)
         },
     )
 }
@@ -411,7 +415,7 @@ private fun AboutSection(
         label = stringResource(R.string.settings_whats_new),
         supporting = stringResource(R.string.settings_whats_new_desc),
         leading = {
-            Icon(imageVector = Icons.Filled.Star, contentDescription = null)
+            Icon(imageVector = Icons.Filled.Star, contentDescription = null, tint = MaterialTheme.depth.faint)
         },
         modifier = Modifier.clickable { showWhatsNew = true },
     )
@@ -423,7 +427,7 @@ private fun AboutSection(
         label = stringResource(R.string.settings_privacy),
         supporting = stringResource(R.string.settings_privacy_desc),
         leading = {
-            Icon(imageVector = MarmaladeIcons.Privacy, contentDescription = null)
+            Icon(imageVector = MarmaladeIcons.Privacy, contentDescription = null, tint = MaterialTheme.depth.faint)
         },
         modifier = Modifier.clickable(onClick = onNavigateToPrivacy),
     )
@@ -432,7 +436,7 @@ private fun AboutSection(
         label = stringResource(R.string.settings_licenses),
         supporting = stringResource(R.string.settings_licenses_desc),
         leading = {
-            Icon(imageVector = MarmaladeIcons.LicenseDoc, contentDescription = null)
+            Icon(imageVector = MarmaladeIcons.LicenseDoc, contentDescription = null, tint = MaterialTheme.depth.faint)
         },
         modifier = Modifier.clickable(onClick = onNavigateToLicenses),
     )
@@ -442,7 +446,7 @@ private fun AboutSection(
         label = stringResource(R.string.app_name),
         supporting = stringResource(R.string.settings_about_version, BuildConfig.VERSION_NAME),
         leading = {
-            Icon(imageVector = Icons.Filled.Info, contentDescription = null)
+            Icon(imageVector = Icons.Filled.Info, contentDescription = null, tint = MaterialTheme.depth.faint)
         },
         showChevron = false,
     )
@@ -510,11 +514,27 @@ private fun AboutRow(
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                 contentDescription = null,
+                tint = MaterialTheme.depth.faint,
             )
         }
     }
 }
 
+/**
+ * Rows sit on the page itself (no container of their own); their icons and
+ * chevrons take the quiet glyph ink (#83).
+ */
+@Composable
+private fun settingsRowColors() = ListItemDefaults.colors(
+    containerColor = MaterialTheme.depth.page,
+    leadingIconColor = MaterialTheme.depth.faint,
+    trailingIconColor = MaterialTheme.depth.faint,
+)
+
+/**
+ * The section label stays the accent in both modes: Max kept the orange
+ * section titles in the #83 lab (C and L).
+ */
 @Composable
 private fun SectionHeader(label: String) {
     Text(

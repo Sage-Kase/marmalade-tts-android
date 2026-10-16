@@ -637,6 +637,15 @@ private fun AboutEngineSection(descriptor: EngineDescriptor) {
             text = stringResource(descriptor.descriptionRes),
             style = MaterialTheme.typography.bodyMedium,
         )
+        // The version or date the short name leaves out (#85), quietly.
+        descriptor.releaseName?.let {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         Spacer(Modifier.height(8.dp))
         Text(
             text = stringResource(descriptor.licenseSummaryRes),

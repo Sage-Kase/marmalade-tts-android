@@ -1,0 +1,29 @@
+package app.marmalade.tts.ui.components
+
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.SliderState
+import androidx.compose.runtime.Composable
+import app.marmalade.tts.ui.theme.depth
+
+// -----------------------------------------------------------------------------
+// The track of a stepped slider (#84). Material draws a dot at every detent,
+// which on the 15-stop speed slider read as a dotted line ("the sliders with
+// the dots look weird", Max, #83 lab); he picked a clean track with no marks
+// over one mark at 1× or faint dots. The stops still snap and TalkBack still
+// reads each value; each stop the thumb reaches gives a light haptic tick.
+// -----------------------------------------------------------------------------
+
+@Composable
+internal fun SteppedSliderTrack(state: SliderState) {
+    // Light mode's default inactive track (secondaryContainer) is all but the
+    // page colour: the stop dots were the only sign of where the track ran.
+    // Without them it takes the toast container, a quiet step darker, as dark
+    // mode's rich brown track already is.
+    val colors = if (MaterialTheme.depth.isDark) {
+        SliderDefaults.colors()
+    } else {
+        SliderDefaults.colors(inactiveTrackColor = MaterialTheme.colorScheme.primaryContainer)
+    }
+    SliderDefaults.Track(sliderState = state, colors = colors, drawTick = { _, _ -> })
+}

@@ -23,6 +23,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import app.marmalade.tts.R
+import app.marmalade.tts.ui.theme.depth
 
 /**
  * The "What's new" pop-up (#41): a modal over the Speak screen once per
@@ -81,5 +82,8 @@ fun WhatsNewDialog(onDismiss: () -> Unit) {
                 Text(stringResource(R.string.whats_new_got_it))
             }
         },
+        // The raised step of the surface ramp, with no tonal tint (#83).
+        containerColor = MaterialTheme.depth.raised,
+        tonalElevation = 0.dp,
     )
 }

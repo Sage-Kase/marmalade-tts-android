@@ -3,6 +3,29 @@
 All notable changes to **marmalade-tts-android** will be documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Hear a voice before you pick it**: in the alias editor's voice picker,
+  each voice on your phone has a play button that speaks a short sample in
+  that voice. Tap it again, pick a voice or close the picker to stop it.
+  Cloud voices have no sample button, so nothing is sent to a provider
+  unless you choose that voice.
+
+### Changed
+- **A more polished look**: cards, sheets and menus sit on soft layered
+  surfaces with gentle shadows, and lists, sheets and selections move
+  smoothly. Dark mode uses warmer stone greys, and secondary text and
+  dividers are quieter in both modes. The navigation bar, Speak, Aliases,
+  the reader, Settings and setup all get the new look; the Marmalade
+  wordmark uses its font's own weight.
+- **Shorter engine names**: engines are called by their short names, such
+  as "Pocket TTS" and "Kokoro", across the app. An engine's version is
+  still listed under About on its details screen.
+- **Cleaner sliders**: the speed and expressiveness sliders no longer draw
+  a row of dots along the track. They still stop at the same values, with
+  a light tap at each one.
+
 ## [1.2.0] - 2026-10-13
 
 ### Added

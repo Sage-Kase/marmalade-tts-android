@@ -12,7 +12,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -27,9 +26,11 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import app.marmalade.tts.R
+import app.marmalade.tts.ui.components.MarmaladeSheet
 import app.marmalade.tts.ui.components.Persona
 import app.marmalade.tts.ui.components.PersonaRow
 import app.marmalade.tts.ui.components.SpeedSlider
+import app.marmalade.tts.ui.theme.depth
 
 // -----------------------------------------------------------------------------
 // The alias dial's sheet (#67, Max's design): who reads this article, and how
@@ -64,7 +65,7 @@ fun ReaderDialSheet(
 ) {
     // Skip the half-expanded stop: the speed slider sits under the alias list
     // and must not open below the fold.
-    ModalBottomSheet(
+    MarmaladeSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     ) {
@@ -83,7 +84,7 @@ fun ReaderDialSheet(
                         )
                     }
                 }
-                HorizontalDivider()
+                HorizontalDivider(color = MaterialTheme.depth.line)
             }
             // The thumb follows the drag here; the Narrator hears the speed
             // on release. Re-keyed on [speed], so it shows each new speed (an

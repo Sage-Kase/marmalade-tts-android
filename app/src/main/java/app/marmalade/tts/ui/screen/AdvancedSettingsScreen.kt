@@ -38,6 +38,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.marmalade.tts.R
 import app.marmalade.tts.install.EngineCatalog
 import app.marmalade.tts.ui.MarmaladeFilterChip
+import app.marmalade.tts.ui.theme.depth
 
 // -----------------------------------------------------------------------------
 // Advanced settings — a leaf detail screen off Settings (nav bar hidden).
@@ -93,7 +94,7 @@ fun AdvancedSettingsScreen(
             // Nothing for it to reveal in the Play build — see
             // EngineCatalog.developerModeRevealsAnything.
             if (EngineCatalog.developerModeRevealsAnything()) {
-                HorizontalDivider()
+                HorizontalDivider(color = MaterialTheme.depth.line)
 
                 DeveloperEnginesSection(
                     checked = showDeveloperEngines,
@@ -102,7 +103,7 @@ fun AdvancedSettingsScreen(
             }
 
             if (onNavigateToBenchmark != null) {
-                HorizontalDivider()
+                HorizontalDivider(color = MaterialTheme.depth.line)
                 BenchmarkSection(onClick = onNavigateToBenchmark)
             }
         }
@@ -201,7 +202,10 @@ private fun DeveloperEnginesSection(
         trailingContent = {
             Switch(checked = checked, onCheckedChange = null)
         },
-        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = ListItemDefaults.colors(
+            containerColor = MaterialTheme.depth.page,
+            trailingIconColor = MaterialTheme.depth.faint,
+        ),
     )
 }
 
@@ -226,12 +230,16 @@ private fun BenchmarkSection(onClick: () -> Unit) {
                 contentDescription = null,
             )
         },
-        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = ListItemDefaults.colors(
+            containerColor = MaterialTheme.depth.page,
+            trailingIconColor = MaterialTheme.depth.faint,
+        ),
     )
 }
 
 // Same local copy LicensesScreen keeps — SectionHeader is file-private
-// per screen rather than shared, so screens stay self-contained.
+// per screen rather than shared, so screens stay self-contained. Orange in
+// both modes: Max kept the orange section titles (#83 lab, C and L).
 @Composable
 private fun SectionHeader(label: String) {
     Text(
