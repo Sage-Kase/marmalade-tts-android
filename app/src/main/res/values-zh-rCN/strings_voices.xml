@@ -29,7 +29,6 @@
     <string name="voices_gender_male">男声</string>
     <string name="voices_selected">已选择</string>
     <string name="voices_preview">试听 %1$s</string>
-    <string name="voices_previewing">正在试听 %1$s</string>
 
     <!-- Drill-down levels -->
     <string name="voices_source_cloud">云端</string>

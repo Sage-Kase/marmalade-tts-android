@@ -29,7 +29,6 @@
     <string name="voices_gender_male">masculina</string>
     <string name="voices_selected">Selecionada</string>
     <string name="voices_preview">Ouvir prévia de %1$s</string>
-    <string name="voices_previewing">Tocando prévia de %1$s</string>
 
     <!-- Níveis de navegação -->
     <string name="voices_source_cloud">Nuvem</string>

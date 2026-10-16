@@ -29,7 +29,6 @@
     <string name="voices_gender_male">masculine</string>
     <string name="voices_selected">Sélectionnée</string>
     <string name="voices_preview">Écouter un aperçu de %1$s</string>
-    <string name="voices_previewing">Aperçu de %1$s en cours</string>
 
     <!-- Drill-down levels -->
     <string name="voices_source_cloud">Cloud</string>

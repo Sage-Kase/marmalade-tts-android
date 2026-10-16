@@ -30,7 +30,6 @@
     <string name="voices_gender_male">male</string>
     <string name="voices_selected">Selected</string>
     <string name="voices_preview">Preview %1$s</string>
-    <string name="voices_previewing">Previewing %1$s</string>
 
     <!-- Drill-down levels -->
     <string name="voices_source_cloud">Cloud</string>
