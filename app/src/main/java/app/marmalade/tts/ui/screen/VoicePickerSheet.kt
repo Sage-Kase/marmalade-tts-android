@@ -16,7 +16,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -35,6 +34,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.marmalade.tts.R
+import app.marmalade.tts.ui.MarmaladeIcons
 import app.marmalade.tts.data.LatencyBucket
 import app.marmalade.tts.data.latencyKeyFor
 import app.marmalade.tts.data.db.VoiceMeta
@@ -302,7 +302,8 @@ private fun VoiceRow(
             val enabled = (state as? PreviewState.ModelMissing)?.engineName != voice.engine
             IconButton(onClick = { preview.onToggle(voice) }, enabled = enabled) {
                 Icon(
-                    imageVector = if (playing) StopIcon else Icons.Filled.PlayArrow,
+                    // A speaker, not a play arrow (Max, #83 lab round 2): it plays a sample.
+                    imageVector = if (playing) StopIcon else MarmaladeIcons.Speak,
                     // spokenName keeps TalkBack from announcing a flag emoji.
                     contentDescription = if (playing) {
                         stringResource(R.string.effects_stop_card, voice.spokenName)
