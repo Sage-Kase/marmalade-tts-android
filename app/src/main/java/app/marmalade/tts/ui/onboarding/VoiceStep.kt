@@ -83,7 +83,7 @@ internal fun ChooseVoiceStep(
     groups: List<VoiceGroup>?,
     selected: VoiceMeta?,
     previewState: PreviewState,
-    aliasCreated: Boolean,
+    aliasOnEntry: Boolean,
     onPrepare: () -> Unit,
     onPick: (String) -> Unit,
     onTogglePreview: (VoiceMeta, String) -> Unit,
@@ -194,9 +194,9 @@ internal fun ChooseVoiceStep(
             // spokenName: no Kokoro flag emoji on the button or in TalkBack.
             Text(stringResource(R.string.onboarding_voice_use, selected?.spokenName.orEmpty()))
         }
-        // An alias already exists (sideloaded data, or Back from a later step):
-        // move on without saving another.
-        if (aliasCreated) {
+        // An alias already existed when the step opened (sideloaded data, or
+        // Back from a later step): move on without saving another.
+        if (aliasOnEntry) {
             TextButton(onClick = onFinish, modifier = Modifier.fillMaxWidth()) {
                 Text(stringResource(R.string.onboarding_alias_finish_setup))
             }

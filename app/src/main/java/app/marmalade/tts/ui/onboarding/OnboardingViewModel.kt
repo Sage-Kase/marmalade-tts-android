@@ -518,9 +518,9 @@ class OnboardingViewModel @Inject constructor(
     // -- ChooseVoice step state (#87) -------------------------------------------
 
     /**
-     * True once at least one alias exists in the DB. Shows the voice step's
-     * "Finish setup" and is checked inside [finish], so the gate can't be
-     * bypassed by a stale UI snapshot.
+     * True once at least one alias exists in the DB. Checked inside [finish]
+     * and [skipVoiceStep], so the gate can't be bypassed by a stale UI
+     * snapshot.
      */
     val aliasCreated: StateFlow<Boolean> = aliasDao.getAll()
         .map { it.isNotEmpty() }
@@ -587,11 +587,21 @@ class OnboardingViewModel @Inject constructor(
         )
 
     /**
+     * An alias already existed when the voice step opened (sideloaded data,
+     * or Back from a later step), so it offers "Finish setup". Fixed at
+     * opening, not live: the alias [useVoice] saves would otherwise flash the
+     * button in while the step leaves.
+     */
+    private val _aliasOnEntry = MutableStateFlow(false)
+    val aliasOnEntry: StateFlow<Boolean> = _aliasOnEntry.asStateFlow()
+
+    /**
      * Probe the disk for [voiceGroups]. Called by the voice step each time it
      * opens; a pick the user already made survives (Back from a later step).
      */
     fun prepareVoiceStep() {
         viewModelScope.launch {
+            _aliasOnEntry.value = aliasDao.getAll().first().isNotEmpty()
             // Cloud stays out: onboarding offers catalog engines only, and a
             // new user has no provider key anyway.
             _installedAssets.value =

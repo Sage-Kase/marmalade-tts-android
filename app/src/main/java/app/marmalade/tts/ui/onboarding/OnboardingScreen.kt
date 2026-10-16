@@ -149,8 +149,8 @@ fun OnboardingScreen(
     val engines by viewModel.engines.collectAsStateWithLifecycle()
     val selected by viewModel.selectedEngineIds.collectAsStateWithLifecycle()
     val installStates by viewModel.installStates.collectAsStateWithLifecycle()
-    val aliasCreated by viewModel.aliasCreated.collectAsStateWithLifecycle()
     val voiceGroups by viewModel.voiceGroups.collectAsStateWithLifecycle()
+    val aliasOnEntry by viewModel.aliasOnEntry.collectAsStateWithLifecycle()
     val selectedVoice by viewModel.selectedVoice.collectAsStateWithLifecycle()
     val previewState by viewModel.previewState.collectAsStateWithLifecycle()
     val probeDone by viewModel.probeDone.collectAsStateWithLifecycle()
@@ -210,7 +210,7 @@ fun OnboardingScreen(
                         groups = voiceGroups,
                         selected = selectedVoice,
                         previewState = previewState,
-                        aliasCreated = aliasCreated,
+                        aliasOnEntry = aliasOnEntry,
                         onPrepare = viewModel::prepareVoiceStep,
                         onPick = viewModel::pickVoice,
                         onTogglePreview = viewModel::togglePreview,

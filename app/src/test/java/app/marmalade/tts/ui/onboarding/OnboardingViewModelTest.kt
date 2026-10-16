@@ -307,6 +307,10 @@ class OnboardingViewModelTest {
         assertEquals(false, settings.onboarded.first())
         assertEquals(OnboardingStep.BackgroundUnrestricted, vm.step.first())
         assertTrue("aliasCreated flips once the alias is saved", vm.aliasCreated.first { it })
+        assertFalse(
+            "Finish setup must not flash in while the step leaves",
+            vm.aliasOnEntry.value,
+        )
     }
 
     @Test
@@ -418,7 +422,9 @@ class OnboardingViewModelTest {
         val aliasDao = FakeAliasDao(initial = listOf(alias("narrator")))
         val vm = newViewModel(aliasDao = aliasDao, installer = KITTEN_ON_DISK)
         vm.aliasCreated.first { it }
+        vm.prepareVoiceStep()
 
+        assertTrue("the step offers Finish setup", vm.aliasOnEntry.value)
         assertTrue(vm.skipVoiceStep())
 
         assertEquals(OnboardingStep.BackgroundUnrestricted, vm.step.value)
