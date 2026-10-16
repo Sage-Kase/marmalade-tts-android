@@ -54,7 +54,6 @@ import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
@@ -78,7 +77,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -89,7 +87,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.marmalade.tts.R
 import app.marmalade.tts.audio.EffectPreset
 import app.marmalade.tts.data.KittenDirectVoiceCatalog
-import app.marmalade.tts.data.db.VoiceAlias
 import app.marmalade.tts.data.db.VoiceMeta
 import app.marmalade.tts.install.EngineCatalog
 import app.marmalade.tts.install.EngineDescriptor
@@ -100,6 +97,7 @@ import app.marmalade.tts.ui.components.JarMascot
 import app.marmalade.tts.ui.components.JarMascotState
 import app.marmalade.tts.ui.components.MarmaladeCard
 import app.marmalade.tts.ui.components.MarmaladeMenu
+import app.marmalade.tts.ui.components.SpeedSlider
 import app.marmalade.tts.ui.components.WorkingDots
 import app.marmalade.tts.ui.screen.installFailureText
 import app.marmalade.tts.ui.theme.MarmaladeMotion
@@ -985,15 +983,12 @@ private fun CreateAliasStep(
             val speedDescription = stringResource(
                 R.string.onboarding_alias_speed_content_description,
             )
-            Slider(
+            // The alias editor's slider (same range, stops and marks, #84).
+            SpeedSlider(
                 value = editor.speed,
                 onValueChange = onSpeedChange,
-                valueRange = VoiceAlias.MIN_SPEED..VoiceAlias.MAX_SPEED,
-                steps = 14,
-                modifier = Modifier.semantics {
-                    contentDescription = speedDescription
-                    stateDescription = speedText
-                },
+                label = speedDescription,
+                valueText = speedText,
             )
         }
         Spacer(Modifier.height(12.dp))

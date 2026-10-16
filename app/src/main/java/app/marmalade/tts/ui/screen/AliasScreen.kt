@@ -64,7 +64,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -95,6 +97,7 @@ import app.marmalade.tts.ui.components.MarmaladeCard
 import app.marmalade.tts.ui.components.MarmaladeMenu
 import app.marmalade.tts.ui.components.MarmaladeSheet
 import app.marmalade.tts.ui.components.SpeedSlider
+import app.marmalade.tts.ui.components.SteppedSliderTrack
 import app.marmalade.tts.ui.theme.MarmaladeMotion
 import app.marmalade.tts.ui.theme.MarmaladeToast
 import app.marmalade.tts.ui.theme.MarmaladeToastInk
@@ -921,13 +924,20 @@ private fun ExpressivenessSlider(
             text = stringResource(R.string.alias_expressiveness_label, valueText),
             style = MaterialTheme.typography.bodyMedium,
         )
+        val haptics = LocalHapticFeedback.current
+        val shown = value ?: Expressiveness.POCKET_DEFAULT
         Slider(
-            value = value ?: Expressiveness.POCKET_DEFAULT,
-            onValueChange = { onChange(it) },
+            value = shown,
+            onValueChange = {
+                if (it != shown) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onChange(it)
+            },
             valueRange = Expressiveness.MIN..Expressiveness.MAX,
             // One detent per STEP; Slider's `steps` counts only the ones
             // between the endpoints (0.2 to 0.7 has 4).
             steps = ((Expressiveness.MAX - Expressiveness.MIN) / Expressiveness.STEP).roundToInt() - 1,
+            // Marks per SliderMarks (#84); ONE_MARK keeps Pocket's default.
+            track = { SteppedSliderTrack(it, mark = Expressiveness.POCKET_DEFAULT) },
             modifier = Modifier.semantics {
                 contentDescription = description
                 stateDescription = valueText
