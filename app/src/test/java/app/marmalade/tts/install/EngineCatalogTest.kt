@@ -60,16 +60,17 @@ class EngineCatalogTest {
 
     @Test
     fun theUiNamesEachEngineShortly() {
-        // #85 (Max): the UI says "Pocket", not "Pocket TTS (English, 2026-09)".
+        // #85 (Max): the UI says "Pocket TTS", not "Pocket TTS (English, 2026-09)";
+        // names keep "TTS" where the engine's official name has it (Max, #83 lab round 2).
         // In-app copy, so Max signs off these exact names; the version or date lives on in
         // releaseName, shown only under the engine detail's About.
         assertEquals(
             mapOf(
-                "kitten-direct-v0_8" to "Kitten Nano",
+                "kitten-direct-v0_8" to "Kitten TTS Nano",
                 "kokoro-direct-v1_0" to "Kokoro",
                 "kokoro-de-v1_0" to "Kokoro German",
-                "pocket-tts-en-v2026_04" to "Pocket",
-                "pocket-tts-en-v2026_04-dev" to "Pocket Clean",
+                "pocket-tts-en-v2026_04" to "Pocket TTS",
+                "pocket-tts-en-v2026_04-dev" to "Pocket TTS Clean",
                 "vits-marmalade-v1" to "VITS Marmalade",
             ),
             EngineCatalog.all.associate { it.name to it.displayName },

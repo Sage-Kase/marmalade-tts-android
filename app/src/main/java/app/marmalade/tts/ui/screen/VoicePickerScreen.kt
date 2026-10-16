@@ -527,7 +527,7 @@ private fun genderLabel(gender: String?): String = when (gender) {
 
 /**
  * Engine section-header label — the catalog's user-facing display name
- * (e.g. "Kitten Nano") so the header matches the rest of the app
+ * (e.g. "Kitten TTS Nano") so the header matches the rest of the app
  * instead of the raw engine id. Falls back to a title-cased id for any
  * engine not present in [EngineCatalog].
  */

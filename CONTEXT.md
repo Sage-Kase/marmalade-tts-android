@@ -13,7 +13,7 @@ its entry here in the same change.
 - **Engine.** A text-to-speech model family the app runs on the phone:
   Kitten, Kokoro, Kokoro German, Pocket and VITS, plus Android's own system
   voices. Code: `EngineDescriptor` in `install/EngineCatalog.kt`. The UI
-  names each by its short name (`displayName`: "Pocket", "Kitten Nano");
+  names each by its short name (`displayName`: "Pocket TTS", "Kokoro");
   the version or date (`releaseName`) shows only under About on the
   engine's detail screen (#85). Nothing keys on either: code uses the id.
 - **Voice.** One speaker an engine can speak as, e.g. Kokoro "Heart" or

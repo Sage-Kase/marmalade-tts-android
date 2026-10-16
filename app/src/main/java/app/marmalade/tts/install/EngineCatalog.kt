@@ -104,7 +104,7 @@ enum class SpeedTier(val meterFill: Int) {
  *                             Stable across versions — part of the public
  *                             surface that aliases reference.
  * @property displayName       The engine's short name, used everywhere the UI
- *                             names it (e.g. "Kitten Nano", "Pocket"). A
+ *                             names it (e.g. "Kitten TTS Nano", "Pocket TTS"). A
  *                             proper noun, not translated (#85).
  * @property releaseName       The name with its version or date (e.g.
  *                             "Pocket TTS (English, 2026-09)"), shown only
@@ -268,7 +268,7 @@ object EngineCatalog {
      */
     private val KITTEN_DIRECT: EngineDescriptor = EngineDescriptor(
         name = "kitten-direct-v0_8",
-        displayName = "Kitten Nano",
+        displayName = "Kitten TTS Nano",
         releaseName = "Kitten Nano (v0.8)",
         descriptionRes = R.string.engine_kitten_desc,
         downloadSizeBytes = 64_218_626L,
@@ -479,7 +479,7 @@ object EngineCatalog {
      */
     private val POCKET_TTS_EN: EngineDescriptor = EngineDescriptor(
         name = "pocket-tts-en-v2026_04",
-        displayName = "Pocket",
+        displayName = "Pocket TTS",
         releaseName = "Pocket TTS (English, 2026-09)",
         descriptionRes = R.string.engine_pocket_desc,
         downloadSizeBytes = 118_458_315L,
@@ -516,7 +516,7 @@ object EngineCatalog {
      */
     private val POCKET_TTS_EN_DEV: EngineDescriptor = EngineDescriptor(
         name = "pocket-tts-en-v2026_04-dev",
-        displayName = "Pocket Clean",
+        displayName = "Pocket TTS Clean",
         releaseName = "Pocket TTS — Clean Reference",
         descriptionRes = R.string.engine_pocket_dev_desc,
         downloadSizeBytes = 98_264_623L,

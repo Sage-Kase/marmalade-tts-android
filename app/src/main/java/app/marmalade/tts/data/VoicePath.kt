@@ -45,7 +45,7 @@ data class VoicePath(
     val isCloud: Boolean,
 ) {
     /**
-     * The path without the redundant middle step: "Kitten Nano" on device,
+     * The path without the redundant middle step: "Kitten TTS Nano" on device,
      * "Venice › ElevenLabs Turbo v2.5" for cloud. Shown under the alias
      * editor's Voice row and as the picker breadcrumb.
      */

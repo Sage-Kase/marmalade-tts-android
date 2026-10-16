@@ -20,7 +20,7 @@ This project follows [Semantic Versioning](https://semver.org/).
   the reader, Settings and setup all get the new look; the Marmalade
   wordmark uses its font's own weight.
 - **Shorter engine names**: engines are called by their short names, such
-  as "Pocket" and "Kitten Nano", across the app. An engine's version is
+  as "Pocket TTS" and "Kokoro", across the app. An engine's version is
   still listed under About on its details screen.
 - **Cleaner sliders**: the speed and expressiveness sliders no longer draw
   a row of dots along the track. They still stop at the same values, with
