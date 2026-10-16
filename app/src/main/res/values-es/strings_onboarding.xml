@@ -43,32 +43,9 @@
         <item quantity="other">Mostrar %1$d más</item>
     </plurals>
 
-    <string name="onboarding_alias_title">Crea tu alias principal</string>
-    <string name="onboarding_alias_body">Un alias reúne tu voz, velocidad y efecto favoritos bajo un solo nombre, como \"narrador\". Marmalade usa el alias principal siempre que una app le pide que hable sin especificar una voz. Crea al menos un alias para terminar la configuración; después puedes añadir más desde Ajustes → Alias de voz.</string>
-    <string name="onboarding_alias_name_label">Nombre</string>
-    <string name="onboarding_alias_name_helper">Letras, dígitos, espacios y guiones: hasta 50 caracteres.</string>
-    <string name="onboarding_alias_speed_label">Velocidad: %1$s</string>
-    <string name="onboarding_alias_speed_value">%1$.2f×</string>
-    <string name="onboarding_alias_speed_content_description">Velocidad</string>
-    <string name="onboarding_alias_save">Guardar y continuar</string>
-    <string name="onboarding_alias_use_defaults">Usar los valores predeterminados</string>
     <string name="onboarding_alias_finish_setup">Terminar la configuración</string>
 
-    <string name="onboarding_alias_engine_label">Motor</string>
-    <string name="onboarding_alias_engine_placeholder">Selecciona un motor</string>
-    <string name="onboarding_alias_voice_label">Voz</string>
-    <string name="onboarding_alias_voice_placeholder">Selecciona una voz</string>
     <string name="onboarding_alias_no_voices">No hay voces disponibles: instala un motor primero.</string>
-    <string name="onboarding_alias_effect_label">Efecto</string>
-    <string name="onboarding_alias_effect_pick_content_description">Elegir efecto</string>
-
-    <string name="onboarding_effect_none">Ninguno</string>
-    <string name="onboarding_effect_cave">Cueva</string>
-    <string name="onboarding_effect_telephone">Teléfono</string>
-
-    <string name="onboarding_error_pick_voice">Elige una voz.</string>
-    <string name="onboarding_error_pick_engine">Elige un motor.</string>
-    <string name="onboarding_error_install_engine_first">Instala un motor antes de crear un alias.</string>
 
     <string name="onboarding_background_title_allowed">Segundo plano permitido</string>
     <string name="onboarding_background_title">Sigue escuchando con la pantalla apagada</string>

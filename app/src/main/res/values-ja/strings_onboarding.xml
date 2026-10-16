@@ -42,32 +42,9 @@
         <item quantity="other">さらに %1$d 件表示</item>
     </plurals>
 
-    <string name="onboarding_alias_title">メインのエイリアスを作成</string>
-    <string name="onboarding_alias_body">エイリアスは、お気に入りのボイスと速度、エフェクトを「ナレーター」などのひとつの名前にまとめたものです。アプリがボイスを指定せずに読み上げを要求したとき、Marmalade はメインのエイリアスを使います。セットアップを終えるには、少なくとも 1 つ作成してください。あとから設定 →「ボイスエイリアス」で追加できます。</string>
-    <string name="onboarding_alias_name_label">名前</string>
-    <string name="onboarding_alias_name_helper">英数字、スペース、ハイフンが使えます（50 文字まで）。</string>
-    <string name="onboarding_alias_speed_label">速度: %1$s</string>
-    <string name="onboarding_alias_speed_value">%1$.2f×</string>
-    <string name="onboarding_alias_speed_content_description">速度</string>
-    <string name="onboarding_alias_save">保存して次へ</string>
-    <string name="onboarding_alias_use_defaults">初期値を使う</string>
     <string name="onboarding_alias_finish_setup">セットアップを完了</string>
 
-    <string name="onboarding_alias_engine_label">エンジン</string>
-    <string name="onboarding_alias_engine_placeholder">エンジンを選択</string>
-    <string name="onboarding_alias_voice_label">ボイス</string>
-    <string name="onboarding_alias_voice_placeholder">ボイスを選択</string>
     <string name="onboarding_alias_no_voices">利用できるボイスがありません。先にエンジンをインストールしてください。</string>
-    <string name="onboarding_alias_effect_label">エフェクト</string>
-    <string name="onboarding_alias_effect_pick_content_description">エフェクトを選択</string>
-
-    <string name="onboarding_effect_none">なし</string>
-    <string name="onboarding_effect_cave">洞窟</string>
-    <string name="onboarding_effect_telephone">電話</string>
-
-    <string name="onboarding_error_pick_voice">ボイスを選んでください。</string>
-    <string name="onboarding_error_pick_engine">エンジンを選んでください。</string>
-    <string name="onboarding_error_install_engine_first">エイリアスを作成する前に、エンジンをインストールしてください。</string>
 
     <string name="onboarding_background_title_allowed">バックグラウンド動作は許可済み</string>
     <string name="onboarding_background_title">画面が消えても読み上げを続ける</string>
