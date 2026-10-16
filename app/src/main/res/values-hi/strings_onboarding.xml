@@ -35,8 +35,8 @@
     <string name="onboarding_download_size_unknown">?</string>
 
     <!-- The voice step (#87) -->
-    <string name="onboarding_voice_title">एक आवाज़ चुनें</string>
-    <string name="onboarding_voice_body">जो ऐप कोई आवाज़ नहीं चुनते, वे इसी आवाज़ में बोलेंगे। आप इसे कभी भी बदल सकते हैं।</string>
+    <string name="onboarding_voice_title">एक वॉइस चुनें</string>
+    <string name="onboarding_voice_body">जो ऐप कोई वॉइस नहीं चुनते, वे इसी वॉइस में बोलेंगे। आप इसे कभी भी बदल सकते हैं।</string>
     <string name="onboarding_voice_use">%1$s इस्तेमाल करें</string>
     <plurals name="onboarding_voice_show_more">
         <item quantity="one">%1$d और दिखाएँ</item>

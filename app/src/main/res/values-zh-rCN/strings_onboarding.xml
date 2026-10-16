@@ -35,8 +35,8 @@
     <string name="onboarding_download_size_unknown">?</string>
 
     <!-- The voice step (#87) -->
-    <string name="onboarding_voice_title">选择一个声音</string>
-    <string name="onboarding_voice_body">未指定声音的应用将使用这个声音朗读。你可以随时更改。</string>
+    <string name="onboarding_voice_title">选择一个语音</string>
+    <string name="onboarding_voice_body">未指定语音的应用将使用这个语音朗读。你可以随时更改。</string>
     <string name="onboarding_voice_use">使用 %1$s</string>
     <plurals name="onboarding_voice_show_more">
         <item quantity="other">再显示 %1$d 个</item>
