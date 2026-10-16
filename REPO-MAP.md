@@ -1411,6 +1411,22 @@ and `MarmaladeSynthService` is its foreground host. System TTS
     use it: dress it the same by hand), `chevronAngle`, `WorkingDots` (Max
     rejected spinning rings; it carries the old indicator's "in progress"
     semantics) and `LiveDot`.
+  - Max's #83 picks (round 1, 2026-10-16) that shape what screens spend:
+    section titles stay the orange accent in both modes (Settings, Advanced,
+    Licences, privacy `##`); dark mode keeps its orange accents (O was
+    skipped); the Effects and Engines screens are as before #83 (I and J
+    skipped). Light-mode alias cards stay the plain Material `Card`, dark
+    ones are `MarmaladeCard` (`AliasCard` branches on `depth.isDark`).
+  - Round-2 picks pending in the #83 lab (one-line changes once Max picks):
+    `LIGHT_TICK` in `ui/onboarding/OnboardingScreen.kt` (how a ticked
+    engine card shows in light mode: FAINT_WASH / TOAST_EDGE /
+    CHECKBOX_ONLY) and `SLIDER_MARKS` in `ui/components/SliderMarks.kt`.
+- `ui/components/SliderMarks.kt` (#84) — `SteppedSliderTrack`, the track of
+  every stepped slider (`SpeedSlider`, the alias editor's expressiveness):
+  Material's dot per detent read as a dotted line. Per `SLIDER_MARKS` it
+  draws no marks, one mark at the natural value, or faint dots; each new
+  stop gives a `TextHandleMove` haptic tick. Onboarding's speed slider is
+  the shared `SpeedSlider`.
 
 ## Data flow (mermaid-free, just text)
 
