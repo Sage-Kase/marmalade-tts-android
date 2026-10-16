@@ -1,10 +1,5 @@
 package app.marmalade.tts.ui.screen
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.SizeTransform
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -18,6 +13,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -32,10 +28,12 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -50,7 +48,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.liveRegion
@@ -66,13 +63,7 @@ import app.marmalade.tts.install.InstallFailure
 import app.marmalade.tts.install.InstallState
 import app.marmalade.tts.install.VoicePackSummary
 import app.marmalade.tts.ui.components.EngineSpecColumn
-import app.marmalade.tts.ui.components.MarmaladeCard
-import app.marmalade.tts.ui.components.WorkingDots
 import app.marmalade.tts.ui.onboarding.formatBytes
-import app.marmalade.tts.ui.theme.MarmaladeMotion
-import app.marmalade.tts.ui.theme.MarmaladeToast
-import app.marmalade.tts.ui.theme.MarmaladeToastInk
-import app.marmalade.tts.ui.theme.depth
 
 // -----------------------------------------------------------------------------
 // Data flow
@@ -89,8 +80,8 @@ import app.marmalade.tts.ui.theme.depth
 //     │
 //     ├── per card:
 //     │     NotInstalled → "Install" button → confirm dialog → vm.install(name)
-//     │     Downloading  → WorkingDots + download progress strip
-//     │     Extracting   → WorkingDots + unpack progress strip
+//     │     Downloading  → CircularProgressIndicator + linear progress strip
+//     │     Extracting   → CircularProgressIndicator + indeterminate strip
 //     │     Installed    → "Uninstall" (outlined) + "Engine settings" (filled)
 //     │                    confirm dialog before uninstall;
 //     │                    Engine settings → onEngineSettings(engine) →
@@ -101,10 +92,10 @@ import app.marmalade.tts.ui.theme.depth
 //     │     Corrupt      → "Reinstall"
 //     │
 //
-//   Cards are MarmaladeCard (card fill, hairline edge, soft shadow; #83):
-//   depth without an accent border, so the install / engine-settings buttons
-//   stay the focal point of each card. The action row cross-fades between
-//   states and the progress strip glides rather than jumping per chunk.
+//   Cards are OutlinedCard for a quieter look that pairs with the orange
+//   primary used by the install / engine-settings buttons. ElevatedCard
+//   would compete visually with the buttons; outlined keeps the buttons as
+//   the focal point of each card.
 // -----------------------------------------------------------------------------
 
 /**
@@ -225,11 +216,9 @@ fun EnginesScreen(
 
 /**
  * The On-device / Cloud switch above the engine list — a two-segment pill.
- * The selected segment never fills with the accent orange, which stays
- * reserved for the Install / Configure CTAs: light mode uses primaryContainer
- * (the Toast peach under Marmalade), dark mode the brand's dark-mode tab,
- * Toast with its brown ink (the dark primaryContainer is an orange slab). The
- * fill fades between segments. The two segments are a selectable group so
+ * The selected segment fills with primaryContainer (the Toast peach), NOT the
+ * accent orange, which stays reserved for the Install / Configure CTAs so the
+ * screen never floods with accent. The two segments are a selectable group so
  * TalkBack announces them as tabs.
  */
 @Composable
@@ -271,26 +260,10 @@ private fun SourceSegment(
     modifier: Modifier = Modifier,
 ) {
     val shape = RoundedCornerShape(percent = 50)
-    val scheme = MaterialTheme.colorScheme
-    val isDark = MaterialTheme.depth.isDark
-    val activeFill = if (isDark) MarmaladeToast else scheme.primaryContainer
-    val activeInk = if (isDark) MarmaladeToastInk else scheme.onPrimaryContainer
-    // Transparent as the faded-to colour of the active fill, so the fade
-    // never passes through black.
-    val fill by animateColorAsState(
-        targetValue = if (selected) activeFill else activeFill.copy(alpha = 0f),
-        animationSpec = MarmaladeMotion.fast(),
-        label = "segmentFill",
-    )
-    val ink by animateColorAsState(
-        targetValue = if (selected) activeInk else scheme.onSurfaceVariant,
-        animationSpec = MarmaladeMotion.fast(),
-        label = "segmentInk",
-    )
     Box(
         modifier = modifier
             .clip(shape)
-            .background(fill)
+            .background(if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
             .selectable(selected = selected, onClick = onClick, role = Role.Tab)
             .padding(vertical = 9.dp),
         contentAlignment = Alignment.Center,
@@ -299,7 +272,11 @@ private fun SourceSegment(
             text = label,
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold,
-            color = ink,
+            color = if (selected) {
+                MaterialTheme.colorScheme.onPrimaryContainer
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
         )
     }
 }
@@ -332,7 +309,7 @@ private fun EngineCard(
     // action buttons, "Show more", and the transient progress/error lines
     // (their own merge boundaries, so their live regions keep announcing)
     // remain separate stops.
-    MarmaladeCard(
+    OutlinedCard(
         modifier = Modifier
             .fillMaxWidth()
             .semantics(mergeDescendants = true) {},
@@ -410,8 +387,9 @@ private fun EngineCard(
                 EngineSpecColumn(engine = engine)
             }
 
-            // In-progress strip + label: bytes fetched while downloading, then
-            // bytes unpacked while installing (0 until the total is known).
+            // In-progress strip + label. Kept identical to the v0.1.10
+            // implementation — determinate while we know the byte count,
+            // indeterminate during the tar.bz2 unpack.
             if (state is InstallState.Downloading) {
                 Spacer(Modifier.height(8.dp))
                 val fraction = if (state.totalBytes > 0L) {
@@ -419,7 +397,10 @@ private fun EngineCard(
                 } else {
                     0f
                 }
-                GlidingProgressStrip(fraction)
+                LinearProgressIndicator(
+                    progress = { fraction },
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 Spacer(Modifier.height(2.dp))
                 Text(
                     text = stringResource(
@@ -439,7 +420,10 @@ private fun EngineCard(
                 } else {
                     0f
                 }
-                GlidingProgressStrip(fraction)
+                LinearProgressIndicator(
+                    progress = { fraction },
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 Spacer(Modifier.height(2.dp))
                 Text(
                     text = stringResource(
@@ -482,23 +466,6 @@ private fun EngineCard(
     if (showDetails) {
         EngineDetailsDialog(engine = engine, onDismiss = { showDetails = false })
     }
-}
-
-/**
- * A determinate progress strip whose bar glides to each new [fraction] over
- * the slow motion step instead of jumping per downloaded chunk.
- */
-@Composable
-internal fun GlidingProgressStrip(fraction: Float, modifier: Modifier = Modifier) {
-    val shown by animateFloatAsState(
-        targetValue = fraction,
-        animationSpec = MarmaladeMotion.slow(),
-        label = "installProgress",
-    )
-    LinearProgressIndicator(
-        progress = { shown },
-        modifier = modifier.fillMaxWidth(),
-    )
 }
 
 /**
@@ -563,47 +530,6 @@ private fun ActionRow(
     onRemoveDownload: () -> Unit,
     onEngineSettings: () -> Unit,
 ) {
-    // Cross-fade when the card changes state (Install → working → Uninstall /
-    // Engine settings). Keyed on the kind of state, not the state itself:
-    // Downloading carries a new byte count every chunk, and Downloading →
-    // Extracting shows the same dots, so neither should re-run the fade.
-    AnimatedContent(
-        targetState = state,
-        contentKey = { actionRowKey(it) },
-        transitionSpec = {
-            (MarmaladeMotion.fadeEnter togetherWith MarmaladeMotion.fadeExit)
-                .using(SizeTransform(clip = false) { _, _ -> MarmaladeMotion.base() })
-        },
-        modifier = Modifier.fillMaxWidth(),
-        label = "engineActions",
-    ) { shown ->
-        ActionRowContent(
-            state = shown,
-            onInstall = onInstall,
-            onUninstall = onUninstall,
-            onRetry = onRetry,
-            onRemoveDownload = onRemoveDownload,
-            onEngineSettings = onEngineSettings,
-        )
-    }
-}
-
-/** What the action row shows for [state]; equal keys share one layout. */
-private fun actionRowKey(state: InstallState): Any = when (state) {
-    is InstallState.Downloading, is InstallState.Extracting -> "working"
-    is InstallState.Failed -> if (state.partialDownloadBytes > 0L) "failedPartial" else "failed"
-    else -> state::class
-}
-
-@Composable
-private fun ActionRowContent(
-    state: InstallState,
-    onInstall: () -> Unit,
-    onUninstall: () -> Unit,
-    onRetry: () -> Unit,
-    onRemoveDownload: () -> Unit,
-    onEngineSettings: () -> Unit,
-) {
     val canRemoveDownload = state is InstallState.Failed && state.partialDownloadBytes > 0L
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -623,13 +549,20 @@ private fun ActionRowContent(
             }
             is InstallState.Downloading, is InstallState.Extracting -> {
                 // No buttons during install — the action area is
-                // intentionally just the working dots. Progress + label
+                // intentionally just a small spinner. Progress + label
                 // are shown above in the card body.
                 Box(
                     modifier = Modifier.height(36.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    WorkingDots()
+                    CircularProgressIndicator(
+                        // .size() — see EngineDetailScreen for the same
+                        // fix. .height() alone leaves the spinner width
+                        // unconstrained and it draws ~2x larger than the
+                        // declared height. Bug Max reported in v0.1.19.
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.5.dp,
+                    )
                 }
             }
             InstallState.Installed -> {

@@ -44,7 +44,6 @@ import app.marmalade.tts.R
 import app.marmalade.tts.install.EngineDescriptor
 import app.marmalade.tts.install.QualityGrade
 import app.marmalade.tts.install.SpeedTier
-import app.marmalade.tts.ui.theme.depth
 
 // -----------------------------------------------------------------------------
 // A3 "spec columns" — shared engine-card chrome
@@ -117,7 +116,7 @@ private fun SpecRow(
         Text(
             text = label.uppercase(),
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.depth.dim,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(2.dp))
         value()
@@ -288,7 +287,7 @@ private fun withFlag(code: String, name: String): String =
 /**
  * The four-segment speed meter. Filled segments take a traffic-light colour
  * keyed to how many are filled (green → light green → amber → red as the bar
- * shortens); empties fall to the ghost ink step. Fill count comes from
+ * shortens); empties fall to the neutral outline. Fill count comes from
  * [tier] — see [SpeedTier] and [speedMeterColor].
  */
 @Composable
@@ -323,8 +322,7 @@ fun QualityMeter(
 
 /**
  * Shared gauge body: [fill] of [segments] segments lit in the traffic-light
- * colour keyed to the fill count, the rest in the ghost ink step (#83: the
- * quiet decoration tone, visible on the card fill without competing with it).
+ * colour keyed to the fill count, the rest in the neutral outline.
  */
 @Composable
 private fun SegmentMeter(
@@ -334,7 +332,7 @@ private fun SegmentMeter(
 ) {
     val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
     val on = meterFillColor(fill, isDark)
-    val off = MaterialTheme.depth.ghost
+    val off = MaterialTheme.colorScheme.outlineVariant
     Row(
         modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(3.dp),

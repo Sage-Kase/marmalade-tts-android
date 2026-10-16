@@ -1,8 +1,5 @@
 package app.marmalade.tts.ui.screen
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.SizeTransform
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,6 +23,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -70,12 +68,9 @@ import app.marmalade.tts.install.VoicePackSummary
 import app.marmalade.tts.install.isUsableOnDisk
 import app.marmalade.tts.preprocessing.PreprocessingRules
 import app.marmalade.tts.ui.components.QualityMeter
-import app.marmalade.tts.ui.components.WorkingDots
 import app.marmalade.tts.ui.components.languageDisplayName
 import app.marmalade.tts.ui.components.qualityGradeLabelRes
 import app.marmalade.tts.ui.onboarding.formatBytes
-import app.marmalade.tts.ui.theme.MarmaladeMotion
-import app.marmalade.tts.ui.theme.depth
 
 // -----------------------------------------------------------------------------
 // Data flow
@@ -210,7 +205,7 @@ fun EngineDetailScreen(
                     onRemoveDownload = viewModel::removePackDownload,
                 )
 
-                HorizontalDivider(color = MaterialTheme.depth.line)
+                HorizontalDivider()
             }
 
             VoicesSection(
@@ -218,7 +213,7 @@ fun EngineDetailScreen(
                 onShowVoices = onShowVoices,
             )
 
-            HorizontalDivider(color = MaterialTheme.depth.line)
+            HorizontalDivider()
 
             // Preprocessing toggles are valid even when the engine is not
             // installed — the rules are stored per-engine and applied
@@ -231,7 +226,7 @@ fun EngineDetailScreen(
                 onReset = viewModel::resetRules,
             )
 
-            HorizontalDivider(color = MaterialTheme.depth.line)
+            HorizontalDivider()
 
             AboutEngineSection(descriptor)
 
@@ -383,13 +378,16 @@ private fun VoicePackRowView(
             PackActionButton(row = row, onInstall = onInstall, onUninstall = onUninstall)
         }
 
-        // Progress mirrors the engine card's strip (gliding between chunks):
-        // determinate while we know the byte count, indeterminate when we don't.
+        // Progress mirrors the engine card's strip: determinate while we know
+        // the byte count, indeterminate when we don't.
         if (row.isBusy) {
             Spacer(Modifier.height(6.dp))
             val fraction = row.progress
             if (fraction != null) {
-                GlidingProgressStrip(fraction)
+                LinearProgressIndicator(
+                    progress = { fraction },
+                    modifier = Modifier.fillMaxWidth(),
+                )
             } else {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
@@ -442,9 +440,9 @@ private fun packProgressLabel(row: VoicePackRow): String = when (val state = row
 }
 
 /**
- * The row's one action. Busy rows get the working dots instead of a button —
- * the same rule the engine card follows, so there is never a tappable Install
- * while a download of the same thing is running. Cross-fades as it changes.
+ * The row's one action. Busy rows get a spinner instead of a button — the same
+ * rule the engine card follows, so there is never a tappable Install while a
+ * download of the same thing is running.
  */
 @Composable
 private fun PackActionButton(
@@ -452,28 +450,12 @@ private fun PackActionButton(
     onInstall: () -> Unit,
     onUninstall: () -> Unit,
 ) {
-    AnimatedContent(
-        targetState = row.action,
-        transitionSpec = {
-            (MarmaladeMotion.fadeEnter togetherWith MarmaladeMotion.fadeExit)
-                .using(SizeTransform(clip = false) { _, _ -> MarmaladeMotion.base() })
-        },
-        contentAlignment = Alignment.CenterEnd,
-        label = "packAction",
-    ) { action ->
-        PackActionContent(action = action, onInstall = onInstall, onUninstall = onUninstall)
-    }
-}
-
-@Composable
-private fun PackActionContent(
-    action: VoicePackAction?,
-    onInstall: () -> Unit,
-    onUninstall: () -> Unit,
-) {
+    val action = row.action
     if (action == null) {
         Box(modifier = Modifier.size(36.dp), contentAlignment = Alignment.Center) {
-            WorkingDots()
+            // .size(), not .height() — see ActionRow in EnginesScreen: an
+            // unconstrained width draws the spinner ~2x its declared height.
+            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.5.dp)
         }
         return
     }
