@@ -36,7 +36,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.marmalade.tts.R
 import app.marmalade.tts.data.LicenseCatalog
@@ -285,8 +284,8 @@ fun LicenseTextScreen(
 }
 
 /**
- * Section label — same style as the Settings screen's: the quiet dim-ink
- * label, never the accent (#83). Kept local (it's file-private there) rather
+ * Section label — same style as the Settings screen's: orange in both modes
+ * (Max kept the orange section titles, #83). Kept local (it's file-private there) rather
  * than coupling the two screens; matches the codebase's "spell small helpers
  * out locally" idiom.
  */
@@ -294,9 +293,8 @@ fun LicenseTextScreen(
 private fun SectionHeader(label: String) {
     Text(
         text = label,
-        style = MaterialTheme.typography.labelLarge,
-        fontWeight = FontWeight.SemiBold,
-        color = MaterialTheme.depth.dim,
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary,
         modifier = Modifier
             .semantics { heading() }
             .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),

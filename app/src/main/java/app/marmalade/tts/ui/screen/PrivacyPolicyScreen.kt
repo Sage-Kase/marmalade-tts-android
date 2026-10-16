@@ -125,10 +125,12 @@ private fun MarkdownBlockView(block: MdBlock) {
                     MaterialTheme.typography.titleMedium
                 },
                 fontWeight = FontWeight.Bold,
-                // Ink at every level: a primary-coloured ## heading was orange
-                // text on stone in dark mode (#83). Size and weight carry the
-                // hierarchy.
-                color = MaterialTheme.colorScheme.onSurface,
+                // Section titles (##) stay orange like Settings' (Max, #83).
+                color = if (block.level == 1) {
+                    MaterialTheme.colorScheme.onSurface
+                } else {
+                    MaterialTheme.colorScheme.primary
+                },
                 modifier = Modifier
                     .semantics { heading() }
                     .padding(bottom = 6.dp),

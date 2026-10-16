@@ -32,7 +32,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -239,15 +238,14 @@ private fun BenchmarkSection(onClick: () -> Unit) {
 }
 
 // Same local copy LicensesScreen keeps — SectionHeader is file-private
-// per screen rather than shared, so screens stay self-contained. The quiet
-// dim-ink label, never the accent (#83).
+// per screen rather than shared, so screens stay self-contained. Orange in
+// both modes: Max kept the orange section titles (#83 lab, C and L).
 @Composable
 private fun SectionHeader(label: String) {
     Text(
         text = label,
-        style = MaterialTheme.typography.labelLarge,
-        fontWeight = FontWeight.SemiBold,
-        color = MaterialTheme.depth.dim,
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary,
         modifier = Modifier
             .semantics { heading() }
             .padding(

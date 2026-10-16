@@ -40,7 +40,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -533,16 +532,15 @@ private fun settingsRowColors() = ListItemDefaults.colors(
 )
 
 /**
- * The lab's quiet section label: dim ink in both modes. It used to be the
- * primary colour, which put orange text on stone in dark mode (#83).
+ * The section label stays the accent in both modes: Max kept the orange
+ * section titles in the #83 lab (C and L).
  */
 @Composable
 private fun SectionHeader(label: String) {
     Text(
         text = label,
-        style = MaterialTheme.typography.labelLarge,
-        fontWeight = FontWeight.SemiBold,
-        color = MaterialTheme.depth.dim,
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary,
         modifier = Modifier
             .semantics { heading() }
             .padding(
