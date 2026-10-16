@@ -1,5 +1,6 @@
 package app.marmalade.tts.ui.onboarding
 
+import app.marmalade.tts.data.KokoroDirectVoiceCatalog
 import app.marmalade.tts.data.db.VoiceAlias
 import app.marmalade.tts.data.db.VoiceMeta
 import app.marmalade.tts.install.EngineCatalog
@@ -12,9 +13,11 @@ import java.util.Locale
 //
 //   - Within an engine: voices in the phone's language first (its region
 //     first among those, so a British phone hears Kokoro's British voices
-//     first), then the catalog's order: Kitten's best-first `sortOrder`
-//     (Rosie first), Kokoro's catalog order, Pocket by name. A best-first
-//     order for Pocket and Kokoro is Max's ear to set, not ours.
+//     first), then the engine's lead voice ([LEAD_VOICE]: Kokoro leads with
+//     Bella, its default before #87, Max 2026-10-16), then the catalog's
+//     order: Kitten's best-first `sortOrder` (Rosie first), Kokoro's catalog
+//     order, Pocket by name. A full best-first order for Pocket and Kokoro is
+//     Max's ear to set, not ours.
 //   - Engines: the first one with a voice in the phone's language, taking
 //     them in [engineOrder] (the phone check's engine first); none → the
 //     first engine. The rest follow in [engineOrder].
@@ -53,6 +56,7 @@ internal fun firstVoiceGroups(
             voices = own.sortedWith(
                 compareByDescending(inPhoneLanguage)
                     .thenByDescending { sameRegionAs(it, phone) }
+                    .thenByDescending { it.id == LEAD_VOICE[name] }
                     .thenBy { it.sortOrder }
                     .thenBy { it.displayName },
             ),
@@ -62,6 +66,9 @@ internal fun firstVoiceGroups(
     val lead = groups.firstOrNull { g -> g.voices.any(inPhoneLanguage) } ?: groups.firstOrNull()
     return listOfNotNull(lead) + groups.filter { it !== lead }
 }
+
+/** Per engine, the voice listed first among those in the phone's language and region. */
+private val LEAD_VOICE = mapOf(KokoroDirectVoiceCatalog.ENGINE to KokoroDirectVoiceCatalog.DEFAULT_VOICE_ID)
 
 /** The voice the step picks before the user does: the first of the first group. */
 internal fun List<VoiceGroup>.defaultVoice(): VoiceMeta? = firstOrNull()?.voices?.firstOrNull()

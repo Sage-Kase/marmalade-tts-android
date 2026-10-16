@@ -44,6 +44,18 @@ class FirstVoiceTest {
     }
 
     @Test
+    fun `an American phone with Kokoro starts on Bella, Kokoro's lead voice`() {
+        val groups = firstVoiceGroups(
+            voices = KokoroDirectVoiceCatalog.voices.reversed(),
+            engineOrder = listOf(kokoro),
+            phone = Locale.US,
+            recommendedEngine = kokoro,
+        )
+
+        assertEquals(KokoroDirectVoiceCatalog.DEFAULT_VOICE_ID, groups.defaultVoice()?.id)
+    }
+
+    @Test
     fun `a phone language no engine speaks keeps the engine order`() {
         val groups = firstVoiceGroups(
             voices = KittenDirectVoiceCatalog.voices + KokoroDirectVoiceCatalog.voices,
