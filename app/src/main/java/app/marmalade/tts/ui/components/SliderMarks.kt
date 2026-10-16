@@ -1,5 +1,6 @@
 package app.marmalade.tts.ui.components
 
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.SliderState
 import androidx.compose.runtime.Composable
@@ -7,6 +8,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.unit.dp
+import app.marmalade.tts.ui.theme.depth
 import kotlin.math.abs
 
 // -----------------------------------------------------------------------------
@@ -40,8 +42,18 @@ internal val SLIDER_MARKS = SliderMarks.NONE
 internal fun SteppedSliderTrack(state: SliderState, mark: Float?) {
     val range = state.valueRange
     val markFraction = mark?.let { (it - range.start) / (range.endInclusive - range.start) }
+    // Light mode's default inactive track (secondaryContainer) is all but the
+    // page colour: the stop dots were the only sign of where the track ran.
+    // Without them it takes the toast container, a quiet step darker, as dark
+    // mode's rich brown track already is.
+    val colors = if (MaterialTheme.depth.isDark) {
+        SliderDefaults.colors()
+    } else {
+        SliderDefaults.colors(inactiveTrackColor = MaterialTheme.colorScheme.primaryContainer)
+    }
     SliderDefaults.Track(
         sliderState = state,
+        colors = colors,
         drawTick = when (SLIDER_MARKS) {
             SliderMarks.NONE -> { _, _ -> }
             SliderMarks.ONE_MARK -> { offset, color ->
