@@ -68,6 +68,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -482,11 +484,11 @@ private fun EngineCard(
     onToggle: () -> Unit,
 ) {
     // Every card is the shared MarmaladeCard: card fill, hairline edge, soft
-    // shadow (#83). A ticked card takes a toast fill, animated; the checkbox
-    // carries the state. In light mode that is full toast, deeper than the
-    // plain card (Max, 2026-10-13: "Stronger tint"); in dark mode the faint
-    // shared wash on stone, never a filled slab (it used to be a brown
-    // secondaryContainer card).
+    // shadow (#83). The checkbox carries the state; a ticked card only warms
+    // a little, animated. In dark mode that is the faint shared wash on
+    // stone, never a filled slab (it used to be a brown secondaryContainer
+    // card); in light mode it is [LIGHT_TICK] (full toast was "too orange",
+    // Max in the #83 lab, reversing 2026-10-13's "Stronger tint").
     //
     // The permanently-ticked built-in card keeps the plain fill: the wash
     // means "you chose this", and Kitten isn't a choice (Max, 2026-08-08 —
@@ -518,9 +520,12 @@ private fun EngineCard(
                 },
             ),
         selected = tinted,
-        // Light mode keeps the full toast Max asked for (2026-10-13, "Stronger
-        // tint"); dark takes the shared wash.
-        selectedFill = if (isDark) null else MarmaladeToast,
+        selectedFill = if (isDark) null else MarmaladeToast.copy(alpha = LIGHT_TICK.washAlpha).compositeOver(MaterialTheme.depth.card),
+        border = if (tinted && !isDark && LIGHT_TICK == LightTick.TOAST_EDGE) {
+            BorderStroke(1.5.dp, LightTickEdge)
+        } else {
+            null
+        },
     ) {
         Row(
             modifier = Modifier
@@ -560,7 +565,7 @@ private fun EngineCard(
                 // (recommended-badge-lab R1).
                 if (showsRecommended) {
                     Spacer(Modifier.height(4.dp))
-                    RecommendedTag(onTintedCard = tinted && !isDark)
+                    RecommendedTag()
                 } else if (fit == EngineFit.MAY_BE_SLOW) {
                     Spacer(Modifier.height(4.dp))
                     MayBeSlowTag()
@@ -601,11 +606,28 @@ private fun EngineCard(
 }
 
 /**
+ * How a ticked engine card shows in light mode (#83 M, Max picks in the lab):
+ * a faint toast wash over the card, the wash plus a thin toast edge, or no
+ * change at all (the checkbox alone). Each keeps the Recommended pill legible.
+ */
+internal enum class LightTick(val washAlpha: Float) {
+    FAINT_WASH(0.35f),
+    TOAST_EDGE(0.20f),
+    CHECKBOX_ONLY(0f),
+}
+
+/** The shipped light-mode pick. */
+internal val LIGHT_TICK = LightTick.FAINT_WASH
+
+/** Orange 300: the toast family a step deeper, so a thin edge reads on the Orange 100 card. */
+private val LightTickEdge = Color(0xFFFDBA74)
+
+/**
  * Small "Recommended" pill. Toast-family container (never the precious accent
  * orange) so it stays warm without flooding the card.
  */
 @Composable
-private fun RecommendedTag(onTintedCard: Boolean = false) {
+private fun RecommendedTag() {
     Text(
         text = stringResource(R.string.onboarding_recommended),
         style = MaterialTheme.typography.labelSmall,
@@ -613,16 +635,7 @@ private fun RecommendedTag(onTintedCard: Boolean = false) {
         color = MaterialTheme.colorScheme.onTertiaryContainer,
         modifier = Modifier
             .clip(RoundedCornerShape(50))
-            // A ticked card in light mode is the pill's own Orange 200 (toast),
-            // which made the pill vanish; it takes the page's cream there
-            // instead.
-            .background(
-                if (onTintedCard) {
-                    MaterialTheme.colorScheme.background
-                } else {
-                    MaterialTheme.colorScheme.tertiaryContainer
-                },
-            )
+            .background(MaterialTheme.colorScheme.tertiaryContainer)
             .padding(horizontal = 8.dp, vertical = 2.dp),
     )
 }
