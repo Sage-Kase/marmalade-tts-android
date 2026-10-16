@@ -50,6 +50,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -157,6 +158,7 @@ fun AliasScreen(
     val pickerState by viewModel.pickerState.collectAsStateWithLifecycle()
     val voiceLatency by viewModel.voiceLatency.collectAsStateWithLifecycle()
     val showSpeedWarning by viewModel.showSpeedWarning.collectAsStateWithLifecycle()
+    val previewState by viewModel.previewState.collectAsStateWithLifecycle()
 
     val mappings by routingViewModel.mappings.collectAsStateWithLifecycle()
     val installedApps by routingViewModel.installedApps.collectAsStateWithLifecycle()
@@ -194,6 +196,12 @@ fun AliasScreen(
     // freshly-installed engine appears in the editor's picker without a restart.
     LaunchedEffect(Unit) {
         viewModel.refresh()
+    }
+
+    // Leaving the screen with the picker open (a tab switch) keeps the VM and
+    // the open sheet for the way back, but the voice sample stops here.
+    DisposableEffect(Unit) {
+        onDispose { viewModel.stopPreview() }
     }
 
     Scaffold(
@@ -303,6 +311,7 @@ fun AliasScreen(
     }
 
     if (pickerState.isOpen) {
+        val previewPhrase = stringResource(R.string.voices_preview_phrase)
         VoicePickerSheet(
             state = pickerState,
             tree = voiceTree,
@@ -314,6 +323,13 @@ fun AliasScreen(
             onPick = viewModel::pickVoice,
             onBack = viewModel::pickerBack,
             onDismiss = viewModel::dismissVoicePicker,
+            previewState = previewState,
+            canPreview = viewModel::canPreview,
+            onTogglePreview = { voice ->
+                // spokenName, not displayName — espeak reads a Kokoro flag
+                // emoji out loud ("United States Adam").
+                viewModel.togglePreview(voice, previewPhrase.format(voice.spokenName))
+            },
         )
     }
 

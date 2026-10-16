@@ -519,6 +519,139 @@ class AliasViewModelTest {
         assertNull(picker.model)
     }
 
+    // -- Voice preview in the picker (#86) -------------------------------------
+
+    private val bella = KittenDirectVoiceCatalog.voices.first { it.displayName == "Bella" }
+    private val leo = KittenDirectVoiceCatalog.voices.first { it.displayName == "Leo" }
+
+    /** A VM with the editor and picker open and a player whose samples play until stopped. */
+    private fun previewingViewModel(player: RecordingPlayer): AliasViewModel {
+        player.holdUntilCancel = true
+        return newViewModel(player = player).apply {
+            openEditor(null)
+            openVoicePicker()
+        }
+    }
+
+    @Test
+    fun preview_speaksThePhraseInThatVoice_andShowsItPlaying() = runTest {
+        val player = RecordingPlayer()
+        val vm = previewingViewModel(player)
+
+        vm.togglePreview(bella, "Hello, I'm Bella.")
+
+        assertEquals(PreviewState.Playing(bella.id), vm.previewState.value)
+        val call = player.calls.single()
+        assertEquals(bella.id, call.voiceId)
+        assertEquals("Hello, I'm Bella.", call.text)
+        assertFalse("a preview must not pick the voice", vm.editorState.value.voiceId == bella.id)
+        assertTrue("the picker stays open", vm.pickerState.value.isOpen)
+    }
+
+    @Test
+    fun preview_startingAnotherVoiceStopsTheFirst() = runTest {
+        val player = RecordingPlayer()
+        val vm = previewingViewModel(player)
+
+        vm.togglePreview(bella, "Hello, I'm Bella.")
+        val cancelsBefore = player.cancelCount
+        vm.togglePreview(leo, "Hello, I'm Leo.")
+
+        assertEquals(PreviewState.Playing(leo.id), vm.previewState.value)
+        assertTrue("Bella's sample is cancelled", player.cancelCount > cancelsBefore)
+        assertEquals(listOf(bella.id, leo.id), player.calls.map { it.voiceId })
+    }
+
+    @Test
+    fun preview_aSecondTapOnThePlayingVoiceStopsIt() = runTest {
+        val player = RecordingPlayer()
+        val vm = previewingViewModel(player)
+
+        vm.togglePreview(bella, "Hello, I'm Bella.")
+        val cancelsBefore = player.cancelCount
+        vm.togglePreview(bella, "Hello, I'm Bella.")
+
+        assertEquals(PreviewState.Idle, vm.previewState.value)
+        assertEquals(cancelsBefore + 1, player.cancelCount)
+        assertEquals("the stop tap speaks nothing", 1, player.calls.size)
+    }
+
+    @Test
+    fun preview_pickingAVoiceStopsIt() = runTest {
+        val player = RecordingPlayer()
+        val vm = previewingViewModel(player)
+        vm.togglePreview(bella, "Hello, I'm Bella.")
+        val cancelsBefore = player.cancelCount
+
+        vm.pickVoice(leo)
+
+        assertEquals(PreviewState.Idle, vm.previewState.value)
+        assertEquals(cancelsBefore + 1, player.cancelCount)
+    }
+
+    @Test
+    fun preview_dismissingThePickerStopsIt() = runTest {
+        val player = RecordingPlayer()
+        val vm = previewingViewModel(player)
+        vm.togglePreview(bella, "Hello, I'm Bella.")
+
+        vm.dismissVoicePicker()
+
+        assertEquals(PreviewState.Idle, vm.previewState.value)
+    }
+
+    @Test
+    fun preview_backingOutOfThePickerStopsIt_butBackingUpALevelDoesNot() = runTest {
+        val player = RecordingPlayer()
+        val vm = previewingViewModel(player)
+        vm.selectPickerSource("Kitten")
+        vm.togglePreview(bella, "Hello, I'm Bella.")
+
+        vm.pickerBack() // up to the source list: still in the sheet
+        assertEquals(PreviewState.Playing(bella.id), vm.previewState.value)
+
+        vm.pickerBack() // out of the sheet
+        assertFalse(vm.pickerState.value.isOpen)
+        assertEquals(PreviewState.Idle, vm.previewState.value)
+    }
+
+    @Test
+    fun preview_closingTheEditorStopsIt() = runTest {
+        val player = RecordingPlayer()
+        val vm = previewingViewModel(player)
+        vm.togglePreview(bella, "Hello, I'm Bella.")
+
+        vm.dismissEditor()
+
+        assertEquals(PreviewState.Idle, vm.previewState.value)
+    }
+
+    @Test
+    fun preview_stoppingWithNothingPlayingLeavesThePlayerAlone() = runTest {
+        // cancel() stops the player's in-flight request, which with no preview
+        // playing is someone else's (a Speak-screen read).
+        val player = RecordingPlayer()
+        val vm = previewingViewModel(player)
+
+        vm.dismissVoicePicker()
+        vm.dismissEditor()
+
+        assertEquals(0, player.cancelCount)
+    }
+
+    @Test
+    fun preview_cloudVoicesGetNone() = runTest {
+        val player = RecordingPlayer()
+        val vm = previewingViewModel(player)
+
+        assertFalse(vm.canPreview(CLOUD_VOICE))
+        assertTrue(vm.canPreview(bella))
+        vm.togglePreview(CLOUD_VOICE, "Hello, I'm af_sky.")
+
+        assertTrue("nothing may reach a provider", player.calls.isEmpty())
+        assertEquals(PreviewState.Idle, vm.previewState.value)
+    }
+
     // -- Effect / engine change ----------------------------------------------
 
     @Test
@@ -1050,6 +1183,7 @@ class AliasViewModelTest {
         ),
         mappingDao: FakeAppAliasMappingDao = FakeAppAliasMappingDao(),
         deviceProbe: FakeDeviceProbe = FakeDeviceProbe(),
+        player: RecordingPlayer = RecordingPlayer(),
     ): AliasViewModel {
         require(aliasDao == null || aliases.isEmpty()) {
             "Pass either aliasDao or aliases, not both"
@@ -1068,6 +1202,7 @@ class AliasViewModelTest {
             deviceProbe = deviceProbe,
             latencySource = VoiceLatencySource { flowOf(emptyMap()) },
             effectDao = FakeEffectDao(),
+            synthesizer = player,
         )
     }
 

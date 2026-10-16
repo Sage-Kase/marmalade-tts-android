@@ -302,8 +302,9 @@ private fun EffectCardItem(
 /**
  * Material "stop" glyph — a filled square. Hand-built for the same reason as
  * [ContentCopyIcon]: core has no stop icon and the extended set is multi-MB.
+ * Also the stop state of the alias editor's voice preview (VoicePickerSheet).
  */
-private val StopIcon: ImageVector = ImageVector.Builder(
+internal val StopIcon: ImageVector = ImageVector.Builder(
     name = "Stop",
     defaultWidth = 24.dp,
     defaultHeight = 24.dp,

@@ -75,6 +75,9 @@ its entry here in the same change.
 - **One-shot.** A single utterance, e.g. a "Speak" or share-sheet request, as
   opposed to an **article session** in the reader. Both run through the
   `Narrator`, and all audio plays through `MarmaladeSynthService`.
+- **Preview.** A voice speaking a short sample ("Hello, I'm Heart.") from a
+  picker row, so the user hears it before choosing. On-device voices only in
+  the alias editor's picker: a cloud sample would cost money unasked.
 - **RTF (real-time factor).** Seconds of compute per second of audio. Below 1
   keeps up; the app warns above 0.6 at the chosen speed.
 - **Chunk mode.** What an engine that can't keep up switches to: it renders

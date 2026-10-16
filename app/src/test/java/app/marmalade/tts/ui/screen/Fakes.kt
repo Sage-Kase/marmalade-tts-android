@@ -65,12 +65,23 @@ internal class RecordingPlayer(
         expressiveness: Float?,
     ): Result<Unit> {
         calls += Call(text, voiceId, speed, effectBlocks, phonemizationLanguage, expressiveness)
+        if (holdUntilCancel) CompletableDeferred<Unit>().also { held = it }.await()
         return behaviour()
     }
 
     override fun cancel() {
         cancelCount += 1
+        held?.complete(Unit)
+        held = null
     }
+
+    /**
+     * When true, [speak] keeps "playing" until [cancel], as the real player
+     * does for a sample nobody stops. Without it a plain fake finishes inside
+     * the call, so a Playing state is never observable.
+     */
+    var holdUntilCancel: Boolean = false
+    private var held: CompletableDeferred<Unit>? = null
 
     /** Records preload calls so tests can assert on Speak-screen pre-load behaviour. */
     val preloadCalls = mutableListOf<String>()

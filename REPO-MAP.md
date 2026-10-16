@@ -1634,6 +1634,17 @@ write Marmalade code.
   CREDITS.md / LICENSES/ when a voice or pack is added: `VoiceCreditsTest`
   fails for an offered voice or pack without one. Only "Voice donor" and
   "model by" are translated; names and licence names are shown as written.
+- **Voice previews** (#86): both pickers audition a voice through
+  `ui/screen/VoicePreview.kt` (`VoicePreviewer` + `PreviewState`), owned by
+  `VoicePickerViewModel` and `AliasViewModel`; it plays via `SpeechPlayer`,
+  so the audio comes from `MarmaladeSynthService`. One sample at a time, and
+  a generation token stops a superseded sample's completion from clobbering
+  the new state. The alias editor's sheet makes it a play/stop toggle that
+  stops when the sheet or the editor closes, or the screen leaves (a
+  `DisposableEffect` in `AliasScreen`), and offers none on cloud voices
+  (`AliasViewModel.canPreview`). `stop()` calls `SpeechPlayer.cancel()` only
+  while a sample plays: `cancel()` stops the player's one in-flight request,
+  which otherwise belongs to someone else (a Speak-screen read).
 - **`kokoro-int8-multi-lang-v1_0` is an unblessed power-user export**
   — added to sherpa-onnx releases by PR #2137 but never included in
   the team's own APK build script (`scripts/apk/generate-tts-apk-script.py`).

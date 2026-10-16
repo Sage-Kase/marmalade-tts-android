@@ -2,6 +2,7 @@ package app.marmalade.tts.ui.screen
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import app.marmalade.tts.audio.SpeechPlayer
 import app.marmalade.tts.data.CloudApiVoiceCatalog
 import app.marmalade.tts.data.Expressiveness
 import app.marmalade.tts.data.InstalledVoiceAssets
@@ -74,6 +75,11 @@ import kotlinx.coroutines.launch
 //     │                                  ▲
 //     │                                  │ Flow
 //     │                          SettingsRepository.primaryAliasId
+//     │
+//     ├── previewState ◄──── AliasViewModel.previewState (picker sheet rows)
+//     │                          ▲
+//     │                  togglePreview(voice) → VoicePreviewer → SpeechPlayer
+//     │                  (stopped when the sheet or the editor closes)
 //     │
 //     └── actions
 //          ├── save()    → validate → VoiceAliasDao.upsert(...)
@@ -151,9 +157,9 @@ data class EditorState(
  * uniqueness check.
  *
  * No injection of [SpeakViewModel] — the speak screen's `applyAlias`
- * does its own lookup. Keeping the two ViewModels independent means a
- * future "Try this alias" preview button on the alias screen can live
- * here without coupling to playback state.
+ * does its own lookup. Keeping the two ViewModels independent lets the
+ * picker sheet's voice preview live here without coupling to the Speak
+ * screen's playback state.
  */
 @HiltViewModel
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -167,6 +173,7 @@ class AliasViewModel @Inject constructor(
     private val deviceProbe: DeviceProbeSource,
     latencySource: VoiceLatencySource,
     effectDao: EffectDao,
+    synthesizer: SpeechPlayer,
 ) : ViewModel() {
 
     /**
@@ -352,6 +359,7 @@ class AliasViewModel @Inject constructor(
     }
 
     fun dismissVoicePicker() {
+        stopPreview()
         _pickerState.value = VoicePickerState()
     }
 
@@ -369,7 +377,40 @@ class AliasViewModel @Inject constructor(
 
     /** Step back one level; at the top level, closes the picker. */
     fun pickerBack() {
-        _pickerState.value = _pickerState.value.back(voiceTree.value)
+        val back = _pickerState.value.back(voiceTree.value)
+        if (!back.isOpen) stopPreview()
+        _pickerState.value = back
+    }
+
+    // -- Voice preview (#86) ----------------------------------------------------
+    //
+    // The Voices screen's audition (VoicePreviewer), on the picker sheet's
+    // rows. It plays while the sheet is open and stops when the sheet or the
+    // editor closes.
+
+    private val previewer = VoicePreviewer(synthesizer, viewModelScope)
+    val previewState: StateFlow<PreviewState> = previewer.state
+
+    /**
+     * Whether [voice]'s row offers a preview. Never for a cloud voice: the
+     * sample would send text to a provider, and cost money, without the user
+     * asking for either.
+     */
+    fun canPreview(voice: VoiceMeta): Boolean =
+        !voicePaths.resolve(voice.id, voice.engine).isCloud
+
+    /** Play [voice] saying [phrase], or stop it if it is the one playing. */
+    fun togglePreview(voice: VoiceMeta, phrase: String) {
+        if (canPreview(voice)) previewer.toggle(voice, phrase)
+    }
+
+    fun stopPreview() {
+        previewer.stop()
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        stopPreview()
     }
 
     /**
@@ -394,6 +435,7 @@ class AliasViewModel @Inject constructor(
             },
             error = null,
         )
+        stopPreview()
         _pickerState.value = VoicePickerState()
     }
 
@@ -527,6 +569,7 @@ class AliasViewModel @Inject constructor(
 
     /** Close the editor without saving — discards any unsaved field edits. */
     fun dismissEditor() {
+        stopPreview()
         _editorState.value = EditorState()
     }
 
