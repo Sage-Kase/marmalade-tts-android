@@ -68,23 +68,18 @@ val MarmaladeLightColors = lightColorScheme(
     surfaceTint = Color(0xFFF97316),
 )
 
-// No orange in dark mode (brand v0's mode-aware swaps, #83): the accent
-// roles are toast, so switches, sliders, progress, links and text buttons
-// read toast on stone, and the containers are rich brown with toast ink.
-// The one accent button per screen asks for rich brown explicitly
-// (accentButtonColors).
 val MarmaladeDarkColors = darkColorScheme(
-    primary = Color(0xFFFED7AA),             // Toast
-    onPrimary = Color(0xFF7C2D12),           // Toast ink
-    primaryContainer = Color(0xFF422006),    // Rich brown
-    onPrimaryContainer = Color(0xFFFED7AA),
-    secondary = Color(0xFFFED7AA),
-    onSecondary = Color(0xFF7C2D12),
-    secondaryContainer = Color(0xFF422006),  // Rich brown: a slider's inactive track
+    primary = Color(0xFFFB923C),             // Orange 400
+    onPrimary = Color(0xFF1C1917),           // Stone 900
+    primaryContainer = Color(0xFF9A3412),    // Orange 800
+    onPrimaryContainer = Color(0xFFFFFBF7),
+    secondary = Color(0xFFF97316),           // Orange 500
+    onSecondary = Color(0xFF1C1917),
+    secondaryContainer = Color(0xFF7C2D12),  // Orange 900
     onSecondaryContainer = Color(0xFFFED7AA),
     tertiary = Color(0xFFFDBA74),            // Orange 300
     onTertiary = Color(0xFF1C1917),
-    tertiaryContainer = Color(0xFF422006),
+    tertiaryContainer = Color(0xFF9A3412),
     onTertiaryContainer = Color(0xFFFED7AA),
     surface = Color(0xFF1C1917),             // Stone deep — bars sit on the page
     onSurface = Color(0xFFFAFAF9),           // Stone 50
@@ -113,8 +108,8 @@ val MarmaladeDarkColors = darkColorScheme(
     outlineVariant = Color(0x1CFAFAF9),      // Stone 50 at 11%
     inverseSurface = Color(0xFFFAFAF9),
     inverseOnSurface = Color(0xFF1C1917),
-    inversePrimary = Color(0xFF7C2D12),      // Toast ink, on the light inverse surface
-    surfaceTint = Color(0xFFFED7AA),
+    inversePrimary = Color(0xFFC2410C),      // Orange 700
+    surfaceTint = Color(0xFFFB923C),
 )
 
 /**
@@ -124,9 +119,6 @@ val MarmaladeDarkColors = darkColorScheme(
  */
 val MarmaladeToast = Color(0xFFFED7AA)               // Orange 200
 val MarmaladeToastInk = Color(0xFF7C2D12)            // Orange 900
-
-/** Rich brown (brand v0): the dark-mode accent button, with toast ink. */
-val MarmaladeRichBrown = Color(0xFF422006)
 
 // =============================================================================
 // Theme Presets
@@ -150,7 +142,7 @@ enum class ThemePreset(
     val darkPrimaryContainer: Color,
 ) {
     SYSTEM("System", Color.Unspecified, Color.Unspecified, Color.Unspecified, Color.Unspecified),
-    MARMALADE("Marmalade", Color(0xFFF97316), Color(0xFFFED7AA), Color(0xFFFED7AA), Color(0xFF422006)),
+    MARMALADE("Marmalade", Color(0xFFF97316), Color(0xFFFB923C), Color(0xFFFED7AA), Color(0xFF9A3412)),
     MIDNIGHT("Midnight", Color(0xFF2563EB), Color(0xFF60A5FA), Color(0xFFDBEAFE), Color(0xFF1E3A5F)),
     FOREST("Forest", Color(0xFF16A34A), Color(0xFF4ADE80), Color(0xFFDCFCE7), Color(0xFF14532D)),
     BERRY("Berry", Color(0xFFDC2626), Color(0xFFF87171), Color(0xFFFEE2E2), Color(0xFF7F1D1D)),

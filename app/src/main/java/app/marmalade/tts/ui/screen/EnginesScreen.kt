@@ -68,7 +68,6 @@ import app.marmalade.tts.install.VoicePackSummary
 import app.marmalade.tts.ui.components.EngineSpecColumn
 import app.marmalade.tts.ui.components.MarmaladeCard
 import app.marmalade.tts.ui.components.WorkingDots
-import app.marmalade.tts.ui.components.accentButtonColors
 import app.marmalade.tts.ui.onboarding.formatBytes
 import app.marmalade.tts.ui.theme.MarmaladeMotion
 import app.marmalade.tts.ui.theme.MarmaladeToast
@@ -229,7 +228,7 @@ fun EnginesScreen(
  * The selected segment never fills with the accent orange, which stays
  * reserved for the Install / Configure CTAs: light mode uses primaryContainer
  * (the Toast peach under Marmalade), dark mode the brand's dark-mode tab,
- * Toast with its brown ink (the dark primaryContainer is a rich brown slab). The
+ * Toast with its brown ink (the dark primaryContainer is an orange slab). The
  * fill fades between segments. The two segments are a selectable group so
  * TalkBack announces them as tabs.
  */
@@ -620,9 +619,7 @@ private fun ActionRowContent(
     ) {
         when (state) {
             InstallState.NotInstalled -> {
-                Button(onClick = onInstall, colors = accentButtonColors()) {
-                    Text(stringResource(R.string.engines_install))
-                }
+                Button(onClick = onInstall) { Text(stringResource(R.string.engines_install)) }
             }
             is InstallState.Downloading, is InstallState.Extracting -> {
                 // No buttons during install — the action area is
@@ -637,9 +634,7 @@ private fun ActionRowContent(
             }
             InstallState.Installed -> {
                 OutlinedButton(onClick = onUninstall) { Text(stringResource(R.string.engines_uninstall)) }
-                Button(onClick = onEngineSettings, colors = accentButtonColors()) {
-                    Text(stringResource(R.string.engines_configure))
-                }
+                Button(onClick = onEngineSettings) { Text(stringResource(R.string.engines_configure)) }
             }
             is InstallState.Failed -> {
                 if (canRemoveDownload) {
@@ -647,14 +642,10 @@ private fun ActionRowContent(
                         Text(stringResource(R.string.engines_remove_download))
                     }
                 }
-                Button(onClick = onRetry, colors = accentButtonColors()) {
-                    Text(stringResource(R.string.engines_retry))
-                }
+                Button(onClick = onRetry) { Text(stringResource(R.string.engines_retry)) }
             }
             InstallState.Corrupt -> {
-                Button(onClick = onRetry, colors = accentButtonColors()) {
-                    Text(stringResource(R.string.engines_reinstall))
-                }
+                Button(onClick = onRetry) { Text(stringResource(R.string.engines_reinstall)) }
             }
             is InstallState.Outdated -> {
                 // The current install still works; the user can keep using
@@ -662,9 +653,7 @@ private fun ActionRowContent(
                 // the primary action and leave Engine settings reachable
                 // so they don't lose access to alias management.
                 OutlinedButton(onClick = onEngineSettings) { Text(stringResource(R.string.engines_configure)) }
-                Button(onClick = onInstall, colors = accentButtonColors()) {
-                    Text(stringResource(R.string.engines_update))
-                }
+                Button(onClick = onInstall) { Text(stringResource(R.string.engines_update)) }
             }
         }
     }

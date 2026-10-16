@@ -1380,9 +1380,7 @@ and `MarmaladeSynthService` is its foreground host. System TTS
 - `ui/theme/Color.kt` — palette + `ThemePreset` enum
   (`SYSTEM / MARMALADE / MIDNIGHT / FOREST / BERRY`); MARMALADE is
   the default since v0.1.10. `MarmaladeToast` / `MarmaladeToastInk` are the
-  v0 toast pair. Dark Marmalade spends no orange (#83 O): primary/secondary
-  are toast (so switches, sliders, progress and links are toast), the
-  containers `MarmaladeRichBrown` with toast ink. Every surfaceContainer
+  v0 toast pair (the dark-mode stand-in for orange). Every surfaceContainer
   role plus surfaceBright/Dim is set in both schemes: an unset one falls back
   to Material's lavender (`DepthTest` checks). Dark is the agent-cards lab's
   stone ramp (#83): page/bars #1C1917, sheets #221E1C, nav bar #24201E, cards
@@ -1412,10 +1410,7 @@ and `MarmaladeSynthService` is its foreground host. System TTS
     colour over the sheet), `MarmaladeMenu` (an `ExposedDropdownMenu` can't
     use it: dress it the same by hand), `chevronAngle`, `WorkingDots` (Max
     rejected spinning rings; it carries the old indicator's "in progress"
-    semantics) and `LiveDot`. `accentButtonColors()` is the one accent
-    button per screen (Speak, an engine card's action, each onboarding
-    step): orange in light, rich brown in Marmalade dark, where a plain
-    `Button` is the toast default; `isMarmaladeDark()` gates such swaps.
+    semantics) and `LiveDot`.
 
 ## Data flow (mermaid-free, just text)
 

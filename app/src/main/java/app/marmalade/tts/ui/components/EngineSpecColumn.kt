@@ -173,7 +173,7 @@ private fun EngineLanguagesValue(
                 stringResource(R.string.language_partial_suffix, stringResource(languageNameRes(it)))
             }
         ).joinToString(", ")
-    // Primary (orange in light, toast in dark), matching the app's other in-app "link" actions (the
+    // Primary/orange, matching the app's other in-app "link" actions (the
     // Engines-tab "Show more"); it's the tap cue. A single small action doesn't
     // flood the card the way a column of accent-filled meters would.
     val tint = MaterialTheme.colorScheme.primary
