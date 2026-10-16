@@ -67,7 +67,7 @@ import kotlinx.coroutines.launch
 //     │                              │ firstVoiceGroups(pickable voices, …):
 //     │                              │ probeInstalledVoiceAssets, run by
 //     │                              │ prepareVoiceStep on entering the step
-//     ├── selectedVoiceId ◄───── the user's pick, else the default voice
+//     ├── selectedVoice  ◄────── the user's pick, else the default voice
 //     ├── previewState   ◄────── VoicePreviewer (the row speakers)
 //     │
 //     └── actions ──► next() / back() / toggle(name) / installSelected()
