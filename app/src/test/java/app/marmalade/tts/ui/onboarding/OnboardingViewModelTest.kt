@@ -328,7 +328,7 @@ class OnboardingViewModelTest {
 
     @Test
     fun usingTheSameVoiceAgainEditsTheSameAlias() = runTest {
-        // Back from the battery step, then "Use Rosie" again: one alias, not two.
+        // "Use Rosie" a second time (setup run again): one alias, not two.
         val aliasDao = FakeAliasDao()
         val vm = newViewModel(aliasDao = aliasDao, installer = KITTEN_ON_DISK)
         vm.prepareVoiceStep()

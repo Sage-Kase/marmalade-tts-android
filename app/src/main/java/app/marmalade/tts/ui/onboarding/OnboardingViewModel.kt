@@ -140,8 +140,8 @@ enum class OnboardingStep {
      * are left for the Aliases tab.
      *
      * When the alias table already has rows on entry (sideloaded data, or
-     * Back from a later step) a quiet "Finish setup" moves on without
-     * saving another.
+     * setup restarted after an alias was saved) a quiet "Finish setup" moves
+     * on without saving another.
      */
     ChooseVoice,
 
@@ -588,7 +588,8 @@ class OnboardingViewModel @Inject constructor(
 
     /**
      * An alias already existed when the voice step opened (sideloaded data,
-     * or Back from a later step), so it offers "Finish setup". Fixed at
+     * or setup restarted after an alias was saved, e.g. the app was closed
+     * mid-setup), so it offers "Finish setup". Fixed at
      * opening, not live: the alias [useVoice] saves would otherwise flash the
      * button in while the step leaves.
      */
@@ -597,7 +598,8 @@ class OnboardingViewModel @Inject constructor(
 
     /**
      * Probe the disk for [voiceGroups]. Called by the voice step each time it
-     * opens; a pick the user already made survives (Back from a later step).
+     * opens (again after Back to the downloads and Continue, keeping the
+     * user's pick while it is still listed).
      */
     fun prepareVoiceStep() {
         viewModelScope.launch {
@@ -699,8 +701,8 @@ class OnboardingViewModel @Inject constructor(
     }
 
     /**
-     * "Finish setup" on the voice step: an alias already exists (sideloaded
-     * data, or Back from a later step), so move on without saving another.
+     * "Finish setup" on the voice step: an alias already existed as it opened
+     * ([aliasOnEntry]), so move on without saving another.
      * Self-heal the primary if it's unset, then go to the battery step: the
      * battery, notification and system-TTS steps still lie ahead.
      */

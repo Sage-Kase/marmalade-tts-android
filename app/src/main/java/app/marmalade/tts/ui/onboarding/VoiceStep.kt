@@ -195,7 +195,8 @@ internal fun ChooseVoiceStep(
             Text(stringResource(R.string.onboarding_voice_use, selected?.spokenName.orEmpty()))
         }
         // An alias already existed when the step opened (sideloaded data, or
-        // Back from a later step): move on without saving another.
+        // setup restarted after an alias was saved): move on without saving
+        // another.
         if (aliasOnEntry) {
             TextButton(onClick = onFinish, modifier = Modifier.fillMaxWidth()) {
                 Text(stringResource(R.string.onboarding_alias_finish_setup))
