@@ -2,19 +2,13 @@ package app.marmalade.tts.ui.onboarding
 
 import android.os.SystemClock
 import android.util.Log
-import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import app.marmalade.tts.R
 import app.marmalade.tts.audio.EffectPreset
-import app.marmalade.tts.data.BuiltinEffects
+import app.marmalade.tts.audio.SpeechPlayer
 import app.marmalade.tts.data.InstalledVoiceAssets
 import app.marmalade.tts.data.KittenDirectVoiceCatalog
-import app.marmalade.tts.data.KokoroDirectVoiceCatalog
-import app.marmalade.tts.data.KokoroGermanVoiceCatalog
-import app.marmalade.tts.data.PocketVoiceCatalog
 import app.marmalade.tts.data.SettingsRepository
-import app.marmalade.tts.data.VitsVoiceCatalog
 import app.marmalade.tts.data.pickableVoices
 import app.marmalade.tts.data.db.VoiceAlias
 import app.marmalade.tts.data.db.VoiceAliasDao
@@ -29,7 +23,10 @@ import app.marmalade.tts.perf.DeviceProbeSource
 import app.marmalade.tts.perf.EngineFit
 import app.marmalade.tts.perf.EngineRecommendation
 import app.marmalade.tts.perf.EngineRecommender
+import app.marmalade.tts.ui.screen.PreviewState
+import app.marmalade.tts.ui.screen.VoicePreviewer
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.util.Locale
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
@@ -65,17 +62,17 @@ import kotlinx.coroutines.launch
 //     │                              ▲
 //     │                              │ Flow
 //     │                       VoiceAliasDao.getAll().map { it.isNotEmpty() }
-//     ├── aliasEditor    ◄────── OnboardingViewModel.aliasEditorState
-//     ├── aliasEngines   ◄────── OnboardingViewModel.aliasEngines (installed only)
-//     ├── installedVoices ◄───── OnboardingViewModel.installedVoices (per current engine)
+//     ├── voiceGroups    ◄────── OnboardingViewModel.voiceGroups (voice step)
 //     │                              ▲
+//     │                              │ firstVoiceGroups(pickable voices, …):
 //     │                              │ probeInstalledVoiceAssets, run by
-//     │                              │ seedAliasDefaults on entering the step
+//     │                              │ prepareVoiceStep on entering the step
+//     ├── selectedVoice  ◄────── the user's pick, else the default voice
+//     ├── previewState   ◄────── VoicePreviewer (the row speakers)
 //     │
 //     └── actions ──► next() / back() / toggle(name) / installSelected()
 //                  retry(name) / removeDownload(name)
-//                  next()  + onAlias{Name,Engine,Voice,Speed,Effect}Change()
-//                  saveAliasAndContinue() / useDefaultsAndContinue() / finish()
+//                  pickVoice(id) / togglePreview(voice) / useVoice() / finish()
 //
 //   installSelected()
 //     │
@@ -84,14 +81,13 @@ import kotlinx.coroutines.launch
 //     │     ├── installer.install(name) { progress -> updateState(name, progress) }
 //     │     └── installStates.update { it + (name -> Installed | Failed) }
 //     │
-//     └── (UI calls next() once all-done to advance to CreateAlias)
+//     └── (UI calls next() once all-done to advance to ChooseVoice)
 //
-//   saveAliasAndContinue()
+//   useVoice()
 //     │
-//     ├── validate alias fields
-//     ├── voiceAliasDao.upsert(...)
-//     ├── settings.setPrimaryAliasId(name)  — first alias is primary
-//     └── finish()
+//     ├── voiceAliasDao.upsert(alias named after the voice, 1.0×, no effect)
+//     ├── settings.setPrimaryAliasId(id)  — first alias is primary
+//     └── step = BackgroundUnrestricted
 //
 //   finish()
 //     │
@@ -122,7 +118,7 @@ private const val SEED_WAIT_TIMEOUT_MS = 15_000L
  */
 internal const val PROBE_WAIT_MS = 20_000L
 
-/** Five-step onboarding flow. */
+/** The onboarding flow's steps, in order. */
 enum class OnboardingStep {
     /** Welcome screen — mascot + pitch + "Get started" CTA. */
     Welcome,
@@ -137,15 +133,17 @@ enum class OnboardingStep {
     Installing,
 
     /**
-     * Create primary alias — the user must save at least one alias
-     * (or accept the "Use defaults" affordance) before [finish] is
-     * allowed to flip the onboarded flag.
+     * Pick a voice (#87, Max's concept A): the installed voices grouped by
+     * engine, each with a sample button, one already picked. "Use <voice>"
+     * saves it as the first alias, named after the voice, and makes it
+     * primary; [finish] refuses until an alias exists. Speed and effects
+     * are left for the Aliases tab.
      *
-     * Skipped automatically (the wizard jumps straight to a Finish
-     * affordance) when the alias table already has rows on entry —
-     * fresh-install + sideloaded-data edge case.
+     * When the alias table already has rows on entry (sideloaded data, or
+     * setup restarted after an alias was saved) a quiet "Finish setup" moves
+     * on without saving another.
      */
-    CreateAlias,
+    ChooseVoice,
 
     /**
      * P-J — prompt the user to exempt Marmalade from Android's battery
@@ -221,6 +219,7 @@ class OnboardingViewModel @Inject constructor(
     private val aliasDao: VoiceAliasDao,
     private val voiceDao: VoiceMetaDao,
     private val deviceProbe: DeviceProbeSource,
+    private val player: SpeechPlayer,
 ) : ViewModel() {
 
     /**
@@ -380,13 +379,13 @@ class OnboardingViewModel @Inject constructor(
         }
     }
 
-    /** Move forward through the steps. The terminal step is [OnboardingStep.CreateAlias]. */
+    /** Move forward through the steps. The terminal step is [OnboardingStep.SystemDefault]. */
     fun next() {
         _step.value = when (_step.value) {
             OnboardingStep.Welcome -> OnboardingStep.EnginePick
             OnboardingStep.EnginePick -> OnboardingStep.Installing
-            OnboardingStep.Installing -> OnboardingStep.CreateAlias
-            OnboardingStep.CreateAlias -> OnboardingStep.BackgroundUnrestricted
+            OnboardingStep.Installing -> OnboardingStep.ChooseVoice
+            OnboardingStep.ChooseVoice -> OnboardingStep.BackgroundUnrestricted
             OnboardingStep.BackgroundUnrestricted -> OnboardingStep.NotificationPermission
             OnboardingStep.NotificationPermission -> OnboardingStep.SystemDefault
             OnboardingStep.SystemDefault -> OnboardingStep.SystemDefault
@@ -395,12 +394,13 @@ class OnboardingViewModel @Inject constructor(
 
     /** Move back. The Welcome step is the back-stop — no-op when already there. */
     fun back() {
+        stopPreview()
         _step.value = when (_step.value) {
             OnboardingStep.Welcome -> OnboardingStep.Welcome
             OnboardingStep.EnginePick -> OnboardingStep.Welcome
             OnboardingStep.Installing -> OnboardingStep.EnginePick
-            OnboardingStep.CreateAlias -> OnboardingStep.Installing
-            OnboardingStep.BackgroundUnrestricted -> OnboardingStep.CreateAlias
+            OnboardingStep.ChooseVoice -> OnboardingStep.Installing
+            OnboardingStep.BackgroundUnrestricted -> OnboardingStep.ChooseVoice
             OnboardingStep.NotificationPermission -> OnboardingStep.BackgroundUnrestricted
             OnboardingStep.SystemDefault -> OnboardingStep.NotificationPermission
         }
@@ -436,11 +436,12 @@ class OnboardingViewModel @Inject constructor(
 
     /**
      * Skip engine installation entirely — download nothing (regardless
-     * of what's pre-selected) and jump straight to [OnboardingStep.CreateAlias].
-     * Engines can always be installed later from the Engines tab.
+     * of what's pre-selected) and jump straight to [OnboardingStep.ChooseVoice],
+     * which then offers the built-in Kitten voices. Engines can always be
+     * installed later from the Engines tab.
      */
     fun skipEngineInstall() {
-        _step.value = OnboardingStep.CreateAlias
+        _step.value = OnboardingStep.ChooseVoice
     }
 
     /**
@@ -514,13 +515,12 @@ class OnboardingViewModel @Inject constructor(
         }
     }
 
-    // -- CreateAlias step state ------------------------------------------------
+    // -- ChooseVoice step state (#87) -------------------------------------------
 
     /**
-     * True once at least one alias exists in the DB. Drives the
-     * "Finish" button's enabled state on the CreateAlias step, and is
-     * checked defensively inside [finish] so the gate can't be bypassed
-     * by a stale UI snapshot.
+     * True once at least one alias exists in the DB. Checked inside [finish]
+     * and [skipVoiceStep], so the gate can't be bypassed by a stale UI
+     * snapshot.
      */
     val aliasCreated: StateFlow<Boolean> = aliasDao.getAll()
         .map { it.isNotEmpty() }
@@ -531,176 +531,150 @@ class OnboardingViewModel @Inject constructor(
         )
 
     /**
-     * In-place editor state for the CreateAlias step. Simplified version
-     * of [app.marmalade.tts.ui.screen.EditorState] — no "isOpen" or
-     * "isNew" flags because the step is always in create-new mode and
-     * always visible while we're on this step.
-     *
-     * [error] is a string resource id rather than a formatted message so the
-     * VM stays free of a Context and the UI resolves it in the user's locale.
+     * The phone's language, which the voice step lists first. Indirection
+     * for tests, like [now].
      */
-    data class AliasFields(
-        val name: String = "default",
-        val engine: String = "",
-        val voiceId: String = "",
-        val speed: Float = 1.0f,
-        val effect: EffectPreset = EffectPreset.NONE,
-        @StringRes val error: Int? = null,
-    )
-
-    private val _aliasEditorState = MutableStateFlow(AliasFields())
-    val aliasEditorState: StateFlow<AliasFields> = _aliasEditorState.asStateFlow()
+    internal var phoneLocale: () -> Locale = { Locale.getDefault() }
 
     /**
-     * What is on disk, probed by [seedAliasDefaults] when the CreateAlias step
-     * opens (every install has settled by then). Room is seeded with every
+     * What is on disk, probed by [prepareVoiceStep] when the voice step opens
+     * (every install has settled by then); null until that first probe, so
+     * the step doesn't flash its empty state. Room is seeded with every
      * catalog voice and [VoiceMeta.isInstalled] is never flipped in
-     * production, so this is the only honest "can it speak" signal — the same
+     * production, so this is the only honest "can it speak" signal, the same
      * one the alias editor uses.
      */
-    private val _installedAssets = MutableStateFlow(InstalledVoiceAssets())
+    private val _installedAssets = MutableStateFlow<InstalledVoiceAssets?>(null)
 
     /**
-     * Engines offered by the alias step's engine dropdown: production engines
-     * that are actually installed. An alias pointed at an engine that isn't on
-     * disk would fail the moment it speaks, system TTS included.
+     * The voice step's list: voices that will actually synthesize (on disk,
+     * a VITS voice with its own pack; released only, matching the engine
+     * cards), grouped and ordered by [firstVoiceGroups]. Null until
+     * [prepareVoiceStep] has probed the disk; empty when nothing can speak.
      */
-    val aliasEngines: StateFlow<List<EngineDescriptor>> = _installedAssets
-        .map { assets ->
-            EngineCatalog.visibleTo(showDeveloper = false).filter { it.name in assets.engines }
-        }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5_000),
-            initialValue = emptyList(),
-        )
-
-    /**
-     * Voices for the engine currently selected in the alias editor, limited
-     * to ones that will actually synthesize: on disk (a VITS voice needs its
-     * own pack, not just the engine) and released — onboarding never shows
-     * developer-only voices, matching its engine cards. Empty when nothing
-     * usable is installed; the step then offers "Use defaults".
-     */
-    val installedVoices: StateFlow<List<VoiceMeta>> =
-        combine(
-            _aliasEditorState.map { it.engine },
-            voiceDao.getAll(),
-            _installedAssets,
-        ) { engine, all, assets ->
-            if (engine.isBlank()) emptyList()
-            else all.filter { it.engine == engine }.pickableVoices(assets, showDeveloper = false)
+    val voiceGroups: StateFlow<List<VoiceGroup>?> =
+        combine(voiceDao.getAll(), _installedAssets, _recommendation) { all, assets, recommendation ->
+            assets ?: return@combine null
+            firstVoiceGroups(
+                voices = all.pickableVoices(assets, showDeveloper = false),
+                engineOrder = listOf(preferredEngine(assets, recommendation)) +
+                    EngineCatalog.visibleTo(showDeveloper = false).map { it.name },
+                phone = phoneLocale(),
+                recommendedEngine = recommendation?.recommended
+                    ?: EngineCatalog.all.firstOrNull { it.isRecommended }?.name,
+            )
         }.stateIn(
             scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5_000),
-            initialValue = emptyList(),
+            started = SharingStarted.Eagerly,
+            initialValue = null,
+        )
+
+    /** The voice the user tapped, or null to take the step's default. */
+    private val _pickedVoiceId = MutableStateFlow<String?>(null)
+
+    /**
+     * The voice "Use …" will save: the user's pick while it is still listed,
+     * else the default voice ([defaultVoice]). Null only with nothing to pick.
+     */
+    val selectedVoice: StateFlow<VoiceMeta?> =
+        combine(_pickedVoiceId, voiceGroups) { picked, groups ->
+            val listed = groups.orEmpty().flatMap { it.voices }
+            listed.firstOrNull { it.id == picked } ?: groups.orEmpty().defaultVoice()
+        }.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.Eagerly,
+            initialValue = null,
         )
 
     /**
-     * Probe the disk for [aliasEngines] / [installedVoices], then seed the
-     * editor with sensible defaults: [defaultAliasEngine] and the catalog's
-     * default voice for it.
-     *
-     * Called by the CreateAlias step's UI on first composition. Idempotent —
-     * re-seeding after the user has typed clears their edits, so the UI
-     * should only invoke it once.
+     * An alias already existed when the voice step opened (sideloaded data,
+     * or setup restarted after an alias was saved, e.g. the app was closed
+     * mid-setup), so it offers "Finish setup". Fixed at
+     * opening, not live: the alias [useVoice] saves would otherwise flash the
+     * button in while the step leaves.
      */
-    fun seedAliasDefaults() {
+    private val _aliasOnEntry = MutableStateFlow(false)
+    val aliasOnEntry: StateFlow<Boolean> = _aliasOnEntry.asStateFlow()
+
+    /**
+     * Probe the disk for [voiceGroups]. Called by the voice step each time it
+     * opens (again after Back to the downloads and Continue, keeping the
+     * user's pick while it is still listed).
+     */
+    fun prepareVoiceStep() {
         viewModelScope.launch {
+            _aliasOnEntry.value = aliasDao.getAll().first().isNotEmpty()
             // Cloud stays out: onboarding offers catalog engines only, and a
             // new user has no provider key anyway.
             _installedAssets.value =
                 probeInstalledVoiceAssets(installer, anyCloudKeySet = false)
-            val engine = defaultAliasEngine()
-            val voiceId = defaultVoiceIdFor(engine)
-            _aliasEditorState.value = AliasFields(
-                name = "default",
-                engine = engine,
-                voiceId = voiceId,
-                speed = 1.0f,
-                effect = EffectPreset.NONE,
-                error = null,
-            )
         }
     }
 
-    fun onAliasNameChange(value: String) {
-        _aliasEditorState.update { it.copy(name = value, error = null) }
+    /** Tapping a row picks its voice. It doesn't stop a sample that is playing. */
+    fun pickVoice(voiceId: String) {
+        _pickedVoiceId.value = voiceId
     }
 
-    fun onAliasEngineChange(value: String) {
-        // Engine change clears voice — picking a Kitten voice and then
-        // flipping engine to Kokoro would otherwise smuggle the wrong
-        // voice ID through.
-        _aliasEditorState.update {
-            it.copy(engine = value, voiceId = defaultVoiceIdFor(value), error = null)
-        }
-    }
-
-    fun onAliasVoiceChange(voiceId: String) {
-        _aliasEditorState.update { it.copy(voiceId = voiceId, error = null) }
-    }
-
-    fun onAliasSpeedChange(speed: Float) {
-        val clamped = speed.coerceIn(VoiceAlias.MIN_SPEED, VoiceAlias.MAX_SPEED)
-        _aliasEditorState.update { it.copy(speed = clamped) }
-    }
-
-    fun onAliasEffectChange(effect: EffectPreset) {
-        _aliasEditorState.update { it.copy(effect = effect) }
-    }
+    private val previewer = VoicePreviewer(player, viewModelScope)
+    val previewState: StateFlow<PreviewState> = previewer.state
 
     /**
-     * Validate the editor's current state, persist the alias, and mark
-     * it as primary. Returns true on success — the UI then calls
-     * [finish] + the host's `onComplete`.
-     *
-     * Returns false on validation failure; the editor stays visible
-     * with `state.error` populated. No DB write happens.
+     * Play/stop a row's sample (#86's previewer: one at a time, through
+     * MarmaladeSynthService). Every voice here is on-device, so no cloud
+     * guard is needed. Hearing a voice never picks it.
      */
-    fun saveAliasAndContinue(): Boolean {
-        val s = _aliasEditorState.value
-        val name = s.name.trim()
-        if (!VoiceAlias.isValidName(name)) {
-            _aliasEditorState.value = s.copy(
-                error = R.string.onboarding_alias_name_helper,
-            )
-            return false
-        }
-        if (s.voiceId.isBlank()) {
-            _aliasEditorState.value = s.copy(error = R.string.onboarding_error_pick_voice)
-            return false
-        }
-        if (s.engine.isBlank()) {
-            _aliasEditorState.value = s.copy(error = R.string.onboarding_error_pick_engine)
-            return false
-        }
+    fun togglePreview(voice: VoiceMeta, phrase: String) {
+        previewer.toggle(voice, phrase)
+    }
+
+    fun stopPreview() {
+        previewer.stop()
+    }
+
+    /** Guards [useVoice] against a double tap saving two aliases. */
+    private var savingVoice = false
+
+    /**
+     * Save the selected voice as the first alias and make it primary: named
+     * after the voice ([aliasNameFor], Max's pick in the #87 lab), at 1.0×
+     * with no effect. Speed, effect and expressiveness stay at their
+     * defaults; the Aliases tab has them.
+     *
+     * Then the battery step, on every path. Before #87, "Use defaults"
+     * skipped it and "Save and continue" didn't; with one path left, everyone
+     * gets the (skippable) battery ask, because long reads with the screen
+     * off are what it protects. The notification ask follows it, as before.
+     */
+    fun useVoice() {
+        val voice = selectedVoice.value ?: return
+        if (savingVoice) return
+        savingVoice = true
+        stopPreview()
         viewModelScope.launch {
-            // Reuse the id if an alias by this name somehow already exists,
-            // so onboarding run twice edits one persona instead of leaving
-            // an orphan. Names are unique; ids are what routing points at.
-            val aliasId = aliasDao.findByName(name)?.id ?: VoiceAlias.newId()
-            aliasDao.upsert(
-                VoiceAlias(
-                    name = name,
-                    engine = s.engine,
-                    voiceId = s.voiceId,
-                    speed = s.speed,
-                    effectPreset = s.effect.name,
-                    createdAt = now(),
-                    id = aliasId,
-                    // Keep effectId (the synth-path source of truth) in sync
-                    // with the onboarding effect dropdown — see AliasViewModel.save.
-                    effectId = BuiltinEffects.idForLegacyPreset(s.effect.name),
-                ),
-            )
-            settings.setPrimaryAliasId(aliasId)
-            // Advance to BackgroundUnrestricted (P-J) instead of finishing —
-            // the user still has the battery-opt + system-TTS-pick steps
-            // ahead before they're truly set up.
-            _step.value = OnboardingStep.BackgroundUnrestricted
+            try {
+                val name = aliasNameFor(voice)
+                // Reuse the id if an alias by this name already exists (Back,
+                // then Use again), so it is edited rather than duplicated.
+                // Names are unique; ids are what routing points at.
+                val aliasId = aliasDao.findByName(name)?.id ?: VoiceAlias.newId()
+                aliasDao.upsert(
+                    VoiceAlias(
+                        name = name,
+                        engine = voice.engine,
+                        voiceId = voice.id,
+                        speed = 1.0f,
+                        effectPreset = EffectPreset.NONE.name,
+                        createdAt = now(),
+                        id = aliasId,
+                    ),
+                )
+                settings.setPrimaryAliasId(aliasId)
+                _step.value = OnboardingStep.BackgroundUnrestricted
+            } finally {
+                savingVoice = false
+            }
         }
-        return true
     }
 
     /**
@@ -727,43 +701,23 @@ class OnboardingViewModel @Inject constructor(
     }
 
     /**
-     * Skip the editor and create a baseline alias named "default" with
-     * the recommended engine's default voice, speed 1.0, no effect.
-     * Sets it as primary. Useful for users who don't want to think about
-     * voice configuration on first launch.
+     * "Finish setup" on the voice step: an alias already existed as it opened
+     * ([aliasOnEntry]), so move on without saving another.
+     * Self-heal the primary if it's unset, then go to the battery step: the
+     * battery, notification and system-TTS steps still lie ahead.
      */
-    fun useDefaultsAndContinue() {
+    fun skipVoiceStep(): Boolean {
+        if (!aliasCreated.value) return false
+        stopPreview()
         viewModelScope.launch {
-            val engine = defaultAliasEngine()
-            val voiceId = defaultVoiceIdFor(engine)
-            // Refuse to create a malformed alias if there isn't any
-            // engine to pull a default voice from — surface as an error
-            // on the editor state so the UI can react.
-            if (engine.isBlank() || voiceId.isBlank()) {
-                _aliasEditorState.update {
-                    it.copy(error = R.string.onboarding_error_install_engine_first)
+            if (settings.primaryAliasId.first() == null) {
+                aliasDao.getAll().first().firstOrNull()?.let { first ->
+                    settings.setPrimaryAliasId(first.id)
                 }
-                return@launch
             }
-            val aliasId = aliasDao.findByName("default")?.id ?: VoiceAlias.newId()
-            aliasDao.upsert(
-                VoiceAlias(
-                    name = "default",
-                    engine = engine,
-                    voiceId = voiceId,
-                    speed = 1.0f,
-                    effectPreset = EffectPreset.NONE.name,
-                    createdAt = now(),
-                    id = aliasId,
-                ),
-            )
-            settings.setPrimaryAliasId(aliasId)
-            // Advance to the NotificationPermission step (then SystemDefault).
-            // The fast-defaults path still skips the battery prompt by design,
-            // but should still get the notification ask — Smart keep-warm is
-            // the default, and its notification needs the runtime grant.
-            _step.value = OnboardingStep.NotificationPermission
         }
+        _step.value = OnboardingStep.BackgroundUnrestricted
+        return true
     }
 
     /**
@@ -779,30 +733,6 @@ class OnboardingViewModel @Inject constructor(
      * @return true if onboarded was flipped, false if blocked by the
      *   "must create at least one alias" gate.
      */
-    /**
-     * Sideloaded-data path: an alias already exists when the wizard runs
-     * (rare), so the user has skipped through the CreateAlias step via
-     * "Finish setup". Self-heal the primary if it's unset, then advance
-     * to the BackgroundUnrestricted step — they still need both the
-     * battery-opt prompt and the system-TTS pick.
-     *
-     * Method name kept for binary/API stability with [OnboardingScreen];
-     * the destination is now [OnboardingStep.BackgroundUnrestricted]
-     * (which the user can skip through to reach SystemDefault).
-     */
-    fun advanceToSystemDefault(): Boolean {
-        if (!aliasCreated.value) return false
-        viewModelScope.launch {
-            if (settings.primaryAliasId.first() == null) {
-                aliasDao.getAll().first().firstOrNull()?.let { first ->
-                    settings.setPrimaryAliasId(first.id)
-                }
-            }
-        }
-        _step.value = OnboardingStep.BackgroundUnrestricted
-        return true
-    }
-
     fun finish(): Boolean {
         if (!aliasCreated.value) return false
         viewModelScope.launch {
@@ -819,46 +749,34 @@ class OnboardingViewModel @Inject constructor(
     }
 
     /**
-     * The engine a fresh alias defaults to: an installed one, preferring
-     * the downloadable engine this device was recommended (issue #19:
-     * Pocket on most phones), then Kokoro over Kitten. "Installed"
-     * is this session's finished installs plus whatever [seedAliasDefaults]
-     * found on disk (the baked Kitten after a skipped engine step). With
-     * nothing installed, the catalog's recommended engine stands in so the
-     * form isn't blank. Centralised so [seedAliasDefaults] and
-     * [useDefaultsAndContinue] stay in sync.
+     * The engine the voice step leads with, unless another installed engine
+     * speaks the phone's language and this one doesn't ([firstVoiceGroups]):
+     * the downloadable engine this device was recommended (issue #19: Pocket
+     * on most phones), then Kokoro over Kitten. "Installed" is what
+     * [prepareVoiceStep] found on disk (the baked Kitten after a skipped
+     * engine step).
      */
-    private fun defaultAliasEngine(): String {
-        val onDisk = _installedAssets.value.engines
-        val installedEngines = _installStates.value
-            .filterValues { it is InstallState.Installed }
-            .keys + EngineCatalog.visibleTo(showDeveloper = false)
+    private fun preferredEngine(
+        assets: InstalledVoiceAssets,
+        recommendation: EngineRecommendation?,
+    ): String {
+        val installedEngines = EngineCatalog.visibleTo(showDeveloper = false)
             .map { it.name }
-            .filter { it in onDisk }
+            .filter { it in assets.engines }
         // The baked Kitten is "recommended" on slow phones only as the floor;
         // a download the user chose there still wins.
-        val recommended = _recommendation.value?.recommended
+        val recommended = recommendation?.recommended
             ?.takeIf { it != KittenDirectVoiceCatalog.ENGINE }
         return installedEngines.firstOrNull { it == recommended }
             ?: installedEngines.firstOrNull { it.startsWith("kokoro") }
             ?: installedEngines.firstOrNull { it.startsWith("kitten") }
             ?: installedEngines.firstOrNull()
-            ?: EngineCatalog.all.firstOrNull { it.isRecommended }?.name
-            ?: EngineCatalog.visibleTo(false).firstOrNull()?.name.orEmpty()
+            ?: KittenDirectVoiceCatalog.ENGINE
     }
 
-    /**
-     * Map an engine key to its catalog default voice ID, or `""` when
-     * the engine is unknown. Centralised so [seedAliasDefaults],
-     * [onAliasEngineChange] and [useDefaultsAndContinue] stay in sync.
-     */
-    private fun defaultVoiceIdFor(engine: String): String = when (engine) {
-        KokoroDirectVoiceCatalog.ENGINE -> KokoroDirectVoiceCatalog.DEFAULT_VOICE_ID
-        KokoroGermanVoiceCatalog.ENGINE -> KokoroGermanVoiceCatalog.DEFAULT_VOICE_ID
-        KittenDirectVoiceCatalog.ENGINE -> KittenDirectVoiceCatalog.DEFAULT_VOICE_ID
-        PocketVoiceCatalog.ENGINE -> PocketVoiceCatalog.DEFAULT_VOICE_ID
-        VitsVoiceCatalog.ENGINE -> VitsVoiceCatalog.DEFAULT_VOICE_ID
-        else -> ""
+    override fun onCleared() {
+        super.onCleared()
+        stopPreview()
     }
 
     private fun updateInstallState(engineName: String, state: InstallState) {

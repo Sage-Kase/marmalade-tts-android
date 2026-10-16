@@ -19,6 +19,8 @@ import app.marmalade.tts.perf.EngineFit
 import app.marmalade.tts.ui.screen.FakeAliasDao
 import app.marmalade.tts.ui.screen.FakeDao
 import app.marmalade.tts.ui.screen.FakeSettings
+import app.marmalade.tts.ui.screen.PreviewState
+import app.marmalade.tts.ui.screen.RecordingPlayer
 import app.marmalade.tts.util.MainDispatcherRule
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -28,11 +30,11 @@ import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
+import java.util.Locale
 
 /**
  * State-machine coverage for [OnboardingViewModel].
@@ -57,7 +59,7 @@ class OnboardingViewModelTest {
     val mainDispatcherRule = MainDispatcherRule()
 
     @Test
-    fun stepProgressesThroughWelcomeToEnginePickToInstallingToCreateAlias() = runTest {
+    fun stepProgressesThroughWelcomeToEnginePickToInstallingToChooseVoice() = runTest {
         val vm = newViewModel()
         assertEquals(OnboardingStep.Welcome, vm.step.value)
 
@@ -68,7 +70,7 @@ class OnboardingViewModelTest {
         assertEquals(OnboardingStep.Installing, vm.step.value)
 
         vm.next()
-        assertEquals(OnboardingStep.CreateAlias, vm.step.value)
+        assertEquals(OnboardingStep.ChooseVoice, vm.step.value)
 
         vm.back()
         assertEquals(OnboardingStep.Installing, vm.step.value)
@@ -131,7 +133,7 @@ class OnboardingViewModelTest {
 
         vm.skipEngineInstall()
 
-        assertEquals(OnboardingStep.CreateAlias, vm.step.value)
+        assertEquals(OnboardingStep.ChooseVoice, vm.step.value)
         assertTrue("no installs expected", installer.installCalls.isEmpty())
     }
 
@@ -274,89 +276,159 @@ class OnboardingViewModelTest {
         )
     }
 
+    // -- the voice step (#87) ------------------------------------------------
+
     @Test
-    fun saveAliasAndContinueCreatesAliasMarksPrimaryAndAdvancesToBackgroundUnrestricted() = runTest {
+    fun useVoiceSavesTheFirstAliasNamedAfterItsVoiceMarksPrimaryAndGoesToTheBatteryStep() = runTest {
         val settings = FakeSettings(
             initialId = "kitten-direct-v0_8:Bella",
             initialOnboarded = false,
         )
         val aliasDao = FakeAliasDao()
-        val vm = newViewModel(settings = settings, aliasDao = aliasDao)
+        val vm = newViewModel(settings = settings, aliasDao = aliasDao, installer = KITTEN_ON_DISK)
+        vm.prepareVoiceStep()
 
-        vm.onAliasNameChange("narrator")
-        vm.onAliasEngineChange("kitten-direct-v0_8")
-        vm.onAliasVoiceChange("kitten-direct-v0_8:Bella")
-        val ok = vm.saveAliasAndContinue()
+        vm.useVoice()
 
-        assertTrue("saveAliasAndContinue should succeed with valid fields", ok)
-        assertEquals(1, aliasDao.upsertedAliases.size)
-        assertEquals("narrator", aliasDao.upsertedAliases.single().name)
+        val row = aliasDao.upsertedAliases.single()
+        // Kitten's best-first order puts Rosie first; the alias takes her name.
+        assertEquals("Rosie", row.name)
+        assertEquals(KittenDirectVoiceCatalog.voiceId("Rosie"), row.voiceId)
+        assertEquals(KITTEN, row.engine)
+        assertEquals(1.0f, row.speed)
+        assertEquals(EffectPreset.NONE.name, row.effectPreset)
         assertEquals(
             "The primary points at the created row's id, not its label",
-            aliasDao.upsertedAliases.single().id,
+            row.id,
             settings.primaryAliasId.first(),
         )
-        // P-J: advances to BackgroundUnrestricted instead of jumping
-        // straight to SystemDefault — the user still has the battery-opt
-        // + system-TTS-pick steps ahead. onboarded stays false until
-        // finish() lands on the final step.
+        // One path for everyone: the battery step, then notifications.
+        // onboarded stays false until finish() on the final step.
         assertEquals(false, settings.onboarded.first())
         assertEquals(OnboardingStep.BackgroundUnrestricted, vm.step.first())
-    }
-
-    @Test
-    fun saveAliasAndContinueRejectsInvalidName() = runTest {
-        val aliasDao = FakeAliasDao()
-        val vm = newViewModel(aliasDao = aliasDao)
-
-        vm.onAliasNameChange("Has Spaces!")
-        vm.onAliasEngineChange("kitten-direct-v0_8")
-        vm.onAliasVoiceChange("kitten-direct-v0_8:Bella")
-        val ok = vm.saveAliasAndContinue()
-
-        assertFalse("Invalid name must not save", ok)
-        assertTrue("No alias upserted on validation failure", aliasDao.upsertedAliases.isEmpty())
-        assertNotNull("Editor error should be populated", vm.aliasEditorState.first().error)
-    }
-
-    @Test
-    fun useDefaultsAndContinueCreatesDefaultAliasAndAdvancesToNotificationPermission() = runTest {
-        val settings = FakeSettings(
-            initialId = "kitten-direct-v0_8:Bella",
-            initialOnboarded = false,
+        assertTrue("aliasCreated flips once the alias is saved", vm.aliasCreated.first { it })
+        assertFalse(
+            "Finish setup must not flash in while the step leaves",
+            vm.aliasOnEntry.value,
         )
-        val aliasDao = FakeAliasDao()
-        val vm = newViewModel(settings = settings, aliasDao = aliasDao)
-        // Recommended engine (kitten) is pre-selected → install lands it
-        // as Installed which makes useDefaultsAndContinue pick kitten.
-        vm.installSelected()
-
-        vm.useDefaultsAndContinue()
-
-        assertEquals(1, aliasDao.upsertedAliases.size)
-        val row = aliasDao.upsertedAliases.single()
-        assertEquals("default", row.name)
-        assertEquals(row.id, settings.primaryAliasId.first())
-        assertEquals("kitten-direct-v0_8", row.engine)
-        // Fast-defaults path skips the battery prompt by design, but now
-        // routes through the notification-permission ask before the final
-        // system-TTS step (Smart keep-warm is the default → needs the grant).
-        assertEquals(false, settings.onboarded.first())
-        assertEquals(OnboardingStep.NotificationPermission, vm.step.first())
     }
 
     @Test
-    fun aliasCreatedReflectsDbState() = runTest {
+    fun aPickedVoiceIsTheOneSaved() = runTest {
+        val aliasDao = FakeAliasDao()
+        val vm = newViewModel(aliasDao = aliasDao, installer = KITTEN_ON_DISK)
+        vm.prepareVoiceStep()
+
+        vm.pickVoice(KittenDirectVoiceCatalog.voiceId("Leo"))
+        assertEquals("Leo", vm.selectedVoice.first { it != null }!!.displayName)
+        vm.useVoice()
+
+        assertEquals("Leo", aliasDao.upsertedAliases.single().name)
+    }
+
+    @Test
+    fun usingTheSameVoiceAgainEditsTheSameAlias() = runTest {
+        // "Use Rosie" a second time (setup run again): one alias, not two.
+        val aliasDao = FakeAliasDao()
+        val vm = newViewModel(aliasDao = aliasDao, installer = KITTEN_ON_DISK)
+        vm.prepareVoiceStep()
+
+        vm.useVoice()
+        vm.back()
+        vm.useVoice()
+
+        assertEquals(1, aliasDao.upsertedAliases.map { it.id }.distinct().size)
+    }
+
+    @Test
+    fun withNothingInstalledThereIsNothingToUse() = runTest {
         val aliasDao = FakeAliasDao()
         val vm = newViewModel(aliasDao = aliasDao)
-        assertFalse("aliasCreated should be false on empty DB", vm.aliasCreated.first { !it })
+        vm.prepareVoiceStep()
 
-        vm.onAliasNameChange("narrator")
-        vm.onAliasEngineChange("kitten-direct-v0_8")
-        vm.onAliasVoiceChange("kitten-direct-v0_8:Bella")
-        vm.saveAliasAndContinue()
+        assertEquals(emptyList<VoiceGroup>(), vm.voiceGroups.first { it != null })
+        assertNull(vm.selectedVoice.value)
+        vm.useVoice()
 
-        assertTrue("aliasCreated should flip to true after save", vm.aliasCreated.first { it })
+        assertTrue(aliasDao.upsertedAliases.isEmpty())
+    }
+
+    @Test
+    fun theListWaitsForTheDiskProbe() = runTest {
+        val vm = newViewModel(installer = KITTEN_ON_DISK)
+        assertNull("no empty state before the probe", vm.voiceGroups.value)
+
+        vm.prepareVoiceStep()
+
+        assertEquals(listOf(KITTEN), vm.voiceGroups.first { it != null }!!.map { it.engine.name })
+    }
+
+    @Test
+    fun aSpanishPhoneLeadsWithAnInstalledEngineThatSpeaksSpanish() = runTest {
+        // The phone check recommends Pocket (English only); Kokoro speaks
+        // Spanish, so it leads and its first Spanish voice is picked.
+        val vm = newViewModel(
+            installer = DiskInstaller(engines = setOf(KITTEN, KOKORO, POCKET), packs = emptySet()),
+            deviceProbe = FakeDeviceProbe(FAST_PHONE),
+            voices = KittenDirectVoiceCatalog.voices + KokoroDirectVoiceCatalog.voices + PocketVoiceCatalog.voices,
+            phone = Locale.forLanguageTag("es-ES"),
+        )
+        vm.recommendation.first { it != null }
+        vm.prepareVoiceStep()
+
+        val groups = vm.voiceGroups.first { it != null }!!
+        assertEquals(listOf(KOKORO, POCKET, KITTEN), groups.map { it.engine.name })
+        val firstSpanish = KokoroDirectVoiceCatalog.voices
+            .filter { it.languageCode.startsWith("es") }
+            .minBy { it.sortOrder }
+        assertEquals(firstSpanish.id, vm.selectedVoice.value?.id)
+        assertTrue("Pocket still carries the Recommended label", groups.first { it.engine.name == POCKET }.isRecommended)
+    }
+
+    @Test
+    fun anEnglishPhoneLeadsWithTheRecommendedEngine() = runTest {
+        val vm = newViewModel(
+            installer = DiskInstaller(engines = setOf(KITTEN, KOKORO, POCKET), packs = emptySet()),
+            deviceProbe = FakeDeviceProbe(FAST_PHONE),
+            voices = KittenDirectVoiceCatalog.voices + KokoroDirectVoiceCatalog.voices + PocketVoiceCatalog.voices,
+        )
+        vm.recommendation.first { it != null }
+        vm.prepareVoiceStep()
+
+        val groups = vm.voiceGroups.first { it != null }!!
+        assertEquals(listOf(POCKET, KITTEN, KOKORO), groups.map { it.engine.name })
+        assertEquals(PocketVoiceCatalog.DEFAULT_VOICE_ID, vm.selectedVoice.value?.id)
+    }
+
+    @Test
+    fun aSampleStopsWhenTheVoiceIsUsed() = runTest {
+        val player = RecordingPlayer().apply { holdUntilCancel = true }
+        val vm = newViewModel(installer = KITTEN_ON_DISK, player = player)
+        vm.prepareVoiceStep()
+        val leo = KittenDirectVoiceCatalog.voices.first { it.displayName == "Leo" }
+
+        vm.togglePreview(leo, "Hello, I'm Leo.")
+        assertEquals(PreviewState.Playing(leo.id), vm.previewState.value)
+        assertEquals("hearing a voice doesn't pick it", "Rosie", vm.selectedVoice.value?.displayName)
+
+        vm.useVoice()
+
+        assertEquals(PreviewState.Idle, vm.previewState.value)
+        assertEquals(leo.id, player.calls.single().voiceId)
+    }
+
+    @Test
+    fun finishSetupWithAnAliasAlreadySavedMovesOnWithoutAnother() = runTest {
+        val aliasDao = FakeAliasDao(initial = listOf(alias("narrator")))
+        val vm = newViewModel(aliasDao = aliasDao, installer = KITTEN_ON_DISK)
+        vm.aliasCreated.first { it }
+        vm.prepareVoiceStep()
+
+        assertTrue("the step offers Finish setup", vm.aliasOnEntry.value)
+        assertTrue(vm.skipVoiceStep())
+
+        assertEquals(OnboardingStep.BackgroundUnrestricted, vm.step.value)
+        assertTrue(aliasDao.upsertedAliases.isEmpty())
     }
 
     // -- device-driven card labels; the Recommended card first (#63) ------
@@ -395,21 +467,6 @@ class OnboardingViewModelTest {
         )
         assertEquals(EngineFit.RECOMMENDED, cards.first().fit)
         assertEquals(EngineFit.FINE, cards.first { it.descriptor.name == KITTEN }.fit)
-    }
-
-    @Test
-    fun aFreshAliasDefaultsToTheRecommendedEngineWhenInstalled() = runTest {
-        val vm = newViewModel(
-            installer = DiskInstaller(engines = setOf(KITTEN, KOKORO, POCKET), packs = emptySet()),
-            deviceProbe = FakeDeviceProbe(FAST_PHONE),
-        )
-        val rec = vm.recommendation.first { it != null }!!
-
-        vm.seedAliasDefaults()
-
-        val engine = vm.aliasEditorState.first { it.engine.isNotEmpty() }.engine
-        assertEquals(rec.recommended, engine)
-        assertEquals(POCKET, engine)
     }
 
     @Test
@@ -556,26 +613,26 @@ class OnboardingViewModelTest {
         )
     }
 
-    // -- alias step: only what can actually speak ---------------------------
+    // -- voice step: only what can actually speak ---------------------------
 
     @Test
-    fun aliasEnginesListOnlyInstalledEngines() = runTest {
+    fun theVoiceStepListsOnlyInstalledEngines() = runTest {
         val vm = newViewModel(
             installer = DiskInstaller(engines = setOf(KITTEN, VITS), packs = setOf(RELEASED_PACK)),
             voices = KittenDirectVoiceCatalog.voices + VitsVoiceCatalog.voices,
         )
 
-        vm.seedAliasDefaults()
+        vm.prepareVoiceStep()
 
         assertEquals(
             "Catalog order, installed engines only — no Kokoro or Pocket",
             listOf(KITTEN, VITS),
-            vm.aliasEngines.first { it.isNotEmpty() }.map { it.name },
+            vm.voiceGroups.first { it != null }!!.map { it.engine.name },
         )
     }
 
     @Test
-    fun aliasVoicesForVitsSkipUninstalledAndUnreleasedPacks() = runTest {
+    fun vitsVoicesSkipUninstalledAndUnreleasedPacks() = runTest {
         // Both a released and an unreleased pack are on disk; every other
         // pack isn't. Production never flips VoiceMeta.isInstalled, so the
         // old isInstalled filter fell back to all seeded VITS rows.
@@ -586,29 +643,11 @@ class OnboardingViewModelTest {
             ),
             voices = KittenDirectVoiceCatalog.voices + VitsVoiceCatalog.voices,
         )
-        vm.seedAliasDefaults()
+        vm.prepareVoiceStep()
 
-        vm.onAliasEngineChange(VITS)
-        val voices = vm.installedVoices.first { it.isNotEmpty() }
+        val vits = vm.voiceGroups.first { it != null }!!.single { it.engine.name == VITS }.voices
 
-        assertEquals(
-            setOf(RELEASED_PACK),
-            voices.map { VitsVoiceCatalog.packIdOf(it.id) }.toSet(),
-        )
-        assertTrue(
-            "The VITS default voice is one of the offered voices",
-            voices.any { it.id == vm.aliasEditorState.value.voiceId },
-        )
-    }
-
-    @Test
-    fun switchingToVitsPreselectsItsDefaultVoice() = runTest {
-        val vm = newViewModel()
-
-        vm.onAliasEngineChange(VITS)
-
-        assertEquals(VitsVoiceCatalog.DEFAULT_VOICE_ID, vm.aliasEditorState.value.voiceId)
-        assertTrue(VitsVoiceCatalog.DEFAULT_VOICE_ID.substringAfter(':').isNotEmpty())
+        assertEquals(setOf(RELEASED_PACK), vits.map { VitsVoiceCatalog.packIdOf(it.id) }.toSet())
     }
 
     // -- helpers ----------------------------------------------------------
@@ -622,10 +661,23 @@ class OnboardingViewModelTest {
         aliasDao: FakeAliasDao = FakeAliasDao(),
         deviceProbe: DeviceProbeSource = FakeDeviceProbe(DeviceProbe(null, null)),
         voices: List<VoiceMeta> = KittenDirectVoiceCatalog.voices,
+        player: RecordingPlayer = RecordingPlayer(),
+        phone: Locale = Locale.US,
     ): OnboardingViewModel {
         val voiceDao = FakeDao(voices = voices)
-        return OnboardingViewModel(installer, settings, aliasDao, voiceDao, deviceProbe)
+        return OnboardingViewModel(installer, settings, aliasDao, voiceDao, deviceProbe, player)
+            .apply { phoneLocale = { phone } }
     }
+
+    private fun alias(name: String) = VoiceAlias(
+        name = name,
+        id = "id-$name",
+        engine = KITTEN,
+        voiceId = KittenDirectVoiceCatalog.DEFAULT_VOICE_ID,
+        speed = 1.0f,
+        effectPreset = EffectPreset.NONE.name,
+        createdAt = 0L,
+    )
 
     private companion object {
         /** Renders Pocket and Kokoro comfortably (twice the Pixel 6a reference). */
@@ -650,6 +702,10 @@ class OnboardingViewModelTest {
          * for v1.1 (Max, 2026-09-22), so it appears last on this list.
          */
         val CATALOG_CARDS: List<String> = listOf(KITTEN, KOKORO, KOKORO_DE, POCKET, VITS)
+
+        /** The built-in Kitten on disk, nothing else: a fresh install after Skip. */
+        val KITTEN_ON_DISK: EngineInstaller
+            get() = DiskInstaller(engines = setOf(KITTEN), packs = emptySet())
     }
 }
 
@@ -721,4 +777,12 @@ private class DiskInstaller(
 
     override suspend fun verifyPack(packId: String): InstallState =
         if (packId in packs) InstallState.Installed else InstallState.NotInstalled
+
+    // A complete Pocket download when Pocket is on disk.
+    override suspend fun pocketVoiceKeys(): Set<String> =
+        if (PocketVoiceCatalog.ENGINE in engines) {
+            PocketVoiceCatalog.voices.mapTo(HashSet()) { it.id.substringAfter(':') }
+        } else {
+            emptySet()
+        }
 }

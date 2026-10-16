@@ -10,7 +10,6 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.indication
@@ -19,7 +18,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -36,23 +34,15 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuBoxScope
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -85,10 +75,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.marmalade.tts.R
-import app.marmalade.tts.audio.EffectPreset
 import app.marmalade.tts.data.KittenDirectVoiceCatalog
-import app.marmalade.tts.data.db.VoiceMeta
-import app.marmalade.tts.install.EngineCatalog
 import app.marmalade.tts.install.EngineDescriptor
 import app.marmalade.tts.install.InstallState
 import app.marmalade.tts.perf.EngineFit
@@ -96,8 +83,6 @@ import app.marmalade.tts.ui.components.EngineSpecColumn
 import app.marmalade.tts.ui.components.JarMascot
 import app.marmalade.tts.ui.components.JarMascotState
 import app.marmalade.tts.ui.components.MarmaladeCard
-import app.marmalade.tts.ui.components.MarmaladeMenu
-import app.marmalade.tts.ui.components.SpeedSlider
 import app.marmalade.tts.ui.components.WorkingDots
 import app.marmalade.tts.ui.screen.installFailureText
 import app.marmalade.tts.ui.theme.MarmaladeMotion
@@ -122,19 +107,18 @@ import app.marmalade.tts.ui.theme.riseIn
 //     ├── Installing step: progress per engine
 //     │    │
 //     │    ├── all engines reached terminal state (Installed/Failed)
-//     │    │      → "Continue" → vm.next() (advances to CreateAlias)
+//     │    │      → "Continue" → vm.next() (advances to ChooseVoice)
 //     │    │
 //     │    └── Failed engine row offers retry → vm.retry(name), plus
 //     │        "Remove download" → vm.removeDownload(name) while a partial
 //     │        archive is kept for resume
 //     │
-//     └── CreateAlias step: inline alias editor
-//          │
-//          ├── "Save and continue" → vm.saveAliasAndContinue() then onComplete()
-//          ├── "Use defaults"      → vm.useDefaultsAndContinue() then onComplete()
-//          │
-//          └── Skipped automatically (vm.finish() + onComplete()) when an
-//              alias already exists on entry — sideloaded-data edge case.
+//     ├── ChooseVoice step (VoiceStep.kt, #87): the installed voices with a
+//     │    speaker each, one picked → "Use Alba" → vm.useVoice() (saves the
+//     │    first alias, named after the voice) → battery step; "Finish setup"
+//     │    → vm.skipVoiceStep() when an alias already exists
+//     │
+//     └── Battery → Notifications → System default → vm.finish() + onComplete()
 // -----------------------------------------------------------------------------
 
 /**
@@ -143,7 +127,7 @@ import app.marmalade.tts.ui.theme.riseIn
  *  1. Welcome — explain what the app does.
  *  2. Engine picker — let the user choose which engines to download.
  *  3. Install progress — watch the bytes come down, then "Continue."
- *  4. Create alias — name the first voice (or take the defaults).
+ *  4. Pick a voice — hear the installed voices, keep one as the first alias.
  *  5. Background, notifications — the battery exemption and (Android 13+)
  *     the notification permission.
  *  6. System default — pick Marmalade as the system TTS engine.
@@ -165,10 +149,10 @@ fun OnboardingScreen(
     val engines by viewModel.engines.collectAsStateWithLifecycle()
     val selected by viewModel.selectedEngineIds.collectAsStateWithLifecycle()
     val installStates by viewModel.installStates.collectAsStateWithLifecycle()
-    val aliasCreated by viewModel.aliasCreated.collectAsStateWithLifecycle()
-    val aliasEditor by viewModel.aliasEditorState.collectAsStateWithLifecycle()
-    val installedVoices by viewModel.installedVoices.collectAsStateWithLifecycle()
-    val aliasEngines by viewModel.aliasEngines.collectAsStateWithLifecycle()
+    val voiceGroups by viewModel.voiceGroups.collectAsStateWithLifecycle()
+    val aliasOnEntry by viewModel.aliasOnEntry.collectAsStateWithLifecycle()
+    val selectedVoice by viewModel.selectedVoice.collectAsStateWithLifecycle()
+    val previewState by viewModel.previewState.collectAsStateWithLifecycle()
     val probeDone by viewModel.probeDone.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
@@ -202,7 +186,7 @@ fun OnboardingScreen(
                         onSkip = {
                             // Installs nothing (the selection set pre-selects the
                             // recommended engines, so installSelected() here would
-                            // silently download them) and advances to CreateAlias.
+                            // silently download them) and advances to ChooseVoice.
                             // The user still has to create an alias to finish
                             // onboarding.
                             viewModel.skipEngineInstall()
@@ -216,38 +200,24 @@ fun OnboardingScreen(
                         onRetry = viewModel::retry,
                         onRemoveDownload = viewModel::removeDownload,
                         onContinue = {
-                            // Advance to the CreateAlias step. The wizard can no
-                            // longer be exited from here — the user must save an
-                            // alias (or accept "Use defaults") to finish.
+                            // Advance to the voice step. The wizard can no longer
+                            // be exited from here: finishing needs an alias.
                             viewModel.next()
                         },
                     )
-                    OnboardingStep.CreateAlias -> CreateAliasStep(
+                    OnboardingStep.ChooseVoice -> ChooseVoiceStep(
                         padding = padding,
-                        editor = aliasEditor,
-                        engines = aliasEngines,
-                        voices = installedVoices,
-                        aliasCreated = aliasCreated,
-                        onSeedDefaults = viewModel::seedAliasDefaults,
-                        onNameChange = viewModel::onAliasNameChange,
-                        onEngineChange = viewModel::onAliasEngineChange,
-                        onVoiceChange = viewModel::onAliasVoiceChange,
-                        onSpeedChange = viewModel::onAliasSpeedChange,
-                        onEffectChange = viewModel::onAliasEffectChange,
-                        // saveAliasAndContinue + useDefaultsAndContinue now both
-                        // advance to SystemDefault rather than completing — the
-                        // user still needs to enable us as their system TTS
-                        // engine before the system-TTS path actually routes here.
-                        onSave = { viewModel.saveAliasAndContinue() },
-                        onUseDefaults = { viewModel.useDefaultsAndContinue() },
-                        onFinish = {
-                            // "Finish setup" branch when an alias already exists
-                            // (sideloaded data). Skip directly to SystemDefault
-                            // so the user still gets the system-TTS-pick prompt.
-                            if (viewModel.advanceToSystemDefault()) {
-                                // step has been moved; the screen recomposes
-                            }
-                        },
+                        groups = voiceGroups,
+                        selected = selectedVoice,
+                        previewState = previewState,
+                        aliasOnEntry = aliasOnEntry,
+                        onPrepare = viewModel::prepareVoiceStep,
+                        onPick = viewModel::pickVoice,
+                        onTogglePreview = viewModel::togglePreview,
+                        onStopPreview = viewModel::stopPreview,
+                        onUse = viewModel::useVoice,
+                        onFinish = { viewModel.skipVoiceStep() },
+                        onBack = viewModel::back,
                     )
                     OnboardingStep.BackgroundUnrestricted -> BackgroundUnrestrictedStep(
                         padding = padding,
@@ -599,8 +569,8 @@ private fun EngineCard(
     }
 }
 
-/** How strongly a ticked engine card warms in light mode (#83 M). */
-private const val LIGHT_TICK_WASH = 0.35f
+/** How strongly a ticked engine card, or a picked voice row, warms in light mode (#83 M). */
+internal const val LIGHT_TICK_WASH = 0.35f
 
 /**
  * Small "Recommended" pill. Toast-family container (never the precious accent
@@ -861,337 +831,7 @@ private fun InstallRow(
     }
 }
 
-// -- step 4 -----------------------------------------------------------------
-
-/**
- * Create-primary-alias step.
- *
- * UX choice: full inline editor + a "Use defaults" affordance side-by-side.
- * The editor surface is a stack of name / engine / voice / speed / effect
- * controls — matching the AliasScreen editor but inline (no dialog) so the
- * onboarding context stays linear. "Use defaults" is a secondary
- * OutlinedButton that bypasses the form and creates a baseline alias.
- *
- * The "Save and continue" button is disabled until the editor's `name`
- * and `voiceId` look syntactically valid. A separate "Finish" affordance
- * appears when an alias already exists on entry (sideloaded edge case) —
- * it just calls [onFinish], which routes through the gated
- * `OnboardingViewModel.finish`.
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun CreateAliasStep(
-    padding: PaddingValues,
-    editor: OnboardingViewModel.AliasFields,
-    engines: List<EngineDescriptor>,
-    voices: List<VoiceMeta>,
-    aliasCreated: Boolean,
-    onSeedDefaults: () -> Unit,
-    onNameChange: (String) -> Unit,
-    onEngineChange: (String) -> Unit,
-    onVoiceChange: (String) -> Unit,
-    onSpeedChange: (Float) -> Unit,
-    onEffectChange: (EffectPreset) -> Unit,
-    onSave: () -> Unit,
-    onUseDefaults: () -> Unit,
-    onFinish: () -> Unit,
-) {
-    // Seed the editor once on first composition so the user sees sane
-    // defaults (engine pre-picked, voice pre-picked) rather than an empty
-    // form. Keyed on `Unit` so it never re-runs and clobbers the user's edits.
-    LaunchedEffect(Unit) { onSeedDefaults() }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(padding)
-            .padding(horizontal = 16.dp)
-            .verticalScroll(rememberScrollState()),
-    ) {
-        Spacer(Modifier.height(16.dp))
-        Text(
-            text = stringResource(R.string.onboarding_alias_title),
-            style = MaterialTheme.typography.headlineSmall,
-            modifier = Modifier.fillMaxWidth(),
-            textAlign = TextAlign.Center,
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = stringResource(R.string.onboarding_alias_body),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(16.dp))
-
-        OutlinedTextField(
-            value = editor.name,
-            onValueChange = onNameChange,
-            label = { Text(stringResource(R.string.onboarding_alias_name_label)) },
-            singleLine = true,
-            supportingText = {
-                Text(
-                    text = stringResource(
-                        editor.error ?: R.string.onboarding_alias_name_helper,
-                    ),
-                    color = if (editor.error != null) MaterialTheme.colorScheme.error
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            },
-            isError = editor.error != null,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(Modifier.height(12.dp))
-
-        OnboardingEngineDropdown(
-            selected = editor.engine,
-            engines = engines,
-            onPick = onEngineChange,
-        )
-        Spacer(Modifier.height(12.dp))
-
-        OnboardingVoiceDropdown(
-            selected = editor.voiceId,
-            voices = voices,
-            onPick = onVoiceChange,
-        )
-        Spacer(Modifier.height(12.dp))
-
-        Column {
-            val speedText = stringResource(R.string.onboarding_alias_speed_value, editor.speed)
-            Text(
-                text = stringResource(R.string.onboarding_alias_speed_label, speedText),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            val speedDescription = stringResource(
-                R.string.onboarding_alias_speed_content_description,
-            )
-            // The alias editor's slider (same range, stops and marks, #84).
-            SpeedSlider(
-                value = editor.speed,
-                onValueChange = onSpeedChange,
-                label = speedDescription,
-                valueText = speedText,
-            )
-        }
-        Spacer(Modifier.height(12.dp))
-
-        OnboardingEffectDropdown(
-            selected = editor.effect,
-            onPick = onEffectChange,
-        )
-
-        Spacer(Modifier.height(24.dp))
-
-        // Primary CTA: save the editor's values and finish onboarding.
-        // Enabled even when the user hasn't filled the name field yet —
-        // the VM validates on save and surfaces the failure inline.
-        Button(
-            onClick = onSave,
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text(stringResource(R.string.onboarding_alias_save)) }
-        Spacer(Modifier.height(8.dp))
-
-        // Secondary CTA: create a default alias without thinking about it.
-        OutlinedButton(
-            onClick = onUseDefaults,
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text(stringResource(R.string.onboarding_alias_use_defaults)) }
-
-        // If we entered this step with an alias already present
-        // (sideloaded edge case) the user can just finish — the gated
-        // finish() in the VM accepts the call because aliasCreated is true.
-        if (aliasCreated) {
-            Spacer(Modifier.height(8.dp))
-            TextButton(
-                onClick = onFinish,
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text(stringResource(R.string.onboarding_alias_finish_setup)) }
-        }
-        Spacer(Modifier.height(24.dp))
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun OnboardingEngineDropdown(
-    selected: String,
-    /** Installed engines only — see [OnboardingViewModel.aliasEngines]. */
-    engines: List<EngineDescriptor>,
-    onPick: (String) -> Unit,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    ExposedDropdownMenuBox(
-        expanded = expanded,
-        onExpandedChange = { expanded = it },
-    ) {
-        OutlinedTextField(
-            // Catalog lookup, not [engines]: the seeded default can be an
-            // engine that isn't installed (nothing is), and it should still
-            // read as its name rather than its id.
-            value = EngineCatalog.byName(selected)?.displayName
-                ?: if (selected.isBlank()) {
-                    stringResource(R.string.onboarding_alias_engine_placeholder)
-                } else {
-                    selected
-                },
-            onValueChange = { /* read-only */ },
-            readOnly = true,
-            label = { Text(stringResource(R.string.onboarding_alias_engine_label)) },
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            modifier = Modifier
-                .menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = true)
-                .fillMaxWidth(),
-        )
-        OnboardingExposedMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-        ) {
-            if (engines.isEmpty()) {
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.onboarding_error_install_engine_first)) },
-                    onClick = { expanded = false },
-                    enabled = false,
-                )
-            }
-            for (engine in engines) {
-                DropdownMenuItem(
-                    text = { Text(engine.displayName) },
-                    onClick = {
-                        onPick(engine.name)
-                        expanded = false
-                    },
-                )
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun OnboardingVoiceDropdown(
-    selected: String,
-    voices: List<VoiceMeta>,
-    onPick: (String) -> Unit,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    // [voices] is already limited to what can speak (see
-    // OnboardingViewModel.installedVoices) — never widen it back to every
-    // seeded row, which is how unreleased, uninstalled VITS voices leaked in.
-    val selectedLabel = voices.firstOrNull { it.id == selected }?.displayName
-        ?: if (selected.isBlank()) {
-            stringResource(R.string.onboarding_alias_voice_placeholder)
-        } else {
-            selected
-        }
-    ExposedDropdownMenuBox(
-        expanded = expanded,
-        onExpandedChange = { expanded = it },
-    ) {
-        OutlinedTextField(
-            value = selectedLabel,
-            onValueChange = { /* read-only */ },
-            readOnly = true,
-            label = { Text(stringResource(R.string.onboarding_alias_voice_label)) },
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            modifier = Modifier
-                .menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = true)
-                .fillMaxWidth(),
-        )
-        OnboardingExposedMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-        ) {
-            if (voices.isEmpty()) {
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.onboarding_alias_no_voices)) },
-                    onClick = { expanded = false },
-                    enabled = false,
-                )
-            } else {
-                for (voice in voices) {
-                    DropdownMenuItem(
-                        text = { Text(voice.displayName) },
-                        onClick = {
-                            onPick(voice.id)
-                            expanded = false
-                        },
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun OnboardingEffectDropdown(
-    selected: EffectPreset,
-    onPick: (EffectPreset) -> Unit,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    Box {
-        OutlinedTextField(
-            value = stringResource(effectDisplayNameRes(selected)),
-            onValueChange = { /* read-only */ },
-            readOnly = true,
-            label = { Text(stringResource(R.string.onboarding_alias_effect_label)) },
-            trailingIcon = {
-                IconButton(onClick = { expanded = true }) {
-                    Icon(
-                        Icons.Filled.ArrowDropDown,
-                        contentDescription = stringResource(
-                            R.string.onboarding_alias_effect_pick_content_description,
-                        ),
-                    )
-                }
-            },
-            modifier = Modifier.fillMaxWidth(),
-        )
-        MarmaladeMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-        ) {
-            for (preset in EffectPreset.entries) {
-                DropdownMenuItem(
-                    text = { Text(stringResource(effectDisplayNameRes(preset))) },
-                    onClick = {
-                        onPick(preset)
-                        expanded = false
-                    },
-                )
-            }
-        }
-    }
-}
-
-/**
- * An exposed dropdown dressed like [MarmaladeMenu]: the raised surface step,
- * a hairline edge, no tonal tint (#83).
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ExposedDropdownMenuBoxScope.OnboardingExposedMenu(
-    expanded: Boolean,
-    onDismissRequest: () -> Unit,
-    content: @Composable ColumnScope.() -> Unit,
-) {
-    ExposedDropdownMenu(
-        expanded = expanded,
-        onDismissRequest = onDismissRequest,
-        shape = MaterialTheme.shapes.small,
-        containerColor = MaterialTheme.depth.raised,
-        tonalElevation = 0.dp,
-        shadowElevation = 8.dp,
-        border = BorderStroke(1.dp, MaterialTheme.depth.line2),
-        content = content,
-    )
-}
-
-@StringRes
-private fun effectDisplayNameRes(preset: EffectPreset): Int = when (preset) {
-    EffectPreset.NONE -> R.string.onboarding_effect_none
-    EffectPreset.CAVE -> R.string.onboarding_effect_cave
-    EffectPreset.TELEPHONE -> R.string.onboarding_effect_telephone
-}
+// -- step 4: ChooseVoiceStep, in VoiceStep.kt -------------------------------
 
 // -- helpers ----------------------------------------------------------------
 

@@ -23,7 +23,8 @@ its entry here in the same change.
   voices. In code it is `VoiceAlias`; the UI components call it a
   *persona* (`PersonaSheet`, `PersonaRow`).
 - **Primary alias.** The alias used when nothing more specific applies. It is
-  marked "Primary" in the UI.
+  marked "Primary" in the UI. Setup creates the first one from the voice the
+  user picks, named after that voice ("Alba"), #87.
 - **Per-app mapping.** An alias assigned to one calling app, so that app
   always speaks in it. Code: `AppAliasMapping`. Resolution order: per-app
   mapping, then the primary alias.
@@ -79,8 +80,10 @@ its entry here in the same change.
   opposed to an **article session** in the reader. Both run through the
   `Narrator`, and all audio plays through `MarmaladeSynthService`.
 - **Preview.** A voice speaking a short sample ("Hello, I'm Heart.") from a
-  picker row, so the user hears it before choosing. On-device voices only in
-  the alias editor's picker: a cloud sample would cost money unasked.
+  picker row, so the user hears it before choosing: a speaker button that
+  plays and stops, one voice at a time, in the alias editor's picker, the
+  Voices screen and setup. On-device voices only: a cloud sample would cost
+  money unasked (#86, #88).
 - **RTF (real-time factor).** Seconds of compute per second of audio. Below 1
   keeps up; the app warns above 0.6 at the chosen speed.
 - **Chunk mode.** What an engine that can't keep up switches to: it renders

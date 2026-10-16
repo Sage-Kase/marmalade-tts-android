@@ -34,32 +34,17 @@
     <string name="onboarding_download_detail_file">%1$s / %2$s — %3$s</string>
     <string name="onboarding_download_size_unknown">?</string>
 
-    <string name="onboarding_alias_title">创建你的主别名</string>
-    <string name="onboarding_alias_body">别名把你喜欢的语音、语速和音效归到一个名字下，例如“旁白”。当应用请求朗读却未指定语音时，Marmalade 就会使用主别名。至少创建一个别名以完成设置 — 之后可在“设置 → 语音别名”中添加更多。</string>
-    <string name="onboarding_alias_name_label">名称</string>
-    <string name="onboarding_alias_name_helper">可使用字母、数字、空格和连字符，最多 50 个字符。</string>
-    <string name="onboarding_alias_speed_label">语速：%1$s</string>
-    <string name="onboarding_alias_speed_value">%1$.2f×</string>
-    <string name="onboarding_alias_speed_content_description">语速</string>
-    <string name="onboarding_alias_save">保存并继续</string>
-    <string name="onboarding_alias_use_defaults">使用默认值</string>
+    <!-- The voice step (#87) -->
+    <string name="onboarding_voice_title">选择一个语音</string>
+    <string name="onboarding_voice_body">未指定语音的应用将使用这个语音朗读。你可以随时更改。</string>
+    <string name="onboarding_voice_use">使用 %1$s</string>
+    <plurals name="onboarding_voice_show_more">
+        <item quantity="other">再显示 %1$d 个</item>
+    </plurals>
+
     <string name="onboarding_alias_finish_setup">完成设置</string>
 
-    <string name="onboarding_alias_engine_label">引擎</string>
-    <string name="onboarding_alias_engine_placeholder">选择引擎</string>
-    <string name="onboarding_alias_voice_label">语音</string>
-    <string name="onboarding_alias_voice_placeholder">选择语音</string>
     <string name="onboarding_alias_no_voices">没有可用语音 — 请先安装引擎。</string>
-    <string name="onboarding_alias_effect_label">音效</string>
-    <string name="onboarding_alias_effect_pick_content_description">选择音效</string>
-
-    <string name="onboarding_effect_none">无</string>
-    <string name="onboarding_effect_cave">洞穴</string>
-    <string name="onboarding_effect_telephone">电话</string>
-
-    <string name="onboarding_error_pick_voice">请选择语音。</string>
-    <string name="onboarding_error_pick_engine">请选择引擎。</string>
-    <string name="onboarding_error_install_engine_first">创建别名前请先安装引擎。</string>
 
     <string name="onboarding_background_title_allowed">已允许后台运行</string>
     <string name="onboarding_background_title">息屏后继续朗读</string>

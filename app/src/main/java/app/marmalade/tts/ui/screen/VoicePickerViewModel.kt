@@ -49,11 +49,11 @@ import kotlinx.coroutines.launch
 //     ├── previewState ◄──── VoicePickerViewModel.previewState
 //     │                          ▲
 //     │                          │
-//     │                  VoicePreviewer → Synthesizer.speak(previewPhrase, voiceId)
+//     │                  VoicePreviewer → SpeechPlayer.speak(previewPhrase, voiceId)
 //     │
 //     └── actions
 //          ├── selectVoice(id) ──► SettingsRepository.setDefaultVoiceId
-//          ├── preview(voice)  ──► VoicePreviewer.play → Synthesizer.speak(...)
+//          ├── togglePreview(voice) ──► VoicePreviewer.toggle (on-device only)
 //          └── refresh()       ──► installer.verify() for each catalog engine
 //
 //   Per-pack filtering: a pack-based engine (VITS Marmalade) verifies as
@@ -301,6 +301,7 @@ class VoicePickerViewModel @Inject constructor(
      * value.
      */
     fun selectVoice(id: String) {
+        stopPreview()
         viewModelScope.launch {
             settings.setDefaultVoiceId(id)
         }
@@ -310,16 +311,28 @@ class VoicePickerViewModel @Inject constructor(
     val previewState: StateFlow<PreviewState> = previewer.state
 
     /**
-     * Play a short canned phrase in [voice] so the user can hear what they
-     * sound like before committing. Phrasing the sentence with the voice's
-     * own name doubles as a small bit of personality.
+     * Whether [voice]'s row offers a preview. Never for a cloud voice: the
+     * sample would spend the user's provider credit unasked (#88), as in the
+     * alias editor's picker (#86).
      */
-    fun preview(voice: VoiceMeta, phrase: String = "Hello, I'm ${voice.spokenName}.") {
-        previewer.play(voice, phrase)
+    fun canPreview(voice: VoiceMeta): Boolean =
+        !voicePaths.resolve(voice.id, voice.engine).isCloud
+
+    /**
+     * Play/stop a short canned phrase in [voice] so the user can hear it
+     * before choosing. One at a time: another voice takes over. Phrasing the
+     * sentence with the voice's own name doubles as a bit of personality.
+     */
+    fun togglePreview(voice: VoiceMeta, phrase: String = "Hello, I'm ${voice.spokenName}.") {
+        if (canPreview(voice)) previewer.toggle(voice, phrase)
+    }
+
+    fun stopPreview() {
+        previewer.stop()
     }
 
     override fun onCleared() {
         super.onCleared()
-        synthesizer.cancel()
+        stopPreview()
     }
 }

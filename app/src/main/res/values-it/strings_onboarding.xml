@@ -34,32 +34,19 @@
     <string name="onboarding_download_detail_file">%1$s / %2$s — %3$s</string>
     <string name="onboarding_download_size_unknown">?</string>
 
-    <string name="onboarding_alias_title">Crea il tuo alias principale</string>
-    <string name="onboarding_alias_body">Un alias raccoglie la tua voce preferita, la velocità e l\'effetto sotto un unico nome come \"narratore\". Marmalade usa l\'alias principale ogni volta che un\'app chiede di leggere senza indicare una voce. Crea almeno un alias per completare la configurazione — potrai aggiungerne altri in seguito da Impostazioni → Alias vocali.</string>
-    <string name="onboarding_alias_name_label">Nome</string>
-    <string name="onboarding_alias_name_helper">Lettere, cifre, spazi, trattini — fino a 50 caratteri.</string>
-    <string name="onboarding_alias_speed_label">Velocità: %1$s</string>
-    <string name="onboarding_alias_speed_value">%1$.2f×</string>
-    <string name="onboarding_alias_speed_content_description">Velocità</string>
-    <string name="onboarding_alias_save">Salva e continua</string>
-    <string name="onboarding_alias_use_defaults">Usa i valori predefiniti</string>
+    <!-- The voice step (#87) -->
+    <string name="onboarding_voice_title">Scegli una voce</string>
+    <string name="onboarding_voice_body">Le app che non scelgono una voce parleranno con questa. Puoi cambiarla in qualsiasi momento.</string>
+    <string name="onboarding_voice_use">Usa %1$s</string>
+    <plurals name="onboarding_voice_show_more">
+        <item quantity="one">Mostra altre %1$d</item>
+        <item quantity="many">Mostra altre %1$d</item>
+        <item quantity="other">Mostra altre %1$d</item>
+    </plurals>
+
     <string name="onboarding_alias_finish_setup">Completa la configurazione</string>
 
-    <string name="onboarding_alias_engine_label">Motore</string>
-    <string name="onboarding_alias_engine_placeholder">Seleziona un motore</string>
-    <string name="onboarding_alias_voice_label">Voce</string>
-    <string name="onboarding_alias_voice_placeholder">Seleziona una voce</string>
     <string name="onboarding_alias_no_voices">Nessuna voce disponibile — installa prima un motore.</string>
-    <string name="onboarding_alias_effect_label">Effetto</string>
-    <string name="onboarding_alias_effect_pick_content_description">Scegli un effetto</string>
-
-    <string name="onboarding_effect_none">Nessuno</string>
-    <string name="onboarding_effect_cave">Caverna</string>
-    <string name="onboarding_effect_telephone">Telefono</string>
-
-    <string name="onboarding_error_pick_voice">Scegli una voce.</string>
-    <string name="onboarding_error_pick_engine">Scegli un motore.</string>
-    <string name="onboarding_error_install_engine_first">Installa un motore prima di creare un alias.</string>
 
     <string name="onboarding_background_title_allowed">Attività in background consentita</string>
     <string name="onboarding_background_title">Continua a leggere a schermo spento</string>

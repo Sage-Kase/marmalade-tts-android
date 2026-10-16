@@ -1313,8 +1313,22 @@ and `MarmaladeSynthService` is its foreground host. System TTS
 - `ui/AppRootViewModel.kt` — collects theme preset + mode + onboarded
   flag from `SettingsRepository`; drives `MainActivity` decisions.
 - `ui/onboarding/OnboardingScreen.kt` + `OnboardingViewModel.kt` —
-  5-step flow: Welcome → EnginePick → Installing → CreateAlias →
-  SystemDefault. EnginePick lists the card wearing the Recommended pill
+  Welcome → EnginePick → Installing → ChooseVoice → BackgroundUnrestricted
+  → NotificationPermission → SystemDefault, one path for everyone (#87:
+  the old "Use defaults" shortcut skipped the battery step).
+  **ChooseVoice** (`ui/onboarding/VoiceStep.kt`, Max's concept A of the
+  walkthrough-87 lab) lists the installed, pickable voices grouped by engine,
+  each with #86's speaker sample (`VoicePreviewer` in the VM, so it plays
+  through `MarmaladeSynthService`); the lead section shows 6, the others 3,
+  then "Show N more". One voice is picked on arrival and "Use <voice>"
+  (`useVoice`) saves it as the first, primary alias, named after the voice
+  (`aliasNameFor`: "Jenny (Dioco)" → "Jenny Dioco"), 1.0×, no effect. The
+  order is `ui/onboarding/FirstVoice.kt` (`firstVoiceGroups`, unit-tested):
+  the engine with a voice in the phone's language leads, taking the phone
+  check's engine first; within an engine, phone language (and its region)
+  first, then `sortOrder` (Kitten's best-first: Rosie), then name. Pocket and
+  Kokoro have no best-first order yet (Max's ear). The defaults no longer
+  come from the catalogs' `DEFAULT_VOICE_ID`s. EnginePick lists the card wearing the Recommended pill
   first (`EngineCardState.showsRecommended`: the probe's fit, else the
   catalog flag, i.e. Kitten until the probe answers), the rest in catalog
   order (#63). The verdict also ticks the recommended engine to install,

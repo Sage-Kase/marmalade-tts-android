@@ -17,7 +17,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -29,6 +28,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -49,6 +49,7 @@ import app.marmalade.tts.data.VitsVoiceCatalog
 import app.marmalade.tts.data.db.VoiceMeta
 import app.marmalade.tts.data.latencyKeyFor
 import app.marmalade.tts.install.EngineCatalog
+import app.marmalade.tts.ui.MarmaladeIcons
 import app.marmalade.tts.ui.components.languageDisplayName
 import app.marmalade.tts.ui.components.qualityGradeLabelRes
 import app.marmalade.tts.ui.theme.MarmaladeMotion
@@ -65,7 +66,7 @@ import app.marmalade.tts.ui.theme.depth
 //   VoicePickerViewModel.voiceTree    ──► drill-down lists
 //   VoicePickerViewModel.pickerState  ──► which level is showing
 //   VoicePickerViewModel.selectedId   ──► check icon on the matching row
-//   VoicePickerViewModel.previewState ──► row Preview button state
+//   VoicePickerViewModel.previewState ──► row sample button state
 //
 //   User taps a voice row
 //     │
@@ -75,10 +76,12 @@ import app.marmalade.tts.ui.theme.depth
 //     ▼
 //   onVoiceSelected() callback → MainActivity pops back to SpeakScreen
 //
-//   User taps Preview
+//   User taps a row's speaker (on-device voices only: a cloud sample would
+//   spend provider credit unasked, #88)
 //     │
 //     ▼
-//   VoicePickerViewModel.preview(voice) ─► Synthesizer.speak("Hello, I'm <name>.")
+//   VoicePickerViewModel.togglePreview(voice) ─► VoicePreviewer.toggle: play
+//     "Hello, I'm <name>.", or stop it if that voice is the one playing
 //
 // This screen used to be one flat list grouped by engine with collapsible
 // headers. That worked while every engine was on-device and had 8-53 voices;
@@ -98,9 +101,10 @@ private val ScreenGutter = 16.dp
  * triggers [onVoiceSelected] so the host navigation can pop back to the
  * Speak screen.
  *
- * The Preview button is disabled when the engine assets aren't installed
+ * The sample button is disabled when the engine assets aren't installed
  * yet (model-missing state); the row itself stays tappable so users can
- * pick a default voice even before audio works end-to-end.
+ * pick a default voice even before audio works end-to-end. Cloud voices have
+ * no sample button at all (#88).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -125,6 +129,8 @@ fun VoicePickerScreen(
     LaunchedEffect(Unit) {
         viewModel.refresh()
     }
+    // A sample still playing stops when the screen goes.
+    DisposableEffect(Unit) { onDispose { viewModel.stopPreview() } }
 
     // Opens on the source list; engine-scoped mode drills past it.
     LaunchedEffect(tree) {
@@ -268,8 +274,9 @@ fun VoicePickerScreen(
             val onPreview: (VoiceMeta) -> Unit = { voice ->
                 // spokenName, not displayName — espeak reads a Kokoro flag
                 // emoji out loud ("United States Adam").
-                viewModel.preview(voice, previewPhrase.format(voice.spokenName))
+                viewModel.togglePreview(voice, previewPhrase.format(voice.spokenName))
             }
+            val canPreview: (VoiceMeta) -> Boolean = viewModel::canPreview
 
             VoiceDrillLevels(pickerState, Modifier.fillMaxSize()) { shown ->
                 // Resolved from [shown], not the title's source/model: a list
@@ -285,6 +292,7 @@ fun VoicePickerScreen(
                         selectedId = selectedId,
                         playingId = playingId,
                         latency = latency,
+                        canPreview = canPreview,
                         previewEnabled = previewEnabled,
                         onPick = onPick,
                         onPreview = onPreview,
@@ -297,6 +305,7 @@ fun VoicePickerScreen(
                         voices = shownModel.voices,
                         selectedId = selectedId,
                         playingId = playingId,
+                        canPreview = canPreview,
                         previewEnabled = previewEnabled,
                         onPick = onPick,
                         onPreview = onPreview,
@@ -316,6 +325,7 @@ private fun VoiceList(
     voices: List<VoiceMeta>,
     selectedId: String,
     playingId: String?,
+    canPreview: (VoiceMeta) -> Boolean,
     previewEnabled: (VoiceMeta) -> Boolean,
     onPick: (VoiceMeta) -> Unit,
     onPreview: (VoiceMeta) -> Unit,
@@ -340,6 +350,7 @@ private fun VoiceList(
                     voice = voice,
                     isSelected = voice.id == selectedId,
                     isPreviewing = playingId == voice.id,
+                    canPreview = canPreview(voice),
                     previewEnabled = previewEnabled(voice),
                     subtitle = supportingText(voice),
                     badge = null,
@@ -363,6 +374,7 @@ private fun SearchResults(
     selectedId: String,
     playingId: String?,
     latency: Map<String, LatencyBucket>,
+    canPreview: (VoiceMeta) -> Boolean,
     previewEnabled: (VoiceMeta) -> Boolean,
     onPick: (VoiceMeta) -> Unit,
     onPreview: (VoiceMeta) -> Unit,
@@ -386,6 +398,7 @@ private fun SearchResults(
                     voice = voice,
                     isSelected = voice.id == selectedId,
                     isPreviewing = playingId == voice.id,
+                    canPreview = canPreview(voice),
                     previewEnabled = previewEnabled(voice),
                     subtitle = path,
                     // Search is the one place the leaf rows come from different
@@ -406,6 +419,7 @@ private fun VoiceRow(
     voice: VoiceMeta,
     isSelected: Boolean,
     isPreviewing: Boolean,
+    canPreview: Boolean,
     previewEnabled: Boolean,
     subtitle: String,
     badge: LatencyBucket?,
@@ -416,7 +430,10 @@ private fun VoiceRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = ScreenGutter, vertical = 12.dp),
+            // Without a sample button the row's end padding keeps the check
+            // on the gutter; the button brings its own 48 dp target.
+            .padding(start = ScreenGutter, end = if (canPreview) 4.dp else ScreenGutter)
+            .padding(vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // Leading gender glyph — unicode is fine for v0.1 per the spec.
@@ -461,25 +478,30 @@ private fun VoiceRow(
             )
         }
 
-        // Preview button — separate tap target from the row click.
-        IconButton(
-            onClick = onPreview,
-            enabled = previewEnabled,
-        ) {
-            Icon(
-                imageVector = Icons.Filled.PlayArrow,
-                // spokenName keeps TalkBack from announcing the flag emoji.
-                contentDescription = if (isPreviewing) {
-                    stringResource(R.string.voices_previewing, voice.spokenName)
-                } else {
-                    stringResource(R.string.voices_preview, voice.spokenName)
-                },
-                tint = if (isPreviewing) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-            )
+        // Sample button: a separate tap target from the row (hearing a voice
+        // never picks it), play/stop, one at a time. Never on a cloud voice:
+        // the sample would spend the user's provider credit unasked (#88).
+        if (canPreview) {
+            IconButton(
+                onClick = onPreview,
+                enabled = previewEnabled,
+            ) {
+                Icon(
+                    // A speaker, as in the alias editor's picker (#86).
+                    imageVector = if (isPreviewing) StopIcon else MarmaladeIcons.Speak,
+                    // spokenName keeps TalkBack from announcing the flag emoji.
+                    contentDescription = if (isPreviewing) {
+                        stringResource(R.string.effects_stop_card, voice.spokenName)
+                    } else {
+                        stringResource(R.string.voices_preview, voice.spokenName)
+                    },
+                    tint = when {
+                        isPreviewing -> MaterialTheme.colorScheme.primary
+                        previewEnabled -> MaterialTheme.depth.faint
+                        else -> MaterialTheme.depth.ghost
+                    },
+                )
+            }
         }
     }
 }
