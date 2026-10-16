@@ -5,10 +5,12 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-16
+
 ### Added
 - **Hear a voice before you pick it**: in the alias editor's voice picker,
-  each voice on your phone has a play button that speaks a short sample in
-  that voice. Tap it again, pick a voice or close the picker to stop it.
+  each voice on your phone has a speaker button that speaks a short sample
+  in that voice. Tap it again, pick a voice or close the picker to stop it.
   Cloud voices have no sample button, so nothing is sent to a provider
   unless you choose that voice.
 - **Setup lets you hear the voices**: the last part of setup no longer asks

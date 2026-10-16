@@ -1,0 +1,4 @@
+Marmalade TTS 1.3.0.
+- Choose who reads an article: in the reader, one button picks the voice and the speed.
+- Hear a voice before you choose it: tap the speaker next to it.
+- A better-looking, smoother app.
