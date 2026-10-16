@@ -31,6 +31,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -398,73 +399,90 @@ private fun AliasCard(
     onOpenRouting: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    MarmaladeCard(
-        modifier = modifier.fillMaxWidth(),
-        onClick = onOpenEditor,
-    ) {
-        Column(modifier = Modifier.padding(vertical = 12.dp)) {
-            // The star used to sit in its own leading column, which left a
-            // 48dp empty gutter down the left of every card and made the
-            // whole row read lopsided. Inline with the name it reads as what
-            // it is — a property of the alias, not a separate control column.
-            Column(modifier = Modifier.padding(horizontal = 14.dp)) {
-                // Pill sits hard right rather than trailing the name:
-                // it's a status badge, not part of the title, and a fixed
-                // corner keeps it in the same place regardless of how long
-                // the alias name is.
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    // The name takes all the slack so the pill is pushed to
-                    // the edge. It used to be weight(fill = false) followed by
-                    // a weighted Spacer, which made two weighted siblings
-                    // split the leftover evenly — landing the pill mid-card.
-                    Text(
-                        text = alias.name,
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                    if (isPrimary) PrimaryPill()
-                }
-                Text(
-                    text = voicePath.summary,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    // Whether an alias needs the network decides whether it
-                    // can fail, so it leads — and it's the only filled chip,
-                    // which is what makes it readable at a glance in a row
-                    // of otherwise identical outlines.
-                    MetaChip(
-                        text = stringResource(
-                            if (voicePath.isCloud) {
-                                R.string.alias_chip_cloud
-                            } else {
-                                R.string.alias_chip_on_device
-                            },
-                        ),
-                        filled = true,
-                        leadingCloud = voicePath.isCloud,
-                    )
-                    MetaChip(text = stringResource(R.string.alias_speed_chip, alias.speed))
-                    MetaChip(text = effectName)
-                }
-            }
-            Spacer(Modifier.height(10.dp))
-            RoutingStrip(
-                aliasName = alias.name,
-                routedApps = routedApps,
-                isPrimary = isPrimary,
-                onClick = onOpenRouting,
-                modifier = Modifier.padding(horizontal = 12.dp),
-            )
+    // Dark mode gets the lab's card (hairline, soft shadow); light mode keeps
+    // the plain Material card it had, by Max's pick in the #83 lab (G).
+    if (MaterialTheme.depth.isDark) {
+        MarmaladeCard(modifier = modifier.fillMaxWidth(), onClick = onOpenEditor) {
+            AliasCardBody(alias, isPrimary, effectName, voicePath, routedApps, onOpenRouting)
         }
+    } else {
+        Card(modifier = modifier.fillMaxWidth().clickable(onClick = onOpenEditor)) {
+            AliasCardBody(alias, isPrimary, effectName, voicePath, routedApps, onOpenRouting)
+        }
+    }
+}
+
+@Composable
+private fun AliasCardBody(
+    alias: VoiceAlias,
+    isPrimary: Boolean,
+    effectName: String,
+    voicePath: VoicePath,
+    routedApps: List<AppAliasMapping>,
+    onOpenRouting: () -> Unit,
+) {
+    Column(modifier = Modifier.padding(vertical = 12.dp)) {
+        // The star used to sit in its own leading column, which left a
+        // 48dp empty gutter down the left of every card and made the
+        // whole row read lopsided. Inline with the name it reads as what
+        // it is — a property of the alias, not a separate control column.
+        Column(modifier = Modifier.padding(horizontal = 14.dp)) {
+            // Pill sits hard right rather than trailing the name:
+            // it's a status badge, not part of the title, and a fixed
+            // corner keeps it in the same place regardless of how long
+            // the alias name is.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // The name takes all the slack so the pill is pushed to
+                // the edge. It used to be weight(fill = false) followed by
+                // a weighted Spacer, which made two weighted siblings
+                // split the leftover evenly — landing the pill mid-card.
+                Text(
+                    text = alias.name,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                if (isPrimary) PrimaryPill()
+            }
+            Text(
+                text = voicePath.summary,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                // Whether an alias needs the network decides whether it
+                // can fail, so it leads — and it's the only filled chip,
+                // which is what makes it readable at a glance in a row
+                // of otherwise identical outlines.
+                MetaChip(
+                    text = stringResource(
+                        if (voicePath.isCloud) {
+                            R.string.alias_chip_cloud
+                        } else {
+                            R.string.alias_chip_on_device
+                        },
+                    ),
+                    filled = true,
+                    leadingCloud = voicePath.isCloud,
+                )
+                MetaChip(text = stringResource(R.string.alias_speed_chip, alias.speed))
+                MetaChip(text = effectName)
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        RoutingStrip(
+            aliasName = alias.name,
+            routedApps = routedApps,
+            isPrimary = isPrimary,
+            onClick = onOpenRouting,
+            modifier = Modifier.padding(horizontal = 12.dp),
+        )
     }
 }
 
@@ -491,9 +509,10 @@ private fun RoutingStrip(
     // invitation instead of an empty state. The primary always has something
     // to say — it is the fallback for every unrouted app.
     if (routedApps.isEmpty() && !isPrimary) {
-        // Ghost ink, not a hairline: a dash broken into gaps needs a little
-        // more weight than a solid edge to read at all.
-        val outline = depth.ghost
+        // Ghost ink in dark, not a hairline: a dash broken into gaps needs a
+        // little more weight than a solid edge to read at all. Light keeps
+        // its original outline (#83 G).
+        val outline = if (depth.isDark) depth.ghost else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
         Row(
             modifier = modifier
                 .fillMaxWidth()
@@ -549,12 +568,13 @@ private fun RoutingStrip(
     // could only ever produce a no-op assignment. Non-primary aliases keep
     // the affordance.
     //
-    // The agent-cards lab's "pointer" row: a faint ink wash with a hairline,
-    // so it reads as a panel set into the card rather than a second card.
+    // Dark: the agent-cards lab's "pointer" row, a faint ink wash with a
+    // hairline, so it reads as a panel set into the card rather than a second
+    // card. Light keeps its original tonal panel (#83 G).
     Surface(
         shape = shape,
-        color = depth.hover,
-        border = BorderStroke(1.dp, depth.line),
+        color = if (depth.isDark) depth.hover else MaterialTheme.colorScheme.surfaceVariant,
+        border = if (depth.isDark) BorderStroke(1.dp, depth.line) else null,
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
@@ -631,13 +651,15 @@ private const val MAX_STRIP_ICONS = 4
  */
 @Composable
 private fun AllAppsIcon(size: Dp) {
-    // Orange in light; toast in dark, where bright orange is off-brand.
-    // Flat with a hairline like the real tiles beside it (see AppIconTile).
+    // Orange with a small lift in light, as it always was; toast in dark,
+    // where bright orange is off-brand, flat with a hairline like the real
+    // tiles beside it (see AppIconTile).
     val dark = MaterialTheme.depth.isDark
     Surface(
         shape = RoundedCornerShape(size / 4),
         color = if (dark) MarmaladeToast else MaterialTheme.colorScheme.primary,
-        border = BorderStroke(1.dp, MaterialTheme.depth.line),
+        shadowElevation = if (dark) 0.dp else 2.dp,
+        border = if (dark) BorderStroke(1.dp, MaterialTheme.depth.line) else null,
         modifier = Modifier.size(size),
     ) {
         Box(contentAlignment = Alignment.Center) {
@@ -1385,7 +1407,11 @@ private fun MetaChip(
             dark -> depth.selected
             else -> MaterialTheme.colorScheme.primaryContainer
         },
-        border = if (filled) null else BorderStroke(1.dp, depth.line2),
+        border = when {
+            filled -> null
+            dark -> BorderStroke(1.dp, depth.line2)
+            else -> BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.45f))
+        },
     ) {
         val ink = when {
             !filled -> depth.dim
