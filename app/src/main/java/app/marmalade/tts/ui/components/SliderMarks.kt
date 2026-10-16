@@ -1,6 +1,7 @@
 package app.marmalade.tts.ui.components
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SliderColors
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.SliderState
 import androidx.compose.runtime.Composable
@@ -16,14 +17,20 @@ import app.marmalade.tts.ui.theme.depth
 
 @Composable
 internal fun SteppedSliderTrack(state: SliderState) {
-    // Light mode's default inactive track (secondaryContainer) is all but the
-    // page colour: the stop dots were the only sign of where the track ran.
-    // Without them it takes the toast container, a quiet step darker, as dark
-    // mode's rich brown track already is.
-    val colors = if (MaterialTheme.depth.isDark) {
-        SliderDefaults.colors()
-    } else {
-        SliderDefaults.colors(inactiveTrackColor = MaterialTheme.colorScheme.primaryContainer)
-    }
-    SliderDefaults.Track(sliderState = state, colors = colors, drawTick = { _, _ -> })
+    SliderDefaults.Track(sliderState = state, colors = marmaladeSliderColors(), drawTick = { _, _ -> })
+}
+
+/**
+ * Slider colours for every slider in the app, stepped or not. Light mode's
+ * default inactive track (secondaryContainer) is all but the page colour: on
+ * a stepped slider the stop dots were the only sign of where the track ran,
+ * and the effect editor's smooth sliders (#88) had nothing at all. It takes
+ * the toast container instead, a quiet step darker, as dark mode's rich brown
+ * track already is.
+ */
+@Composable
+internal fun marmaladeSliderColors(): SliderColors = if (MaterialTheme.depth.isDark) {
+    SliderDefaults.colors()
+} else {
+    SliderDefaults.colors(inactiveTrackColor = MaterialTheme.colorScheme.primaryContainer)
 }

@@ -55,6 +55,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.marmalade.tts.R
 import app.marmalade.tts.audio.EffectBlock
+import app.marmalade.tts.ui.components.marmaladeSliderColors
 
 // -----------------------------------------------------------------------------
 //   EffectEditorScreen — full-screen chain builder (a detail route; AppRoot
@@ -556,6 +557,8 @@ private fun LabeledSlider(
             value = value,
             onValueChange = onValueChange,
             valueRange = range,
+            // Light mode's track shows against the page (#88).
+            colors = marmaladeSliderColors(),
             // Without this TalkBack reads the raw 0..1 fraction with no name;
             // the label and valueText above are separate nodes it never links.
             modifier = Modifier.semantics {
