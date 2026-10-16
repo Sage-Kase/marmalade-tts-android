@@ -34,6 +34,15 @@
     <string name="onboarding_download_detail_file">%1$s / %2$s — %3$s</string>
     <string name="onboarding_download_size_unknown">?</string>
 
+    <!-- The voice step (#87) -->
+    <string name="onboarding_voice_title">Elige una voz</string>
+    <string name="onboarding_voice_body">Las apps que no elijan una voz hablarán con esta. Puedes cambiarla cuando quieras.</string>
+    <string name="onboarding_voice_use">Usar %1$s</string>
+    <plurals name="onboarding_voice_show_more">
+        <item quantity="one">Mostrar %1$d más</item>
+        <item quantity="other">Mostrar %1$d más</item>
+    </plurals>
+
     <string name="onboarding_alias_title">Crea tu alias principal</string>
     <string name="onboarding_alias_body">Un alias reúne tu voz, velocidad y efecto favoritos bajo un solo nombre, como \"narrador\". Marmalade usa el alias principal siempre que una app le pide que hable sin especificar una voz. Crea al menos un alias para terminar la configuración; después puedes añadir más desde Ajustes → Alias de voz.</string>
     <string name="onboarding_alias_name_label">Nombre</string>

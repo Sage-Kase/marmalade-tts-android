@@ -34,6 +34,14 @@
     <string name="onboarding_download_detail_file">%1$s / %2$s — %3$s</string>
     <string name="onboarding_download_size_unknown">?</string>
 
+    <!-- The voice step (#87) -->
+    <string name="onboarding_voice_title">选择一个声音</string>
+    <string name="onboarding_voice_body">未指定声音的应用将使用这个声音朗读。你可以随时更改。</string>
+    <string name="onboarding_voice_use">使用 %1$s</string>
+    <plurals name="onboarding_voice_show_more">
+        <item quantity="other">再显示 %1$d 个</item>
+    </plurals>
+
     <string name="onboarding_alias_title">创建你的主别名</string>
     <string name="onboarding_alias_body">别名把你喜欢的语音、语速和音效归到一个名字下，例如“旁白”。当应用请求朗读却未指定语音时，Marmalade 就会使用主别名。至少创建一个别名以完成设置 — 之后可在“设置 → 语音别名”中添加更多。</string>
     <string name="onboarding_alias_name_label">名称</string>
