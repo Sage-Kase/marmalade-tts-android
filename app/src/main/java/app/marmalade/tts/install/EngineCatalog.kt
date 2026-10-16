@@ -103,7 +103,13 @@ enum class SpeedTier(val meterFill: Int) {
  *                             and the directory under `${filesDir}/engines/`).
  *                             Stable across versions — part of the public
  *                             surface that aliases reference.
- * @property displayName       User-facing label (e.g. "Kitten TTS").
+ * @property displayName       The engine's short name, used everywhere the UI
+ *                             names it (e.g. "Kitten Nano", "Pocket"). A
+ *                             proper noun, not translated (#85).
+ * @property releaseName       The name with its version or date (e.g.
+ *                             "Pocket TTS (English, 2026-09)"), shown only
+ *                             quietly under About on the engine's detail
+ *                             screen. Null when the short name says it all.
  * @property descriptionRes    String resource for the one-paragraph pitch
  *                             shown on the install consent card and the
  *                             engine detail screen. Keep it short.
@@ -154,6 +160,7 @@ enum class SpeedTier(val meterFill: Int) {
 data class EngineDescriptor(
     val name: String,
     val displayName: String,
+    val releaseName: String? = null,
     @StringRes val descriptionRes: Int,
     val downloadSizeBytes: Long,
     val installedSizeBytes: Long,
@@ -261,7 +268,8 @@ object EngineCatalog {
      */
     private val KITTEN_DIRECT: EngineDescriptor = EngineDescriptor(
         name = "kitten-direct-v0_8",
-        displayName = "Kitten Nano (v0.8)",
+        displayName = "Kitten Nano",
+        releaseName = "Kitten Nano (v0.8)",
         descriptionRes = R.string.engine_kitten_desc,
         downloadSizeBytes = 64_218_626L,
         installedSizeBytes = KITTEN_DIRECT_INSTALLED_SIZE_BYTES,
@@ -330,7 +338,8 @@ object EngineCatalog {
      */
     private val KOKORO_DIRECT: EngineDescriptor = EngineDescriptor(
         name = "kokoro-direct-v1_0",
-        displayName = "Kokoro (v1.0)",
+        displayName = "Kokoro",
+        releaseName = "Kokoro (v1.0)",
         descriptionRes = R.string.engine_kokoro_desc,
         downloadSizeBytes = 194_966_520L,
         installedSizeBytes = KOKORO_DIRECT_INSTALLED_SIZE_BYTES,
@@ -391,7 +400,8 @@ object EngineCatalog {
      */
     private val KOKORO_GERMAN: EngineDescriptor = EngineDescriptor(
         name = "kokoro-de-v1_0",
-        displayName = "Kokoro German (Thorsten)",
+        displayName = "Kokoro German",
+        releaseName = "Kokoro German (Thorsten)",
         descriptionRes = R.string.engine_kokoro_de_desc,
         downloadSizeBytes = 153_045_045L,
         installedSizeBytes = KOKORO_DE_INSTALLED_SIZE_BYTES,
@@ -469,7 +479,8 @@ object EngineCatalog {
      */
     private val POCKET_TTS_EN: EngineDescriptor = EngineDescriptor(
         name = "pocket-tts-en-v2026_04",
-        displayName = "Pocket TTS (English, 2026-09)",
+        displayName = "Pocket",
+        releaseName = "Pocket TTS (English, 2026-09)",
         descriptionRes = R.string.engine_pocket_desc,
         downloadSizeBytes = 118_458_315L,
         installedSizeBytes = POCKET_TTS_INSTALLED_SIZE_BYTES,
@@ -505,7 +516,8 @@ object EngineCatalog {
      */
     private val POCKET_TTS_EN_DEV: EngineDescriptor = EngineDescriptor(
         name = "pocket-tts-en-v2026_04-dev",
-        displayName = "Pocket TTS — Clean Reference",
+        displayName = "Pocket Clean",
+        releaseName = "Pocket TTS — Clean Reference",
         descriptionRes = R.string.engine_pocket_dev_desc,
         downloadSizeBytes = 98_264_623L,
         installedSizeBytes = POCKET_TTS_DEV_INSTALLED_SIZE_BYTES,

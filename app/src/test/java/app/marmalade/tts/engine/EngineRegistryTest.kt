@@ -10,6 +10,7 @@ import app.marmalade.tts.data.VitsVoiceCatalog
 import app.marmalade.tts.engine.kitten.KittenDirectEngine
 import app.marmalade.tts.engine.kokoro.KokoroDirectEngine
 import app.marmalade.tts.engine.vits.VitsDirectEngine
+import app.marmalade.tts.install.EngineCatalog
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -130,5 +131,7 @@ class EngineRegistryTest {
         assertEquals("Kokoro", EngineRegistry.displayName(KokoroDirectVoiceCatalog.ENGINE))
         assertEquals("Cloud", EngineRegistry.displayName(CloudApiVoiceCatalog.ENGINE))
         assertEquals("mystery", EngineRegistry.displayName("mystery"))
+        // Notifications name an engine as the rest of the UI does (#85).
+        EngineCatalog.all.forEach { assertEquals(it.displayName, EngineRegistry.displayName(it.name)) }
     }
 }

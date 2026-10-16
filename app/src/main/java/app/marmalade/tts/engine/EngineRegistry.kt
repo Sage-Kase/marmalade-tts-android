@@ -129,16 +129,15 @@ class EngineRegistry internal constructor(engines: List<TtsEngine>) {
         fun systemTtsEngineNameFor(voiceId: String): String =
             enginePrefixOf(voiceId)?.let(::systemTtsEngineOrDefault) ?: DEFAULT_ENGINE
 
-        /** Human-friendly engine label for notification copy. Unknown → the raw name. */
-        fun displayName(engineName: String): String = when (engineName) {
-            KokoroDirectVoiceCatalog.ENGINE -> "Kokoro"
-            KokoroGermanVoiceCatalog.ENGINE -> "Kokoro German"
-            KittenDirectVoiceCatalog.ENGINE -> "Kitten Nano"
-            PocketVoiceCatalog.ENGINE -> "Pocket TTS"
-            PocketDevVoiceCatalog.ENGINE -> "Pocket TTS (clean)"
-            VitsVoiceCatalog.ENGINE -> "VITS Marmalade"
-            CloudApiVoiceCatalog.ENGINE -> "Cloud"
-            else -> BuildTypeEngines.displayName(engineName) ?: engineName
-        }
+        /**
+         * Human-friendly engine label for notification copy: the catalog's
+         * short name, as everywhere else in the UI (#85). Unknown → the raw name.
+         */
+        fun displayName(engineName: String): String =
+            EngineCatalog.byName(engineName)?.displayName
+                ?: when (engineName) {
+                    CloudApiVoiceCatalog.ENGINE -> "Cloud"
+                    else -> BuildTypeEngines.displayName(engineName) ?: engineName
+                }
     }
 }
