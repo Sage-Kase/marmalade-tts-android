@@ -40,6 +40,7 @@
     <string name="onboarding_voice_use">Usa %1$s</string>
     <plurals name="onboarding_voice_show_more">
         <item quantity="one">Mostra altre %1$d</item>
+        <item quantity="many">Mostra altre %1$d</item>
         <item quantity="other">Mostra altre %1$d</item>
     </plurals>
 
