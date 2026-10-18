@@ -5,6 +5,13 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **Voices no longer sound shaky at other speeds**: at any speed other than
+  1.0×, set by another app's speech rate (for example ReadEra, Moon+ Reader
+  or Android's text-to-speech settings) or in the reader, voices took on a
+  fast vibrato and sounded robotic. Speeding up and slowing down now keeps
+  the voice smooth.
+
 ## [1.3.1] - 2026-10-17
 
 ### Changed
