@@ -33,7 +33,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -63,6 +62,7 @@ import app.marmalade.tts.install.InstallFailure
 import app.marmalade.tts.install.InstallState
 import app.marmalade.tts.install.VoicePackSummary
 import app.marmalade.tts.ui.components.EngineSpecColumn
+import app.marmalade.tts.ui.components.MarmaladeCard
 import app.marmalade.tts.ui.onboarding.formatBytes
 
 // -----------------------------------------------------------------------------
@@ -92,10 +92,9 @@ import app.marmalade.tts.ui.onboarding.formatBytes
 //     │     Corrupt      → "Reinstall"
 //     │
 //
-//   Cards are OutlinedCard for a quieter look that pairs with the orange
-//   primary used by the install / engine-settings buttons. ElevatedCard
-//   would compete visually with the buttons; outlined keeps the buttons as
-//   the focal point of each card.
+//   Cards are the shared MarmaladeCard (card fill, hairline edge, soft
+//   shadow), the same card as setup's engine step, so the two screens match
+//   (Max, 2026-10-17).
 // -----------------------------------------------------------------------------
 
 /**
@@ -309,7 +308,7 @@ private fun EngineCard(
     // action buttons, "Show more", and the transient progress/error lines
     // (their own merge boundaries, so their live regions keep announcing)
     // remain separate stops.
-    OutlinedCard(
+    MarmaladeCard(
         modifier = Modifier
             .fillMaxWidth()
             .semantics(mergeDescendants = true) {},
