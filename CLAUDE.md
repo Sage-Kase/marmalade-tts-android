@@ -37,6 +37,11 @@ and its own sessions, not here.
   `./gradlew --stop`: it kills every session's daemon, including a build
   another session is running. Idle daemons exit on their own after 10 min
   (`org.gradle.daemon.idletimeout` in ~/.gradle/gradle.properties).
+  **Add `--no-daemon -Pkotlin.compiler.execution.strategy=in-process`** so
+  the memory frees the moment the build ends. A warm Gradle daemon (4 GB
+  heap) plus its Kotlin daemon (~2 GB) idling for those 10 minutes, next to
+  another project's build daemon and a dozen Claude sessions, froze marmalade
+  until it had to be reset (2026-10-17 17:54-18:02).
 - **Benches and automated device tests run on the Pixel 6a** (agents'
   test phone, always connected; see global CLAUDE.md). The Pixel 8a is
   Max's daily phone: install there only builds Max is to test himself.
