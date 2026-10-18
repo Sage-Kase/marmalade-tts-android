@@ -21,7 +21,7 @@ import org.robolectric.RobolectricTestRunner
  * default in [TtsEngine] stays true for engines that do their own rate,
  * e.g. the cloud providers. Each value here is a decision, not an
  * accident: flipping one silently re-routes that engine's audio through
- * (or around) the OLA stage.
+ * (or around) the Tempo stage.
  *
  * Robolectric only for a Context: constructing an engine touches nothing
  * but its own field initialisers, and no model is loaded here.

@@ -92,7 +92,7 @@ class StreamingEffectChainTest {
 
     @Test
     fun `chipmunk (pitch + tempo) chunked equals whole`() {
-        // Pins the OLA time-stretch's input/output accumulators + the pitch
+        // Pins the WSOLA time-stretch's input/output accumulators + the pitch
         // shifter across seams (tempo changes the output length, so this also
         // checks the emission boundary is chunk-invariant).
         val pcm = signal(20_000)
@@ -237,6 +237,28 @@ class StreamingEffectChainTest {
                 assertEquals("length at ${factor}x, n=$n", n / factor.toDouble(), chunked.size.toDouble(), 1024.0)
                 assertArrayEquals(streamWhole(listOf(EffectBlock.Tempo(factor)), signal(n)), chunked)
             }
+        }
+    }
+
+    @Test
+    fun `tempo keeps a voiced tone's level steady at every speed`() {
+        // #91: plain overlap-add summed each pair of overlapping frames at
+        // whatever phase the hop landed on, so a steady voice swelled and dipped
+        // at the frame rate (~47 Hz): "vibratey and robotic" at any system
+        // speech rate but 1.0. That measured 3.6–7.5 dB here; WSOLA aligns the
+        // frames and holds it flat. A 150 Hz buzz with 8 harmonics stands in
+        // for a held vowel; level is the RMS over one pitch period (160 samples).
+        val n = 48_000
+        val voiced = ShortArray(n) { i ->
+            (1..8).sumOf { h -> 1000.0 / h * sin(2.0 * PI * 150.0 * h * i / sr) }.toInt().toShort()
+        }
+        for (factor in listOf(0.25f, 0.8f, 1.1f, 1.5f, 2.0f, 4.0f)) {
+            val out = streamLive(voiced, start = factor)
+            val levels = (4800 until out.size - 4800 - 160 step 40).map { from ->
+                kotlin.math.sqrt((from until from + 160).sumOf { out[it].toDouble() * out[it] } / 160)
+            }
+            val rippleDb = 20 * kotlin.math.log10(levels.max() / levels.min())
+            assertTrue("level ripple ${"%.2f".format(rippleDb)} dB at ${factor}x", rippleDb < 1.0)
         }
     }
 

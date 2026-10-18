@@ -97,12 +97,12 @@ class StreamingEffectChain(
     }
 
     /**
-     * Push out what the live Tempo stage holds back (up to one frame, ~43 ms
-     * at 24 kHz) WITHOUT ending the stream: its tail runs through the effects
-     * after it with [process], so they keep their state and ring out only at
-     * [flush]. For an underrun: the next chunk starts a fresh stretch, a seam
-     * that falls in silence anyway. Empty when nothing is held (or no live
-     * Tempo stage).
+     * Push out what the live Tempo stage holds back (up to a frame plus its
+     * search reach, ~53 ms at 24 kHz) WITHOUT ending the stream: its tail runs
+     * through the effects after it with [process], so they keep their state
+     * and ring out only at [flush]. For an underrun: the next chunk starts a
+     * fresh stretch, a seam that falls in silence anyway. Empty when nothing
+     * is held (or no live Tempo stage).
      */
     fun drainLiveTempo(): ShortArray {
         val t = live ?: return ShortArray(0)
@@ -441,17 +441,27 @@ private class PitchProcessor(cents: Float, sr: Int) : BlockProcessor {
     }
 }
 
-// ── Tempo — overlap-add time-stretch (sox `tempo`) ────────────────────────────
+// ── Tempo — WSOLA time-stretch (sox `tempo`) ──────────────────────────────────
 // Changes duration by `factor` (>1 faster/shorter, <1 slower/longer) WITHOUT
 // changing pitch: read Hann frames from the input at analysis hop Ha = Hs·factor
 // and overlap-add them at synthesis hop Hs. Window sums normalize the overlap so
 // level stays flat. Streams with ~one-frame latency; state carries across chunks
-// (pinned by the chunked==whole test). A plain OLA — some phasiness on tonal
-// input, fine for the character presets; a WSOLA similarity search is the
-// upgrade if it sounds smeary.
+// (pinned by the chunked==whole test).
+//
+// WSOLA, not plain OLA (#91): each frame may start up to TOL samples off its
+// nominal analysis position, wherever its head best matches (normalized
+// cross-correlation) the input that naturally followed the previous frame, so
+// overlapping frames add in phase. Plain OLA added them at whatever phase the
+// hop landed on, which beat against the pitch at the frame rate (24 000 / 512
+// ≈ 47 Hz): every speed but 1.0× sounded vibratey and robotic, 15–25 dB of 47 Hz
+// envelope modulation over speech's own 5 dB (Kitten, 0.8–2×). Since 1.1.0
+// every on-device speed is this stage (SpeedFallback, the reader's live tempo).
+// At 1.0× the natural continuation IS the nominal frame, so the output is the
+// input verbatim.
 private class TempoProcessor(factor: Float) : BlockProcessor {
     private val w = 1024
     private val hs = 512                                   // synthesis hop (50% overlap)
+    private val overlap = w - hs                           // compared region
     private var ha = hopFor(factor)                        // analysis hop
 
     /**
@@ -470,7 +480,8 @@ private class TempoProcessor(factor: Float) : BlockProcessor {
 
     private var inBuf = FloatArray(w * 2)
     private var inLen = 0
-    private var readPos = 0.0          // analysis position in inBuf
+    private var readPos = 0.0          // nominal analysis position in inBuf
+    private var continuation = -1      // input that followed the previous frame (its start + hs); -1 = none yet
 
     private var acc = FloatArray(w * 2)  // overlap-add accumulator
     private var accW = FloatArray(w * 2) // parallel window-sum
@@ -485,23 +496,24 @@ private class TempoProcessor(factor: Float) : BlockProcessor {
     override fun flush(): FloatArray {
         // Input past the last whole frame — up to a frame of it, ≥ 512 samples
         // (~21 ms at 24 kHz) at 1.0× — used to be dropped here. Zero-pad one
-        // frame so every frame that starts inside the real input still runs,
-        // then keep the output up to where the last of them places the final
-        // real sample. Flush-local output 0 is the next frame's slot (input
-        // `readPos`); frame j sits at j·hs and reads from readPos + j·ha. So
-        // the tail plays at unit speed, as the first frame's head does: at
-        // 1.0× the output is the input verbatim, otherwise its length is
-        // input / factor within a frame. The pad frames only add silence to the
-        // window sums, so the signal fades into them rather than being cut.
+        // frame (plus the search reach) so every frame that starts inside the
+        // real input still runs, then keep the output up to where the last of
+        // them places the final real sample. Flush-local output 0 is the next
+        // frame's slot (input `readPos`); frame j sits at j·hs and reads from
+        // about readPos + j·ha. So the tail plays at unit speed, as the first
+        // frame's head does: at 1.0× the output is the input verbatim,
+        // otherwise its length is input / factor within a frame. The pad
+        // frames only add silence to the window sums, so the signal fades into
+        // them rather than being cut.
         val remaining = inLen - readPos
         var end = accLen
         if (remaining > 0) {
             val last = ceil(remaining / ha).toInt() - 1 // last frame starting before the end
             end = maxOf(end, (last * hs + remaining - last * ha).roundToInt())
         }
-        appendInput(FloatArray(w))
+        appendInput(FloatArray(w + TOL))
         val tail = (runFrames() + normalize(0, accLen)).copyOf(end)
-        inLen = 0; readPos = 0.0
+        inLen = 0; readPos = 0.0; continuation = -1
         acc.fill(0f); accW.fill(0f); accLen = 0; synth = 0
         return tail
     }
@@ -516,20 +528,20 @@ private class TempoProcessor(factor: Float) : BlockProcessor {
 
     private fun runFrames(): FloatArray {
         val emitted = ArrayList<Float>()
-        while (readPos + w <= inLen) {
+        // A frame runs once all input it could pick is here (its search reach
+        // included), never sooner: that keeps chunked == whole.
+        while (readPos.toInt() + w + (if (continuation < 0) 0 else TOL) <= inLen) {
             if (synth + w > acc.size) {
                 val cap = (synth + w).coerceAtLeast(acc.size * 2)
                 acc = acc.copyOf(cap); accW = accW.copyOf(cap)
             }
-            val base = readPos.toInt()
-            val frac = (readPos - base).toFloat()
+            val start = bestStart(readPos.toInt())
             for (k in 0 until w) {
-                val lo = base + k
-                val s = if (lo + 1 < inLen) inBuf[lo] * (1 - frac) + inBuf[lo + 1] * frac else inBuf[lo]
-                acc[synth + k] += window[k] * s
+                acc[synth + k] += window[k] * inBuf[start + k]
                 accW[synth + k] += window[k]
             }
             if (synth + w > accLen) accLen = synth + w
+            continuation = start + hs
             readPos += ha
             synth += hs
             // Output below `synth` is finalized — no future frame (placed at
@@ -538,18 +550,70 @@ private class TempoProcessor(factor: Float) : BlockProcessor {
             shiftAcc(synth)
             accLen -= synth
             synth = 0
-            // Drop consumed input below the next frame's start. Above 2× the
-            // hop (512·factor) outgrows the frame, so the next start can lie
-            // past the input received so far: drop all of it and keep the
-            // overshoot in readPos (those samples are skipped, as OLA skips).
-            val drop = minOf(readPos.toInt(), inLen)
+            // Drop input no future frame reads: below the next search window
+            // and below the previous frame's continuation. Above 2× the hop
+            // (512·factor) outgrows the frame, so the next start can lie past
+            // the input received so far: drop all of it and keep the overshoot
+            // in readPos (those samples are skipped, as OLA skips).
+            val drop = minOf(readPos.toInt() - TOL, continuation, inLen).coerceAtLeast(0)
             if (drop > 0) {
                 System.arraycopy(inBuf, drop, inBuf, 0, inLen - drop)
                 inLen -= drop
                 readPos -= drop
+                continuation -= drop
             }
         }
         return emitted.toFloatArray()
+    }
+
+    /**
+     * The start within ±[TOL] of [nominal] whose first [overlap] samples best
+     * match what followed the previous frame ([continuation]). Coarse to fine:
+     * every [STEP]th start on every [STEP]th sample, then each start around
+     * the coarse winner at full resolution, ~6× cheaper than a full search for
+     * the same pick on speech. Ties go to the start nearest [nominal], so
+     * silence and exact repeats stay put; at 1.0× that is the nominal start.
+     */
+    private fun bestStart(nominal: Int): Int {
+        val target = continuation
+        if (target < 0) return nominal
+        val lo = maxOf(nominal - TOL, 0)
+        val hi = nominal + TOL
+        var best = nominal
+        var bestScore = Double.NEGATIVE_INFINITY
+        fun consider(c: Int, step: Int) {
+            val score = similarity(c, target, step)
+            if (score > bestScore + TIE ||
+                (score >= bestScore - TIE && abs(c - nominal) < abs(best - nominal))
+            ) {
+                bestScore = maxOf(score, bestScore)
+                best = c
+            }
+        }
+        for (j in -TOL / STEP..TOL / STEP) {
+            val c = nominal + j * STEP
+            if (c >= lo) consider(c, STEP)
+        }
+        val coarse = best
+        bestScore = Double.NEGATIVE_INFINITY
+        for (c in maxOf(coarse - STEP + 1, lo)..minOf(coarse + STEP - 1, hi)) consider(c, 1)
+        return best
+    }
+
+    /** Normalized cross-correlation of the [overlap] samples at [c] and [target], every [step]th. */
+    private fun similarity(c: Int, target: Int, step: Int): Double {
+        var dot = 0.0
+        var ec = 0.0
+        var et = 0.0
+        var k = 0
+        while (k < overlap) {
+            val x = inBuf[c + k].toDouble()
+            val y = inBuf[target + k].toDouble()
+            dot += x * y; ec += x * x; et += y * y
+            k += step
+        }
+        val den = ec * et
+        return if (den > 1e-9) dot / sqrt(den) else 0.0
     }
 
     private fun normalize(from: Int, to: Int): FloatArray = FloatArray(to - from) { i ->
@@ -562,6 +626,14 @@ private class TempoProcessor(factor: Float) : BlockProcessor {
         System.arraycopy(acc, by, acc, 0, acc.size - by)
         System.arraycopy(accW, by, accW, 0, accW.size - by)
         for (j in (acc.size - by) until acc.size) { acc[j] = 0f; accW[j] = 0f }
+    }
+
+    private companion object {
+        /** Search reach either side of the nominal start: 10 ms at 24 kHz. */
+        const val TOL = 240
+        /** Coarse search stride, in starts and in samples compared. */
+        const val STEP = 4
+        const val TIE = 1e-9
     }
 }
 
