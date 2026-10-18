@@ -1532,6 +1532,16 @@ write Marmalade code.
 
 ## Known quirks / recent gotchas
 
+- **The fdroid release APK carries no ART baseline profile (#90).** F-Droid
+  rebuilds the app and byte-compares it with our GitHub APK. AGP's compiled
+  `assets/dexopt/baseline.prof`/`.profm` change with the build machine's core
+  count, which failed 1.3.0, so `app/build.gradle.kts` disables every
+  `*FdroidRelease*ArtProfile*` task. Play keeps its profile. The same file
+  drops `META-INF/version-control-info` (`vcsInfo { include = false }`) for
+  the same reason. Check a repro fix with two clean `assembleFdroidRelease`
+  builds on different core counts (`taskset -c 0-3 … --max-workers=4`) and
+  `diff -r` of the unzipped APKs.
+
 - **Android 17 Settings crashes on an explicit component without its action
   (#53, from STT #79).** Language & region's `onViewCreated` compares the
   intent's action, so `setClassName(...)` alone NPEs Settings, and with
