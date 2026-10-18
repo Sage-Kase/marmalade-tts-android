@@ -27,7 +27,6 @@
     <string name="voices_gender_unknown">—</string>
     <string name="voices_gender_female">femminile</string>
     <string name="voices_gender_male">maschile</string>
-    <string name="voices_selected">Selezionata</string>
     <string name="voices_preview">Ascolta l\'anteprima di %1$s</string>
 
     <!-- Livelli di navigazione -->

@@ -49,6 +49,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -71,6 +72,7 @@ import app.marmalade.tts.ui.components.QualityMeter
 import app.marmalade.tts.ui.components.languageDisplayName
 import app.marmalade.tts.ui.components.qualityGradeLabelRes
 import app.marmalade.tts.ui.onboarding.formatBytes
+import app.marmalade.tts.ui.theme.depth
 
 // -----------------------------------------------------------------------------
 // Data flow
@@ -371,6 +373,8 @@ private fun VoicePackRowView(
                         text = stringResource(qualityGradeLabelRes(row.pack.quality)),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        // The meter already speaks the grade ("Audio quality: Rough recording").
+                        modifier = Modifier.clearAndSetSemantics {},
                     )
                 }
             }
@@ -575,11 +579,12 @@ private fun PreprocessingSection(
         )
     }
 
-    // Wrap the rule rows in a CompositionLocalProvider that nudges the
-    // default content tint when de-emphasised — that's the same idiom the
-    // Material 3 OutlinedTextField uses for its disabled-state cues.
-    val contentAlpha = if (deEmphasise) 0.6f else 1.0f
-    CompositionLocalProvider(LocalContentColor provides LocalContentColor.current.copy(alpha = contentAlpha)) {
+    // Wrap the rule rows in a CompositionLocalProvider that quiets the
+    // default content tint when de-emphasised. The rows stay live, so the
+    // quiet ink is depth.dim, the quietest text colour that still reads
+    // (≥ 4.5:1), not a disabled-style fade.
+    val contentColor = if (deEmphasise) MaterialTheme.depth.dim else LocalContentColor.current
+    CompositionLocalProvider(LocalContentColor provides contentColor) {
         Column {
             for (rule in PreprocessingRules.ALL) {
                 val isOn = rule.name in enabled

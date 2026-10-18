@@ -38,6 +38,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -209,7 +210,9 @@ private fun AppearanceSection(
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp),
     )
-    Row(
+    // FlowRow like the preset chips below: three chips overflow one line at
+    // a large font scale (or Japanese's long "System" label).
+    FlowRow(
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -382,7 +385,12 @@ private fun SupportSection() {
         supporting = stringResource(R.string.settings_more_marmalade_desc),
         url = "https://github.com/maxwhipw",
         leading = {
-            Text(text = "🍊", style = MaterialTheme.typography.titleMedium)
+            // Decoration: TalkBack would read the emoji's name ("tangerine").
+            Text(
+                text = "🍊",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.clearAndSetSemantics {},
+            )
         },
     )
 

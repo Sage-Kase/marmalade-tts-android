@@ -4,6 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,6 +19,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -24,6 +27,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -44,6 +48,7 @@ import app.marmalade.tts.ui.theme.depth
 /** Diameter of a background swatch — big enough to be a comfortable tap target. */
 private val SWATCH_SIZE = 44.dp
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ReaderTypographySheet(
     prefs: ReaderDisplayPrefs,
@@ -76,7 +81,8 @@ fun ReaderTypographySheet(
             )
 
             SectionLabel(R.string.reader_display_font)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Wraps: French's three labels outrun one line even at 1×.
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 for (font in ReaderFont.entries) {
                     MarmaladeFilterChip(
                         selected = prefs.font == font,
@@ -119,11 +125,14 @@ private fun BackgroundSwatches(
             val isSelected = background == selected
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.selectable(
-                    selected = isSelected,
-                    role = Role.RadioButton,
-                    onClick = { onSelect(background) },
-                ),
+                modifier = Modifier
+                    // The swatch is 44 dp; this keeps the tap target at 48.
+                    .minimumInteractiveComponentSize()
+                    .selectable(
+                        selected = isSelected,
+                        role = Role.RadioButton,
+                        onClick = { onSelect(background) },
+                    ),
             ) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -148,6 +157,8 @@ private fun BackgroundSwatches(
                         text = stringResource(R.string.reader_display_sample),
                         style = MaterialTheme.typography.labelLarge,
                         color = palette.text,
+                        // A sample, not a word: TalkBack reads the label below.
+                        modifier = Modifier.clearAndSetSemantics {},
                     )
                 }
                 Spacer(Modifier.height(6.dp))

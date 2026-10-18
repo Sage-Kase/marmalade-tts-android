@@ -138,6 +138,7 @@
     <string name="engine_speed_fast">快速</string>
     <string name="engine_speed_moderate">中等</string>
     <string name="engine_speed_heavy">重载</string>
+    <string name="engine_speed_cd">速度：%1$s</string>
     <string name="engine_languages_see_all">查看全部 %1$d 种语言</string>
     <string name="engine_languages_info_cd">显示支持的语言</string>
     <string name="engine_languages_dialog_title">支持的语言</string>

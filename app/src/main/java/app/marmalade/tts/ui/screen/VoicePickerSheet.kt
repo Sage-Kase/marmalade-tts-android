@@ -1,6 +1,5 @@
 package app.marmalade.tts.ui.screen
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
@@ -29,6 +29,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -266,7 +267,9 @@ private fun VoiceRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clickable { onPick(voice) }
+            // A choice of one, as in setup's voice step: TalkBack reads
+            // "selected" on the picked voice, the tick stays silent.
+            .selectable(selected = selected, role = Role.RadioButton) { onPick(voice) }
             // The play button brings its own 48 dp target and inner padding,
             // so the row's end padding shrinks to keep its icon on the gutter.
             .padding(start = 24.dp, end = if (canPreview) 12.dp else 24.dp)
@@ -289,7 +292,7 @@ private fun VoiceRow(
         if (selected) {
             Icon(
                 imageVector = Icons.Filled.Check,
-                contentDescription = stringResource(R.string.voices_selected),
+                contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
             )
         }

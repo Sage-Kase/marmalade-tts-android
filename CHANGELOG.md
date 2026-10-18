@@ -5,6 +5,15 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **Better with TalkBack and large text**: voice lists and the alias sheet
+  say which choice is selected, engine speed meters are read out ("Speed:
+  Fast"), and decorative marks are no longer read aloud. Alias chips and
+  the theme mode chips wrap instead of being cut off at large font sizes,
+  and the reader's background swatches are easier to tap.
+- **Easier-to-read buttons in the dark Midnight and Berry themes**: their
+  labels are dark on the light blue and red, where white was hard to read.
+
 ## [1.3.0] - 2026-10-16
 
 ### Added

@@ -52,7 +52,8 @@ import app.marmalade.tts.install.SpeedTier
 // (OnboardingScreen) and the Engines tab (EnginesScreen) hang off their card.
 // It stacks Speed / Quality / Languages so the three engines compare
 // axis-to-axis straight down the list. Speed and Quality are both bare
-// four-segment meters, their word carried for TalkBack only.
+// four-segment meters, their word carried for TalkBack only: each meter
+// speaks its own name and word ("Speed: Fast"), so its overline stays silent.
 //
 // Colour: the four-segment meter is a traffic light keyed to fill count —
 // green (4) → light green (3) → amber (2) → red (1) — so a fuller bar is both
@@ -78,20 +79,17 @@ fun EngineSpecColumn(
         modifier = modifier.width(118.dp),
         verticalArrangement = Arrangement.Top,
     ) {
-        SpecRow(label = stringResource(R.string.engine_spec_speed)) {
+        SpecRow(label = stringResource(R.string.engine_spec_speed), labelSpoken = false) {
             // Meter only — the tier word ("Fastest"/"Fast"/"Moderate"/"Heavy") is dropped
             // from the card and carried as the meter's contentDescription, so
             // the visual stays a bare gauge while TalkBack still names the tier
             // for anyone who can't read fill length or colour.
-            val tierName = stringResource(speedTierLabelRes(engine.speedTier))
             SpeedMeter(
                 tier = engine.speedTier,
-                modifier = Modifier
-                    .padding(top = 2.dp)
-                    .semantics { contentDescription = tierName },
+                modifier = Modifier.padding(top = 2.dp),
             )
         }
-        SpecRow(label = stringResource(R.string.engine_spec_quality)) {
+        SpecRow(label = stringResource(R.string.engine_spec_quality), labelSpoken = false) {
             QualityMeter(
                 quality = engine.quality,
                 modifier = Modifier.padding(top = 2.dp),
@@ -106,10 +104,15 @@ fun EngineSpecColumn(
     }
 }
 
-/** Label above value, matching the lab's "spec sheet" overline treatment. */
+/**
+ * Label above value, matching the lab's "spec sheet" overline treatment.
+ * [labelSpoken] false keeps the overline out of TalkBack, for a value that
+ * names itself.
+ */
 @Composable
 private fun SpecRow(
     label: String,
+    labelSpoken: Boolean = true,
     value: @Composable () -> Unit,
 ) {
     Column(modifier = Modifier.padding(vertical = 4.dp)) {
@@ -117,6 +120,7 @@ private fun SpecRow(
             text = label.uppercase(),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = if (labelSpoken) Modifier else Modifier.clearAndSetSemantics {},
         )
         Spacer(Modifier.height(2.dp))
         value()
@@ -138,7 +142,7 @@ private fun SpecValueText(text: String) {
  * name. For a multi-language engine (Kokoro) it's a "See all <n>" action
  * (leading info glyph, trailing chevron) that opens a dialog listing which
  * languages — styled and phrased as an action so it plainly reads as tappable,
- * with a full-width ~44 dp touch target rather than the old text-sized sliver.
+ * with a full-width 48 dp touch target rather than the old text-sized sliver.
  * For TalkBack the row is NOT a button — it reads as the plain list of
  * language names, merging into the engine card's single object; the dialog
  * (whose only content is that same list) stays sighted-only.
@@ -176,7 +180,7 @@ private fun EngineLanguagesValue(
     // Engines-tab "Show more"); it's the tap cue. A single small action doesn't
     // flood the card the way a column of accent-filled meters would.
     val tint = MaterialTheme.colorScheme.primary
-    // A 40 dp tap target kept centred on the text, but shifted up by its own
+    // A 48 dp tap target kept centred on the text, but shifted up by its own
     // top padding so the value sits tight under its label like every other spec
     // value. Padding alone pushed "See all 9" 12 dp lower than Fastest/Natural,
     // which read as a hole in the column; dropping the padding instead would
@@ -288,7 +292,8 @@ private fun withFlag(code: String, name: String): String =
  * The four-segment speed meter. Filled segments take a traffic-light colour
  * keyed to how many are filled (green → light green → amber → red as the bar
  * shortens); empties fall to the neutral outline. Fill count comes from
- * [tier] — see [SpeedTier] and [speedMeterColor].
+ * [tier] — see [SpeedTier] and [meterFillColor]. TalkBack reads the tier
+ * word ("Speed: Fast").
  */
 @Composable
 fun SpeedMeter(
@@ -296,7 +301,12 @@ fun SpeedMeter(
     modifier: Modifier = Modifier,
     segments: Int = 4,
 ) {
-    SegmentMeter(fill = tier.meterFill, modifier = modifier, segments = segments)
+    val label = stringResource(R.string.engine_speed_cd, stringResource(speedTierLabelRes(tier)))
+    SegmentMeter(
+        fill = tier.meterFill,
+        modifier = modifier.semantics { contentDescription = label },
+        segments = segments,
+    )
 }
 
 /**
@@ -472,4 +482,4 @@ fun languageFlagOrNull(code: String): String? = when (code) {
  * distance it is pulled back up so the text still aligns with the other spec
  * values. Half of it overhangs the "LANGUAGES" overline above.
  */
-private val LanguagesTapPadding = 12.dp
+private val LanguagesTapPadding = 14.dp

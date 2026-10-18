@@ -21,6 +21,8 @@
     <string name="engine_speed_fast">Fast</string>
     <string name="engine_speed_moderate">Moderate</string>
     <string name="engine_speed_heavy">Heavy</string>
+    <!-- %1$s = one of the speed words above. Spoken label for the speed meter. -->
+    <string name="engine_speed_cd">Speed: %1$s</string>
     <!-- Tappable spec value for a multi-language engine; sits under the "LANGUAGES"
          overline, so the noun is supplied by the label above (%1$d = language count). -->
     <string name="engine_languages_see_all">See all %1$d</string>
