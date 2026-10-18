@@ -23,7 +23,6 @@
     <!-- Alias sheet -->
     <string name="speak_sheet_title">ボイス</string>
     <string name="speak_persona_primary">メイン</string>
-    <string name="speak_persona_selected">選択中</string>
     <string name="speak_pick_voice_directly">ボイスを直接選ぶ</string>
     <string name="speak_new_persona">新しいエイリアス</string>
 

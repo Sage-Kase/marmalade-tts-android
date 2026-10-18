@@ -1,7 +1,6 @@
 package app.marmalade.tts.ui.screen
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -11,9 +10,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
@@ -35,6 +35,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -429,18 +430,21 @@ private fun VoiceRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            // A choice of one, as in setup's voice step: TalkBack reads
+            // "selected" on the picked voice, the tick stays silent.
+            .selectable(selected = isSelected, role = Role.RadioButton, onClick = onClick)
             // Without a sample button the row's end padding keeps the check
             // on the gutter; the button brings its own 48 dp target.
             .padding(start = ScreenGutter, end = if (canPreview) 4.dp else ScreenGutter)
             .padding(vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Leading gender glyph — unicode is fine for v0.1 per the spec.
+        // Leading gender glyph — unicode is fine for v0.1 per the spec. A
+        // minimum, not a fixed width, so a large font scale can't clip it.
         Text(
             text = genderGlyph(voice.gender),
             style = MaterialTheme.typography.titleLarge,
-            modifier = Modifier.width(40.dp),
+            modifier = Modifier.widthIn(min = 40.dp),
             textAlign = TextAlign.Center,
         )
 
@@ -470,7 +474,7 @@ private fun VoiceRow(
         if (isSelected) {
             Icon(
                 imageVector = Icons.Filled.Check,
-                contentDescription = stringResource(R.string.voices_selected),
+                contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier
                     .size(24.dp)

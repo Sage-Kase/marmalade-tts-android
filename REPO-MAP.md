@@ -1401,6 +1401,12 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   #292524 (surfaceContainerHigh), menus #2F2A28 (Highest).
   `onSurfaceVariant` is ink at 64% and `outlineVariant` ink at 13% (light) /
   11% (dark), so quiet text and dividers read the same on any surface.
+  `ThemeContrastTest` (#89) holds WCAG AA where we promise it: dim/faint on
+  every surface in both modes and every preset, and in dark mode the outline
+  (3:1, menus included), primary as text and every filled-button label
+  (`labelOn` picks white or ink by contrast). Light mode's orange and Stone
+  400 outline are knowingly below AA (Max, 2026-10-17); light presets keep
+  their luminance-cut `onPrimary`.
 - **Depth and motion layer (#83)**, ported from the design-lab agent-cards
   lab and the webui's #259 tokens. Spend these; don't hand-pick colours,
   shadows or durations on a screen:

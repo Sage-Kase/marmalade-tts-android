@@ -23,7 +23,6 @@
     <!-- Riquadro dei profili -->
     <string name="speak_sheet_title">Voce</string>
     <string name="speak_persona_primary">Principale</string>
-    <string name="speak_persona_selected">Selezionato</string>
     <string name="speak_pick_voice_directly">Scegli direttamente una voce</string>
     <string name="speak_new_persona">Nuovo alias</string>
 

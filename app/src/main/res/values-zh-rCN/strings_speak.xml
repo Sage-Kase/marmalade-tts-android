@@ -23,7 +23,6 @@
     <!-- Alias sheet -->
     <string name="speak_sheet_title">语音</string>
     <string name="speak_persona_primary">主别名</string>
-    <string name="speak_persona_selected">已选择</string>
     <string name="speak_pick_voice_directly">直接选择语音</string>
     <string name="speak_new_persona">新建别名</string>
 

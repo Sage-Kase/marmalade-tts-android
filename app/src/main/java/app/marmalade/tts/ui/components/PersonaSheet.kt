@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
@@ -28,6 +29,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.marmalade.tts.R
@@ -124,12 +126,25 @@ fun PersonaSheet(
  * A row inside a sheet: inset from the sheet's edge on a rounded shape, so
  * its wash and ripple read as a tile, not a stripe. The ListItem's own fill
  * is cleared ([SheetRowColors]) so the sheet's surface shows through.
+ * A non-null [selected] makes it one choice of a list, which TalkBack reads
+ * as "selected" when it is the active one.
  */
-private fun Modifier.sheetRow(shape: Shape, wash: Color, onClick: () -> Unit): Modifier = this
+private fun Modifier.sheetRow(
+    shape: Shape,
+    wash: Color,
+    selected: Boolean? = null,
+    onClick: () -> Unit,
+): Modifier = this
     .padding(horizontal = 8.dp)
     .clip(shape)
     .background(wash)
-    .clickable(onClick = onClick)
+    .then(
+        if (selected == null) {
+            Modifier.clickable(onClick = onClick)
+        } else {
+            Modifier.selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+        },
+    )
 
 private val SheetRowColors
     @Composable get() = ListItemDefaults.colors(containerColor = Color.Transparent)
@@ -151,7 +166,9 @@ fun PersonaRow(persona: Persona, active: Boolean, onClick: () -> Unit) {
     ListItem(
         headlineContent = {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(persona.name)
+                // Gives way first, so a long name at a large font size can't
+                // push "Primary" out of the row.
+                Text(persona.name, modifier = Modifier.weight(1f, fill = false))
                 if (persona.isPrimary) {
                     Spacer(Modifier.width(8.dp))
                     Text(
@@ -180,12 +197,13 @@ fun PersonaRow(persona: Persona, active: Boolean, onClick: () -> Unit) {
             if (active) {
                 Icon(
                     imageVector = Icons.Filled.Check,
-                    contentDescription = stringResource(R.string.speak_persona_selected),
+                    // The row's selected state already says it.
+                    contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
                 )
             }
         },
         colors = SheetRowColors,
-        modifier = Modifier.sheetRow(MaterialTheme.shapes.small, wash, onClick),
+        modifier = Modifier.sheetRow(MaterialTheme.shapes.small, wash, selected = active, onClick = onClick),
     )
 }

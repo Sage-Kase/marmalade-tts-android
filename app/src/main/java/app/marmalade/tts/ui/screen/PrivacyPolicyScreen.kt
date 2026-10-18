@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
@@ -144,7 +145,8 @@ private fun MarkdownBlockView(block: MdBlock) {
         )
 
         is MdBlock.Bullet -> Row(modifier = Modifier.padding(vertical = 3.dp)) {
-            Text("•  ", style = MaterialTheme.typography.bodyMedium)
+            // Not a TalkBack stop of its own ("bullet").
+            Text("•  ", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.clearAndSetSemantics {})
             Text(
                 text = renderInline(block.text, linkColor),
                 style = MaterialTheme.typography.bodyMedium,

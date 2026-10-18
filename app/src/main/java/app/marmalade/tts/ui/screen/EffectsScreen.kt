@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -47,6 +48,8 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -54,6 +57,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.marmalade.tts.R
 import app.marmalade.tts.audio.EffectBlock
 import app.marmalade.tts.ui.components.MarmaladeCard
+import app.marmalade.tts.ui.theme.depth
 
 // -----------------------------------------------------------------------------
 //   EffectsScreen
@@ -204,10 +208,18 @@ private fun EffectCardItem(
                     modifier = Modifier.weight(1f),
                 )
                 if (card.isBuiltin) {
+                    // A tag drawn as a disabled chip. TalkBack hears the word
+                    // alone, not "button, disabled", and the label takes the
+                    // quietest readable ink rather than the disabled 38%.
+                    val builtin = stringResource(R.string.effects_builtin)
                     AssistChip(
                         onClick = {},
                         enabled = false,
-                        label = { Text(stringResource(R.string.effects_builtin)) },
+                        label = { Text(builtin) },
+                        colors = AssistChipDefaults.assistChipColors(
+                            disabledLabelColor = MaterialTheme.depth.dim,
+                        ),
+                        modifier = Modifier.clearAndSetSemantics { contentDescription = builtin },
                     )
                 }
             }

@@ -71,7 +71,7 @@ data class EngineArchive(
  * (the "A3 spec columns" design). [meterFill] is how many of the card's
  * four meter segments render filled, and it doubles as the colour key: the
  * meter is coloured by fill count (4 = green, 3 = light green, 2 = amber,
- * 1 = red — see EngineSpecColumn.speedMeterColor), so a shorter bar is also
+ * 1 = red — see EngineSpecColumn.meterFillColor), so a shorter bar is also
  * a hotter colour and a single red tick reads as "slow", never as "one of
  * four good".
  *

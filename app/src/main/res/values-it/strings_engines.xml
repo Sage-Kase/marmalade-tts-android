@@ -139,6 +139,7 @@
     <string name="engine_speed_fast">Veloce</string>
     <string name="engine_speed_moderate">Medio</string>
     <string name="engine_speed_heavy">Pesante</string>
+    <string name="engine_speed_cd">Velocità: %1$s</string>
     <string name="engine_languages_see_all">Vedi tutte le %1$d</string>
     <string name="engine_languages_info_cd">Mostra le lingue supportate</string>
     <string name="engine_languages_dialog_title">Lingue supportate</string>
