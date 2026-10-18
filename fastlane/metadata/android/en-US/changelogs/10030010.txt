@@ -1,0 +1,7 @@
+Marmalade TTS 1.3.1.
+- All the voice engines run faster, and voices start speaking sooner: about a second or less on most phones.
+- Five new Pocket voices: Mary, Rita, Stephen, Ramone and Jenny.
+- Reader: one button picks who reads an article and how fast.
+- Tap the speaker next to a voice to hear it first.
+- A better-looking app, easier to use with TalkBack and large text.
+Update Kokoro, Kokoro German and Pocket on the Engines screen for their faster versions.
