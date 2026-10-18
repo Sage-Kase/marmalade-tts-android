@@ -575,7 +575,7 @@ class MarmaladeTtsServiceTest {
 
         // The engine renders at 1.0x either way — no native speed tensor.
         assertEquals(1.0f, fakeKokoroDirectEngine.calls.single().third)
-        // ...and 2.0x arrives as roughly half the audio. The OLA stage's
+        // ...and 2.0x arrives as roughly half the audio. The Tempo stage's
         // window latency costs a frame or so at the seams, hence the band
         // rather than an exact half.
         val ratio = audioBytes(fastCallback).toDouble() / baselineBytes

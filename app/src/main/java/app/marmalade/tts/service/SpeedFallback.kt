@@ -30,8 +30,8 @@ data class SpeedPlan(
  * Engines with `supportsNativeSpeed = false` — Pocket (no speed input at
  * all), Kokoro and Kitten (native speed tensors degrade articulation and
  * saturate; see [TtsEngine.supportsNativeSpeed]) — get speed = 1.0 and an
- * [EffectBlock.Tempo] block prepended to the chain: sox-tempo-style
- * overlap-add time-stretch, pitch preserved. `Tempo.factor` uses the same
+ * [EffectBlock.Tempo] block prepended to the chain: a sox-tempo-style
+ * WSOLA time-stretch, pitch preserved. `Tempo.factor` uses the same
  * convention as `speed` — >1 faster and shorter, <1 slower and longer — so
  * the value passes through unconverted.
  *

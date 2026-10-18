@@ -889,7 +889,7 @@ and `MarmaladeSynthService` is its foreground host. System TTS
   flushed track only near a full ~250 ms buffer) and shrinks back to 60 ms
   once the real audio is heard. On Pause the queued padding is flushed — if
   the head is still short (AudioTrack pauses asynchronously), re-checked for
-  200 ms. The live Tempo stage holds back up to a frame (~43 ms): about to run
+  200 ms. The live Tempo stage holds back up to a frame plus its search reach (~53 ms): about to run
   dry mid-session, the writer pushes it out (`drainLiveTempo`, later effects
   keep their state, one ring-out at the session end).
   Logcat `D/AudioTrackOutput`: `track opened|released|rebuild`, and per block
@@ -1611,7 +1611,14 @@ write Marmalade code.
   first, which hands the engine 1.0 and prepends an
   `EffectBlock.Tempo(speed)` time-stretch to the effect chain (issue #7;
   Kokoro and Kitten joined 2026-09-12, mirroring the CLI's move to
-  `sox tempo`).
+  `sox tempo`). The Tempo stage is **WSOLA** (#91): each 1024-sample frame
+  may start up to 240 samples (10 ms at 24 kHz) off its nominal position,
+  wherever it best matches what followed the previous frame (coarse search
+  every 4th start, then full resolution). The plain OLA it replaced summed
+  frames at arbitrary phase and warbled at the 47 Hz frame rate at every
+  speed but 1.0, system TTS and the reader alike, from 1.1.0 to 1.3.1
+  ("vibratey and robotic", GitHub #21/#24). Pinned by
+  `StreamingEffectChainTest` "tempo keeps a voiced tone's level steady".
   A new engine that can't (or shouldn't) honour `speed` only has to
   override the flag. The Narrator renders every engine at 1.0 and applies
   every speed at playback (next quirk).
