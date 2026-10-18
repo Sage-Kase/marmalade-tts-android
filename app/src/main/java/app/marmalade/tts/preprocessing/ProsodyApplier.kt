@@ -36,9 +36,9 @@ import kotlin.math.sqrt
 //      │      WSOLA-free rate via another resample. Pitch + rate are NOT
 //      │      independently decoupled in v0.1; tracked below.
 //      │
-//      // TODO: decouple pitch and rate via WSOLA / OLA for v0.2 — see
-//      //   /home/max/coding/marmalade-tts-cli/marmalade_tts/audio/effects.py
-//      //   for the sox `tempo` + `pitch` chain we are approximating.
+//      // TODO: decouple pitch and rate with the WSOLA Tempo stage in
+//      //   audio/StreamingEffectChain.kt (#91), as sox `tempo` + `pitch` do
+//      //   in the desktop CLI's audio/effects.py.
 //      │
 //      ├── volume scale (linear gain from dB)
 //      │
