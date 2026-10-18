@@ -269,6 +269,18 @@ androidComponents {
     }
 }
 
+// Reproducible builds (#90): AGP's compiled ART baseline profile
+// (assets/dexopt/baseline.prof and .profm) is not deterministic; it changes
+// with the build machine's core count. F-Droid's build of 1.3.0 failed its
+// byte comparison on exactly those two entries
+// (https://f-droid.org/repo/app.marmalade.tts_10030000.log.gz). Disabling the
+// profile tasks drops both files from the fdroid release APK. The cost: ART
+// compiles the app's hot code from on-device profiling instead, so the first
+// launches after an install or update are a little slower. Play keeps its
+// profile (the AAB isn't byte-compared).
+tasks.matching { it.name.contains("FdroidRelease") && it.name.contains("ArtProfile") }
+    .configureEach { enabled = false }
+
 dependencies {
     // Core Android
     implementation("androidx.core:core-ktx:1.15.0")
