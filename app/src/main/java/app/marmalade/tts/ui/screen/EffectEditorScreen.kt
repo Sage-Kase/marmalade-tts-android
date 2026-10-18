@@ -31,7 +31,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -55,6 +54,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.marmalade.tts.R
 import app.marmalade.tts.audio.EffectBlock
+import app.marmalade.tts.ui.components.MarmaladeCard
 import app.marmalade.tts.ui.components.marmaladeSliderColors
 
 // -----------------------------------------------------------------------------
@@ -66,7 +66,7 @@ import app.marmalade.tts.ui.components.marmaladeSliderColors
 //   Save (top bar) persists + pops back; Preview synthesizes a sample with the
 //   current chain.
 //
-//   Each block is one OutlinedCard with its own sliders. Reordering is up/down
+//   Each block is one MarmaladeCard with its own sliders. Reordering is up/down
 //   arrows (not drag) — accessible, no extra deps, and a chain is rarely more
 //   than a handful of blocks so a full DnD affordance would be overkill.
 // -----------------------------------------------------------------------------
@@ -234,7 +234,7 @@ private fun BlockCard(
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
 ) {
-    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+    MarmaladeCard(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
