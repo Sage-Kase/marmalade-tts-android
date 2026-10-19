@@ -48,6 +48,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -180,13 +181,14 @@ fun SpeakScreen(
         topBar = {
             CenterAlignedTopAppBar(
                 // Brand wordmark per marmalade-design-scheme-v0: always
-                // lowercase, Momo Trust Display at its own 400 (no fontWeight:
-                // see Wordmark), orange in light / cream in dark
+                // lowercase, Momo Trust Display 600 (synthesised: see
+                // Wordmark), orange in light / cream in dark
                 // (LocalWordmarkColor carries the mode-aware swap).
                 title = {
                     Text(
                         text = stringResource(R.string.speak_wordmark),
                         fontFamily = Wordmark,
+                        fontWeight = FontWeight.SemiBold,
                         fontSize = 22.sp,
                         color = LocalWordmarkColor.current,
                         // Brand wordmark, not a screen title — cosmetic like

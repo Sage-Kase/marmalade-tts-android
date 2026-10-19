@@ -13,8 +13,8 @@ import app.marmalade.tts.R
 // =============================================================================
 // Marmalade typography — Manrope (body/headings), Momo Trust Display (the
 // "marmalade" wordmark). Manrope is variable (weights derived from the `wght`
-// axis); Momo Trust Display ships a single Regular master and is only ever
-// drawn at that weight. Both are OFL-1.1 and bundled in the APK. Tokens locked in
+// axis); Momo Trust Display ships a single Regular master, so the wordmark's
+// 600 is synthesised. Both are OFL-1.1 and bundled in the APK. Tokens locked in
 // marmalade-design-scheme-v0 (2026-06-21); mirrors marmalade-android's Type.kt
 // minus Space Mono (this app has no code/mono surfaces).
 // =============================================================================
@@ -37,9 +37,10 @@ val Manrope = FontFamily(
  * Wordmark "marmalade" — Momo Trust Display, the brand's final wordmark face,
  * as in the Marmalade Android app. Always rendered lowercase, tracking 0.
  *
- * The font is a single static 400 master: its weight is drawn in. Asking for
- * more makes Compose synthesise a bold, smearing the real letters, so callers
- * must NOT set a fontWeight on wordmark text (#83 P).
+ * The font is a single static 400 master. The Speak screen draws it at 600,
+ * which Compose synthesises into a heavier wordmark. #83 P dropped that to the
+ * font's own 400; Max preferred the heavier look and had it restored
+ * (2026-10-18).
  */
 val Wordmark = FontFamily(Font(R.font.momo_trust_display, FontWeight.Normal))
 
