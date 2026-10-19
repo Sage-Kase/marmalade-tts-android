@@ -576,7 +576,10 @@ private class TempoProcessor(factor: Float) : BlockProcessor {
      */
     private fun bestStart(nominal: Int): Int {
         val target = continuation
-        if (target < 0) return nominal
+        // At 1.0× (the reader's live stage at rest) the continuation is the
+        // nominal start, which the search would pick anyway (it matches itself
+        // exactly, and ties go to nominal), so skip the search.
+        if (target < 0 || target == nominal) return nominal
         val lo = maxOf(nominal - TOL, 0)
         val hi = nominal + TOL
         var best = nominal
