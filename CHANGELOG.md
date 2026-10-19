@@ -5,6 +5,8 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-10-18
+
 ### Fixed
 - **Voices no longer sound shaky at other speeds**: at any speed other than
   1.0×, set by another app's speech rate (for example ReadEra, Moon+ Reader

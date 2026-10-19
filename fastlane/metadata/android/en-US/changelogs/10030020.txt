@@ -1,0 +1,2 @@
+Marmalade TTS 1.3.2.
+- Voices sound smooth at every speed: speeding up or slowing down, in the reader or from apps like ReadEra and Moon+ Reader, no longer makes them sound shaky or robotic.
