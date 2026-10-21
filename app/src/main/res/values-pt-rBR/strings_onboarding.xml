@@ -67,7 +67,7 @@
     <string name="onboarding_system_title">Falta um passo</string>
     <string name="onboarding_system_body_done">O Marmalade é o seu motor de conversão de texto em fala do sistema. O TTS dos outros apps agora passa pelas suas vozes.</string>
     <string name="onboarding_system_body">Para que outros apps falem pelo Marmalade, você precisa escolhê-lo como motor de conversão de texto em fala do sistema. O Android não vai encaminhar o TTS para nós até que você faça isso.</string>
-    <string name="onboarding_system_hint">Toque no botão abaixo — na maioria dos celulares ele leva direto à página certa. Se não levar no seu, procure por \"Conversão de texto em fala\" em Sistema → Idiomas, Acessibilidade → Áudio ou Idiomas e entrada.</string>
+    <string name="onboarding_system_hint">Toque no botão abaixo — na maioria dos celulares ele leva direto à página certa. Se não levar no seu, procure por \"Conversão de texto em voz\" em Sistema → Idiomas, Acessibilidade → Áudio ou Idiomas e entrada.</string>
     <string name="onboarding_system_open_settings">Abrir configurações de TTS do sistema</string>
     <string name="onboarding_system_finish_later">Concluir — faço isso depois</string>
     <string name="onboarding_system_footnote">Você pode abrir isso de novo em Configurações → Definir como motor de TTS do sistema.</string>
