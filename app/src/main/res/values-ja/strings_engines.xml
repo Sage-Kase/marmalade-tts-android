@@ -188,7 +188,7 @@
 
     <!-- エンジンカタログの説明文（EngineCatalog） -->
     <string name="engine_kitten_tagline">最も高速で反応が速いエンジン。どの端末でも動作します。</string>
-    <string name="engine_kitten_desc">小さくて高速 — ダウンロードが最も軽く、いちばん早く話し始めます。英語のみ、8 ボイス。対応言語の多さより、速さと容量の小ささを重視するときに向いています。espeak-ng フォナイザーを同梱し、すべて端末内で動作します。</string>
+    <string name="engine_kitten_desc">小さくて高速 — ダウンロードが最も軽く、いちばん早く話し始めます。英語のみ、8 ボイス。対応言語の多さより、速さと容量の小ささを重視するときに向いています。espeak-ng フォネマイザーを同梱し、すべて端末内で動作します。</string>
     <string name="engine_kitten_license">Apache-2.0 のモデル。音素変換にはアプリ内蔵の espeak-ng（GPL-3.0-or-later）を使用します。</string>
 
     <string name="engine_kokoro_tagline">対応言語がいちばん広く、総合的に最も優れたボイス。</string>
