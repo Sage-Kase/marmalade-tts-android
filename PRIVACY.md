@@ -1,6 +1,6 @@
 # Privacy Policy — Marmalade TTS
 
-_Last updated: 2026-09-22_
+_Last updated: 2026-10-20_
 
 Marmalade TTS is a **text-to-speech app that speaks entirely on your
 device by default** — offline, with no internet connection needed —
@@ -187,7 +187,7 @@ repository with a new "Last updated" date.
 
 Questions about privacy can be sent to:
 
-> **maxwellw@posteo.com**
+> **marmalade@posteo.com**
 
 You can also report any behaviour that contradicts this policy through
 the project's security disclosure process (see [SECURITY.md](SECURITY.md)).
